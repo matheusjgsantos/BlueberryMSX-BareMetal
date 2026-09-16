@@ -27,6 +27,9 @@
 #include <circle/exceptionhandler.h>
 #include <circle/interrupt.h>
 #include <circle/timer.h>
+#include <circle/device.h>
+#include <SDCard/emmc.h>
+#include <circle/fs/fat/fatfs.h>
 #include <circle/logger.h>
 #include <circle/usb/usbhcidevice.h>
 #include <circle/sched/scheduler.h>
@@ -40,6 +43,56 @@ enum TShutdownMode
 	ShutdownReboot
 };
 
+// logger target which mirrors every line to the serial console and (once a
+// file handle has been set) to BOOT.LOG on the boot device FAT partition
+class CLogTarget : public CDevice
+{
+private:
+	CSerialDevice	*m_pSerial;
+	CFATFileSystem	*m_pFatFS;
+	unsigned		m_nFileHandle;
+
+public:
+	CLogTarget (CSerialDevice *pSerial, CFATFileSystem *pFatFS)
+	:	m_pSerial (pSerial),
+		m_pFatFS (pFatFS),
+		m_nFileHandle (0)
+	{
+	}
+
+	void SetFileHandle (unsigned nFileHandle)
+	{
+		m_nFileHandle = nFileHandle;
+	}
+
+	// FileClose updates the directory entry (size, first cluster) and flushes;
+	// must run while the USB controller is still up
+	void CloseFile ()
+	{
+		if (m_nFileHandle != 0 && m_pFatFS != 0)
+		{
+			m_pFatFS->FileClose (m_nFileHandle);
+			m_nFileHandle = 0;
+		}
+	}
+
+	int Write (const void *pBuffer, size_t nCount)
+	{
+		if (m_pSerial != 0)
+		{
+			m_pSerial->Write (pBuffer, nCount);
+		}
+
+		if (m_nFileHandle != 0 && m_pFatFS != 0)
+		{
+			m_pFatFS->FileWrite (m_nFileHandle, pBuffer, nCount);
+			m_pFatFS->Synchronize ();
+		}
+
+		return nCount;
+	}
+};
+
 class CKernel
 {
 public:
@@ -49,8 +102,10 @@ public:
 	boolean Initialize (void);
 
 	TShutdownMode Run (void);
-	
+
 private:
+	void InitializeBootLog (void);
+	boolean MountBootLog (const char *pPartA, const char *pPartB);
 	// do not change this order
 	CKernelOptions		m_Options;
 	CDeviceNameService	m_DeviceNameService;
@@ -59,6 +114,9 @@ private:
 	CExceptionHandler	m_ExceptionHandler;
 	CInterruptSystem	m_Interrupt;
 	CTimer			m_Timer;
+	CEMMCDevice		m_EMMC;
+	CFATFileSystem	m_FatFS;
+	CLogTarget		m_LogTarget;
 	CLogger			m_Logger;
 	CUSBHCIDevice		m_USBHCI;
 	CScheduler		m_Scheduler;

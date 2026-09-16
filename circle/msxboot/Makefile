@@ -18,6 +18,7 @@ TARGET = msxboot
 OBJS	= main.o kernel.o httpbootserver.o tftpbootserver.o
 
 LIBS	= $(CIRCLEHOME)/lib/usb/libusb.a \
+	  $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
 	  $(CIRCLEHOME)/lib/input/libinput.a \
 	  $(CIRCLEHOME)/lib/fs/fat/libfatfs.a \
 	  $(CIRCLEHOME)/lib/fs/libfs.a \

@@ -33,8 +33,25 @@ main.o main.d: main.cpp kernel.h \
  ../../../circle/include/circle/exceptionhandler.h \
  ../../../circle/include/circle/exception.h \
  ../../../circle/include/circle/timer.h \
+ ../../../circle/addon/SDCard/emmc.h \
+ ../../../circle/include/circle/actled.h \
+ ../../../circle/include/circle/virtualgpiopin.h \
+ ../../../circle/include/circle/fs/partitionmanager.h \
+ ../../../circle/include/circle/fs/partition.h \
  ../../../circle/include/circle/logger.h \
  ../../../circle/include/circle/time.h \
+ ../../../circle/addon/SDCard/sdhost.h \
+ ../../../circle/addon/SDCard/mmchost.h \
+ ../../../circle/addon/SDCard/mmc.h \
+ ../../../circle/include/circle/memio.h \
+ ../../../circle/include/circle/fs/fat/fatfs.h \
+ ../../../circle/include/circle/fs/fsdef.h \
+ ../../../circle/include/circle/fs/fat/fatfsdef.h \
+ ../../../circle/include/circle/fs/fat/fatcache.h \
+ ../../../circle/include/circle/genericlock.h \
+ ../../../circle/include/circle/fs/fat/fatinfo.h \
+ ../../../circle/include/circle/fs/fat/fat.h \
+ ../../../circle/include/circle/fs/fat/fatdir.h \
  ../../../circle/include/circle/usb/usbhcidevice.h \
  ../../../circle/include/circle/usb/dwhcidevice.h \
  ../../../circle/include/circle/usb/usbhostcontroller.h \

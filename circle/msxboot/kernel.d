@@ -33,8 +33,25 @@ kernel.o kernel.d: kernel.cpp kernel.h \
  ../../../circle/include/circle/exceptionhandler.h \
  ../../../circle/include/circle/exception.h \
  ../../../circle/include/circle/timer.h \
+ ../../../circle/addon/SDCard/emmc.h \
+ ../../../circle/include/circle/actled.h \
+ ../../../circle/include/circle/virtualgpiopin.h \
+ ../../../circle/include/circle/fs/partitionmanager.h \
+ ../../../circle/include/circle/fs/partition.h \
  ../../../circle/include/circle/logger.h \
  ../../../circle/include/circle/time.h \
+ ../../../circle/addon/SDCard/sdhost.h \
+ ../../../circle/addon/SDCard/mmchost.h \
+ ../../../circle/addon/SDCard/mmc.h \
+ ../../../circle/include/circle/memio.h \
+ ../../../circle/include/circle/fs/fat/fatfs.h \
+ ../../../circle/include/circle/fs/fsdef.h \
+ ../../../circle/include/circle/fs/fat/fatfsdef.h \
+ ../../../circle/include/circle/fs/fat/fatcache.h \
+ ../../../circle/include/circle/genericlock.h \
+ ../../../circle/include/circle/fs/fat/fatinfo.h \
+ ../../../circle/include/circle/fs/fat/fat.h \
+ ../../../circle/include/circle/fs/fat/fatdir.h \
  ../../../circle/include/circle/usb/usbhcidevice.h \
  ../../../circle/include/circle/usb/dwhcidevice.h \
  ../../../circle/include/circle/usb/usbhostcontroller.h \
@@ -99,4 +116,13 @@ kernel.o kernel.d: kernel.cpp kernel.h \
  ../../../circle/include/circle/net/netsocket.h \
  ../../../circle/include/circle/net/error.h tftpbootserver.h \
  ../../../circle/include/circle/net/tftpdaemon.h \
- ../../../circle/include/circle/chainboot.h
+ ../../../circle/include/circle/chainboot.h /usr/include/newlib/string.h \
+ /usr/include/newlib/_ansi.h /usr/include/newlib/newlib.h \
+ /usr/include/newlib/_newlib_version.h /usr/include/newlib/sys/config.h \
+ /usr/include/newlib/machine/ieeefp.h /usr/include/newlib/sys/features.h \
+ /usr/include/newlib/sys/reent.h /usr/include/newlib/_ansi.h \
+ /usr/lib/gcc/arm-none-eabi/14.2.1/include/stddef.h \
+ /usr/include/newlib/sys/cdefs.h \
+ /usr/include/newlib/machine/_default_types.h \
+ /usr/include/newlib/sys/_types.h /usr/include/newlib/machine/_types.h \
+ /usr/include/newlib/sys/lock.h /usr/include/newlib/sys/string.h
