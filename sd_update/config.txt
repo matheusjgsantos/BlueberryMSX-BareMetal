@@ -1,0 +1,4 @@
+# BlueberryMSX bare-metal kernel (AArch32)
+arm_64bit=0
+enable_uart=1
+kernel=kernel7l.img
