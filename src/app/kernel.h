@@ -16,7 +16,6 @@
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/sched/scheduler.h>
-#include <circle/net/netsubsystem.h>
 #include <circle/types.h>
 
 extern "C"
@@ -78,7 +77,6 @@ private:
 	CTimer		m_Timer;
 	CLogger		m_Logger;
 	CScheduler	m_Scheduler;
-	CNetSubSystem	m_Net;
 
 	MSX_Machine *m_pMachine;
 	volatile boolean m_bPaused;

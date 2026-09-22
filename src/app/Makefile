@@ -4,8 +4,8 @@
 # BlueberryMSX - Bare metal MSX emulator for Raspberry Pi (Circle)
 # Target: Raspberry Pi 3, 32-bit ARM (Cortex-A53)
 #
-# Chain-booted by msxboot at 0x8000. Boots C-BIOS (MSX1), renders the VDP to
-# the framebuffer and serves an HTTP debug/control API on port 8080.
+# Booted directly from the boot stick via kernel=msx.img (entry point 0x8000).
+# Boots C-BIOS (MSX1) and renders the VDP to the framebuffer.
 #
 
 TARGET	= msx
@@ -24,7 +24,6 @@ OBJS = main.o \
 	kernel.o \
 	msx_task.o \
 	vdpblit.o \
-	httpapi.o \
 	apilog.o \
 	syscalls.o \
 	cbios_roms.o \
@@ -32,8 +31,7 @@ OBJS = main.o \
 	r800.o \
 	tms9918.o
 
-LIBS = $(CIRCLEHOME)/lib/net/libnet.a \
-	$(CIRCLEHOME)/lib/sched/libsched.a \
+LIBS = $(CIRCLEHOME)/lib/sched/libsched.a \
 	$(CIRCLEHOME)/lib/libcircle.a
 
 # toolchain newlib (printf, malloc via _sbrk, ...) - recipe-only, like LIBGCC.

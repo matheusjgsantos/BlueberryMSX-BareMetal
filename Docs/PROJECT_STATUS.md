@@ -4,19 +4,37 @@ Bare-metal MSX1 emulator for the Raspberry Pi 3B+ (Cortex-A53, AArch32), built
 on the [Circle](https://github.com/martin-rotter/circle) C++ bare-metal
 environment. C-BIOS ROMs are embedded in the image; the kernel boots straight to
 the MSX BASIC prompt and renders the TMS9918 VDP screen to the Pi's HDMI
-framebuffer. A small HTTP API exposes live status, a log buffer, and pause /
-step / reset control.
+framebuffer. There is no networking at runtime (the former HTTP control API was
+removed on Sep 19 2026 — see Known Issues).
 
-## Architecture (two-stage chain boot)
+## Provenance
 
-1. **`msxboot.img`** (`circle/msxboot/`) lives on the boot partition (USB thumb
-   drive, see Deploy) and is named in `config.txt` as the kernel. It starts an
-   HTTP upload UI on **:8080** plus a TFTP server, waits for an image to be
-   uploaded, then **chain-boots it at `0x8000`** (Circle `EnableChainBoot`).
-2. **`msx.img`** (`src/app/`) is the actual MSX emulator. It is *uploaded* to a
-   running msxboot (HTTP or TFTP) and chain-booted — it is **not** written to
-   the boot medium. This keeps the emulator updatable over the network without
-   re-flashing.
+This bare-metal port is based on the code in
+`/data/Projects/MSX/opencode/Projects/BlueberryMSX-2.0plus` (the BlueberryMSX
+2.0+ host emulator):
+
+- `src/core/msx.c`, `src/chips/z80/R800.{h,c}`, `src/chips/vdp/tms9918.{h,c}`
+  are ports of that project's C core (MSX machine model, Z80/R800 CPU, TMS9918
+  VDP). The ported sources keep their upstream headers (R800.c traces back to
+  blueMSX, Daniel Vik).
+- The C-BIOS slot map in `src/app/kernel.cpp` (`msx_load_cbios()`) matches the
+  host build's mapping.
+- MSX machine definitions are shared via symlink:
+  `Machines -> /data/Projects/MSX/opencode/Projects/BlueberryMSX-2.0plus/Machines`.
+
+## Architecture (direct boot)
+
+**Primary — direct boot:** **`msx.img`** (`src/app/`) is copied to the boot
+partition and named in `config.txt` as the kernel. It is linked for `0x8000`,
+the address where the Pi firmware loads a 32-bit kernel image, so it boots
+standalone with no second stage.
+
+**Legacy — two-stage chain boot:** **`msxboot.img`** (`circle/msxboot/`) can
+still be named as the kernel; it starts an HTTP upload UI on **:8080** plus a
+TFTP server, waits for an image to be uploaded, then **chain-boots it at
+`0x8000`** (Circle `EnableChainBoot`). This path is shelved — its shutdown
+sequence hangs during USB teardown (see Known Issues) and direct boot makes it
+unnecessary.
 
 There is no filesystem at runtime; everything (C-BIOS, fonts, palette) is linked
 into `msx.img`.
@@ -28,10 +46,11 @@ into `msx.img`.
 | 0 | Done | Circle kernel boots on Pi 3B+, UART console + log ring buffer |
 | 1 | Done | Framebuffer via Circle `CScreenDevice`/`CBcmFrameBuffer` |
 | 2 | Done | TMS9918 real MSX1 VDP protocol + renderer, wired into the frame loop (`msx_step_frame`) |
-| 2b | Done | Chain-boot flow: msxboot serves/uploads `msx.img`, boots at 0x8000 |
-| 2c | Done | HTTP debug/control API (status, log, pause/step/reset, regs, mem) |
-| 2d | Done | Boot from USB thumb drive; kernel log mirrored to `BOOT.LOG` on the UMS log partition (`bootdev=umsd`) |
-| 2e | Testing | Clean shutdown → chain-boot handover verified on hardware (probe sequence S W X Y Z O N P Q A–G) |
+| 2b | Done (legacy) | Chain-boot flow: msxboot serves/uploads `msx.img`, boots at 0x8000 — superseded by direct boot |
+| 2c | Removed | HTTP debug/control API — removed from `msx.img` with all networking (Sep 19 2026); re-addable from git history |
+| 2d | Done | Boot from USB thumb drive; kernel log mirrored to `BOOT.LOG` on the UMS log partition (`bootdev=umsd`, msxboot only) |
+| 2e | Shelved | Clean shutdown → chain-boot handover; blocked by msxboot USB-teardown hang, no longer needed with direct boot |
+| 2f | Testing | Direct boot: `msx.img` on the boot partition, `kernel=msx.img` in `config.txt` |
 | 3 | Later | Sprites, keyboard input, PSG sound/audio; verify screens 1/2 via BASIC `SCREEN` |
 
 See `TMS9918_MSX1_VDP.md` for the VDP ground truth and renderer design.
@@ -59,18 +78,18 @@ there is no SD card in the Pi's slot. Layout:
 
 | Partition | Size | FS | Host mount | Contents |
 |-----------|------|----|------------|----------|
-| p1 | 486 M | FAT32 | `/mnt/sdcard` | standard RPi boot partition (`bootcode.bin`, `start.elf`, `kernel7.img`, `config.txt`, `cmdline.txt`, **`msxboot.img`**) |
-| p2 | 1.4 G | FAT32 | `/mnt/logs` | log partition — `BOOT.LOG` written by msxboot at runtime |
+| p1 | 486 M | FAT32 | `/mnt/sdcard` | standard RPi boot partition (`bootcode.bin`, `start.elf`, `kernel7.img`, `config.txt`, `cmdline.txt`, **`msx.img`**, `msxboot.img` legacy) |
+| p2 | 1.4 G | FAT32 | `/mnt/logs` | log partition — `BOOT.LOG` written by msxboot at runtime (legacy path only) |
 
-1. Build and stage the boot server:
+1. Build and stage the emulator image:
    ```sh
-   cp circle/msxboot/msxboot.img /mnt/sdcard/
+   cp src/app/msx.img /mnt/sdcard/
    ```
    `config.txt`:
    ```
    arm_64bit=0
    enable_uart=1
-   kernel=msxboot.img
+   kernel=msx.img
    hdmi_force_hotplug=1
    disable_splash=1
    hdmi_group=1
@@ -83,24 +102,18 @@ there is no SD card in the Pi's slot. Layout:
    logdev=ttyS1 loglevel=4 bootdev=umsd
    ```
    - `logdev`/`loglevel` — serial console device and verbosity.
-   - `bootdev` — `umsd` (USB mass storage) or `emmc` (SD slot); absent = try
-     emmc, then umsd. With `umsd`, EMMC init is skipped entirely.
+   - `bootdev` — used by msxboot's `BOOT.LOG` mount only; ignored by `msx.img`.
 
-2. Power-cycle the Pi. It gets an address via **DHCP** (observed
-   192.168.1.206) and prints it over UART (ttyS1, 115200). USB enumeration
-   takes ~3 s; the stick appears as `umsd1` with partitions `umsd1-1`/`umsd1-2`.
+2. Power-cycle the Pi. Expected serial (ttyS1, 115200):
+   `BlueberryMSX: Circle MSX emulator compiled ...`,
+   `C-BIOS loaded: [0x0000]=...`; the MSX BASIC prompt appears on HDMI.
 
-3. Upload the emulator image to the running boot server:
-   ```sh
-   # HTTP UI: open http://<ip>:8080 and upload msx.img, then press Boot
-   # ...or TFTP (filename must start with "kernel" and end in ".img"):
-   tftp -m binary <ip> -c put kernel.img
-   ```
+**Legacy chain boot:** stage `circle/msxboot/msxboot.img` instead, set
+`kernel=msxboot.img`, power-cycle, then upload `msx.img` via the HTTP UI at
+`http://<ip>:8080` (or TFTP — filename must start with "kernel" and end in
+".img"); msxboot chain-boots it at `0x8000`.
 
-4. msxboot chain-boots `msx.img` at `0x8000`; the MSX BASIC prompt appears on
-   HDMI and the HTTP API is live on :8080.
-
-## Boot logging (BOOT.LOG)
+## Boot logging (BOOT.LOG, msxboot legacy path only)
 
 All kernel log output is mirrored to the serial console **and** to
 `BOOT.LOG` on the UMS log partition (`umsd1-2`) by `CLogTarget`
@@ -126,6 +139,13 @@ Single-letter probes are emitted on the raw diagnostic UART (CLO at
 | `T`/`U`/`V` | TFTP handler | upload start / data done / ack |
 | `R` | `Run()` exit | reboot requested |
 | `S` | `~CKernel` body | shutdown started, boot log closed |
+| `e`/`f` | `~CLogger` (logger.cpp) | enter / after queue+buffer teardown |
+| `i`/`j` | `~CLogger` (logger.cpp) | before / after event-queue cleanup loop (heap deletes) |
+| `g` | `~CLogTarget` (kernel.h) | file+serial tracer torn down |
+| `l` | `~CDevice` (device.cpp) | CDevice base destructor (removal-handler list) |
+| `h` | `~CFATFileSystem` (fatfs.cpp) | FATFS destructor body |
+| `a`/`b` | `~CEMMCDevice` (emmc.cpp) | enter / after `m_Host.Reset()` |
+| `c`/`d` | `~CSDHOSTDevice` (sdhost.cpp) | enter / after `remove()` |
 | `W` | `~CTimer` | scheduler/timer torn down |
 | `X` | `CInterruptSystem::Destructor` | interrupts off |
 | `Y` / `Z` | `~CSerialDevice` / `~CScreenDevice` | console/framebuffer released |
@@ -136,27 +156,15 @@ Single-letter probes are emitted on the raw diagnostic UART (CLO at
 Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
 `SHDN:`-prefixed lines in the log mark logger and USB-teardown milestones.
 
-## HTTP API (port 8080)
-
-| Path | Description |
-|------|-------------|
-| `/` | index page |
-| `/status` | live status JSON |
-| `/log` | log ring buffer contents (`text/plain`) |
-| `/command?cmd=pause\|resume\|step\|reset` | control the emulator |
-| `/regs` | coherent CPU/VDP register dump (JSON) |
-| `/mem?addr=0x...&size=N` | hex dump of MSX memory |
-
 ## Key Files
 
-- `src/app/main.cpp` — entry point; chain-booted at 0x8000.
-- `src/app/kernel.{h,cpp}` — `CKernel`: subsystem init chain, network (static IP),
-  HTTP server bring-up, cooperative `Run()` loop.
+- `src/app/main.cpp` — entry point; linked for 0x8000 (direct `kernel=` boot or msxboot chain boot).
+- `src/app/kernel.{h,cpp}` — `CKernel`: subsystem init chain, C-BIOS loading,
+  cooperative `Run()` loop.
 - `src/app/msx_task.{h,cpp}` — cooperative task that drives `msx_step_frame()` at
   the VDP cadence; handles pause/step/reset and heartbeat logging.
 - `src/app/vdpblit.{h,cpp}` — strong override of `msx_frame_render()`; centers the
   256x192 image in Circle's framebuffer.
-- `src/app/httpapi.{h,cpp}` — `CMsxHttpServer` (the API above).
 - `src/app/apilog.{h,cpp}`, `teelog.h` — log ring buffer + UART/ring tee logger.
 - `src/app/syscalls.cpp` — newlib syscall stubs (`_write`, `_sbrk`, …, `_exit`).
 - `src/app/cbios_roms.{h,cpp}` — embedded C-BIOS ROM images (main + logo).
@@ -175,10 +183,18 @@ Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
 
 ## Known Issues / Next Steps
 
-- **In testing:** clean shutdown → chain-boot handover. Shutdown now closes
-  `BOOT.LOG` before USB teardown (`CLogTarget::CloseFile()` in `~CKernel`);
-  verify the full probe sequence `R S W X Y Z O N P Q A–G` and that
-  `BOOT.LOG` on p2 is non-empty after a run.
+- **Fixed (Sep 19 2026):** direct boot stopped after `netdev: Net device not
+  available` + a truncated `kernel: SHDN: logger off` line — `msx.img`
+  initialized the net stack without ever bringing up USB, so the LAN9514 was
+  never enumerated and `CKernel::Initialize()` failed. Resolved by removing
+  networking from `msx.img` entirely (`httpapi.{h,cpp}` deleted, `libnet.a` no
+  longer linked; image shrank 333,188 → 255,756 B). Remote control can be
+  re-added later if wanted.
+- **Shelved:** msxboot shutdown hangs right after `kernel: SHDN: logger off`
+  (probe build md5 `142823e0`, Sep 18 2026 — banner confirmed on hardware, no
+  further output; disassembly proves the `~CLogger` probes are in the binary).
+  Chain boot is no longer the deployment path, so this is parked; direct boot
+  (Phase 2f) is being verified instead.
 - `sd_update/` staging is stale (holds an old `kernel7l.img` + its config).
 - Sprites, keyboard input and PSG audio are not yet implemented (Phase 3).
 - Verify screens 1/2 (Graphics I / II) via BASIC `SCREEN` commands once screen 0

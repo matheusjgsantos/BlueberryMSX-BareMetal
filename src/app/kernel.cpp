@@ -6,21 +6,12 @@
 
 #include "kernel.h"
 #include "msx_task.h"
-#include "httpapi.h"
 #include "vdpblit.h"
 #include "cbios_roms.h"
 
 #include <circle/string.h>
 #include <string.h>
 #include <stdio.h>
-
-#define USE_DHCP
-
-#ifndef USE_DHCP
-static const char *m_acStaticIP[] = { "192.168.178.42", "192.168.178.1", "255.255.255.0", 0 };
-#endif
-
-#define MSX_HTTP_PORT	8080
 
 static const char *FromKernel = "kernel";
 
@@ -48,11 +39,8 @@ CKernel::CKernel (void):
 	m_Screen (m_Options.GetWidth (), m_Options.GetHeight ()),
 	m_TeeLog (&m_Serial),
 	m_Timer (&m_Interrupt),
-	m_Logger (m_Options.GetLogLevel (), &m_Timer)
-#ifndef USE_DHCP
-	, m_Net (m_acStaticIP[0], m_acStaticIP[1], m_acStaticIP[2])
-#endif
-	, m_pMachine (0)
+	m_Logger (m_Options.GetLogLevel (), &m_Timer),
+	m_pMachine (0)
 	, m_bPaused (FALSE)
 	, m_bInStep (FALSE)
 	, m_bResetRequest (FALSE)
@@ -94,11 +82,6 @@ boolean CKernel::Initialize (void)
 		bOK = m_Timer.Initialize ();
 	}
 
-	if (bOK)
-	{
-		bOK = m_Net.Initialize ();
-	}
-
 	return bOK;
 }
 
@@ -125,15 +108,6 @@ TShutdownMode CKernel::Run (void)
 		LogLine (sBuf);
 	}
 
-	{
-		CString IPString;
-		m_Net.GetConfig ()->GetIPAddress ()->Format (&IPString);
-		m_Logger.Write (FromKernel, LogNotice,
-			"Open \"http://%s:%d/\" in your web browser",
-			(const char *) IPString, MSX_HTTP_PORT);
-	}
-
-	new CMsxHttpServer (&m_Net, this, MSX_HTTP_PORT);
 	new CMsxTask (this);
 
 	for (;;)

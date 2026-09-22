@@ -36,6 +36,8 @@
 #include <circle/net/netsubsystem.h>
 #include <circle/types.h>
 
+extern "C" void diag_uart (char c);
+
 enum TShutdownMode
 {
 	ShutdownNone,
@@ -58,6 +60,11 @@ public:
 		m_pFatFS (pFatFS),
 		m_nFileHandle (0)
 	{
+	}
+
+	~CLogTarget ()
+	{
+		diag_uart ('g');
 	}
 
 	void SetFileHandle (unsigned nFileHandle)
