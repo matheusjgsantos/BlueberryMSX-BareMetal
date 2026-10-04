@@ -1,6 +1,10 @@
 #ifndef TMS9918_H
 #define TMS9918_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "msx_types.h"
 
 /* TMS9918A MSX1 VDP. Port protocol matches real hardware (see
@@ -17,6 +21,7 @@ typedef struct {
     UInt16 addr;           /* current VRAM latch address */
     int write_mode;        /* 1 = VRAM write, 0 = VRAM read */
     int pending;           /* first byte of a two-byte control command */
+    int key;               /* 1 = first byte already latched (R3 vdpKey) */
     int irq;               /* sync IRQ pending; cleared on status read */
 } TMS9918;
 
@@ -25,13 +30,17 @@ void tms9918_destroy(TMS9918 *vdp);
 UInt8 tms9918_read_reg(TMS9918 *vdp, UInt16 port);
 void tms9918_write_reg(TMS9918 *vdp, UInt16 port, UInt8 val);
 
-/* Assert the sync IRQ if enabled (register 1, bit 6). Called once per
- * display frame by the run loop. */
+/* Assert the sync IRQ if INTEN (register 1, bit 5 = 0x20) is set. Called
+ * once per display frame by the run loop. */
 void tms9918_gen_sync_irq(TMS9918 *vdp);
 
 /* Render the current VDP screen as a 256x192 32bpp XRGB8888 frame into
  * *out (row pitch of pitch BYTES). Handles text mode (screen 0),
  * Graphics I (screen 1), Graphics II (screen 2) and multicolor (screen 3). */
 void tms9918_render(const TMS9918 *vdp, uint32_t *out, int pitch);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* TMS9918_H */

@@ -1,0 +1,3 @@
+IO tracing ENABLED (argv[2]=1)
+
+[TMS total] 98_writes=44628 99_writes=72316 98_dropped(wm=0)=0

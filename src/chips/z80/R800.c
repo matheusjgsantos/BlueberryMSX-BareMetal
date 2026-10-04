@@ -6238,10 +6238,19 @@ void r800ExecuteUntil(R800* r800, UInt32 endTime) {
     }
 }
 
+#ifdef PC_SAMPLER
+unsigned long pcHist[0x10000];
+void pcHistReset(void) { int i; for (i = 0; i < 0x10000; i++) pcHist[i] = 0; }
+#endif
+
 void r800ExecuteInstruction(R800* r800) {
     static SystemTime lastRefreshTime = 0;
     UInt16 address;
     int iff1 = 0;
+
+#ifdef PC_SAMPLER
+    pcHist[r800->regs.PC.W]++;
+#endif
 
     if (r800->cpuMode == CPU_R800) {
         if (r800->systemTime - lastRefreshTime > 222 * 3) {

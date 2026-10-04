@@ -16,6 +16,8 @@
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/sched/scheduler.h>
+#include <circle/fs/fat/fatfs.h>
+#include <SDCard/emmc.h>
 #include <circle/types.h>
 
 extern "C"
@@ -65,6 +67,12 @@ public:
 	// Write a preformatted line to the logger (UART + log ring buffer).
 	void LogLine (const char *pText);
 
+	// Public entry point for C callbacks (e.g. msx_diag_cb in the core).
+	void DiagLog (const char *pText);
+
+	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
+	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
+
 private:
 	// this order must not change
 	CKernelOptions	m_Options;
@@ -77,6 +85,10 @@ private:
 	CTimer		m_Timer;
 	CLogger		m_Logger;
 	CScheduler	m_Scheduler;
+	CActLED		m_ActLED;
+	CEMMCDevice	m_EMMC;
+	CFATFileSystem	m_FileSystem;
+	boolean m_bFsMounted;
 
 	MSX_Machine *m_pMachine;
 	volatile boolean m_bPaused;

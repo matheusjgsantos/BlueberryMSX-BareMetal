@@ -80,6 +80,10 @@
 #ifndef R800_H
 #define R800_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "msx_types.h"
 
 /*****************************************************
@@ -506,5 +510,9 @@ SystemTime r800GetTimeTrace(R800* r800, int offset);
 *************************************************************************
 */
 SystemTime r800GetSystemTime(R800* r800);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* Z80_H */

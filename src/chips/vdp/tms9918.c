@@ -6,10 +6,22 @@
 
 /* Classic MSX1 16-color palette as 32bpp XRGB8888. */
 static const uint32_t k_msx_palette[16] = {
-    0x000000u, 0x000000u, 0x21C842u, 0x5EDC78u,
-    0x5455EDu, 0x7D76F0u, 0xD45252u, 0x42EBF5u,
-    0xFC5554u, 0xFF7974u, 0xD4C154u, 0xE6CE80u,
-    0x21B05Bu, 0xC95BBAu, 0xCCCCCCu, 0xFFFFFFu
+    0x000000u, /* 0  black */
+    0x000000u, /* 1  black */
+    0x21C842u, /* 2  medium green */
+    0x5EDC78u, /* 3  light green */
+    0x5455EDu, /* 4  dark blue */
+    0x7D76FCu, /* 5  light blue */
+    0xD4524Du, /* 6  dark red */
+    0x42EBF5u, /* 7  cyan */
+    0xFC5554u, /* 8  medium red */
+    0xFF7978u, /* 9  light red */
+    0xD4C154u, /* 10 dark yellow */
+    0xE6CE80u, /* 11 light yellow */
+    0x21B03Bu, /* 12 dark green */
+    0xC95BBAu, /* 13 magenta */
+    0xCCCCCCu, /* 14 grey */
+    0xFFFFFFu, /* 15 white */
 };
 
 TMS9918* tms9918_create(void) {
@@ -24,10 +36,11 @@ TMS9918* tms9918_create(void) {
     }
 
     memset(vdp->reg, 0, sizeof(vdp->reg));
-    vdp->reg[7] = 0xF1;      /* sensible default: white fg, black bg */
+    vdp->reg[7] = 0xF1;      /* default: white fg, black bg */
     vdp->addr = 0;
     vdp->write_mode = 1;
     vdp->pending = 0;
+    vdp->key = 0;
     vdp->irq = 0;
 
     return vdp;
@@ -60,29 +73,67 @@ UInt8 tms9918_read_reg(TMS9918 *vdp, UInt16 port) {
     }
 }
 
+unsigned tms9918_w98 = 0;   /* host instrumentation: count of 0x98 data writes */
+unsigned tms9918_w99 = 0;   /* host instrumentation: count of 0x99 control writes */
+unsigned tms9918_w98_dropped = 0;   /* 0x98 writes seen with write_mode==0 */
+
 void tms9918_write_reg(TMS9918 *vdp, UInt16 port, UInt8 val) {
+    extern int g_tms_trace;
     switch (port) {
         case 0x98:
-            if (vdp->write_mode) {
-                vdp->vram[vdp->addr & (vdp->vram_size - 1)] = val;
-                vdp->addr = (vdp->addr + 1) & (vdp->vram_size - 1);
-            }
+            tms9918_w98++;
+            /* MSX1 TMS99x8A convention (R3 reference, VDP.c:1184-1224):
+             * 0x98 data writes are UNCONDITIONAL — no "write mode" gate.
+             * The address is set by a two-byte 0x99 command; the 0x98 data
+             * port just stores at vramAddress[addr] and increments. */
+            vdp->vram[vdp->addr & (vdp->vram_size - 1)] = val;
+            if (g_tms_trace)
+                printf("    [TMS-98] addr=%04X = %02X\n", vdp->addr, val);
+            vdp->addr = (vdp->addr + 1) & (vdp->vram_size - 1);
             break;
         case 0x99:
-            /* Two-byte control commands; the second byte decides the type.
-             *   second & 0x80      -> register write: reg[second&0x0F]=first
-             *   else               -> address set (0x40 bit = write mode) */
-            if (!vdp->pending) {
+            tms9918_w99++;
+            /* Two-byte control commands, MSX1 TMS99x8A semantics. Mirrors the
+             * R3 reference (BlueberryMSX-2.0plus/Src/VideoChips/VDP.c:1189-1203,
+             * case VDP_TMS9929A: VDP_TMS99x8A) exactly:
+             *
+             *   first byte B1:  addr low  = B1,  latch B1, key = 1
+             *   second byte B2: addr high = (B2 & 0x3fff) >> 8
+             *       if !(B2 & 0x40):
+             *           if B2 & 0x80  -> register write reg[B2 & 0x0F] = B1
+             *           else           -> read setup (0x98 reads return VRAM)
+             *       else               -> address set (write mode)
+             *
+             * The key flag (not "pending == 0") tracks the latch state, which
+             * is essential: 0x00 is a legal B1 (address low=0 / reg value=0).
+             * The previous code used pending==0 as "no latch", so any command
+             * whose first byte was 0x00 desynced the byte stream one byte late
+             * and scrambled all subsequent register/address decode. */
+            if (!vdp->key) {
+                vdp->addr = (vdp->addr & 0x3F00) | val;
                 vdp->pending = val;
+                vdp->key = 1;
             } else {
-                UInt8 first = vdp->pending;
-                vdp->pending = 0;
-                if (val & 0x80) {
-                    vdp->reg[val & 0x0F] = first;
+                vdp->addr = (((UInt16)val << 8) | (vdp->addr & 0xFF)) & 0x3FFF;
+                if (!(val & 0x40)) {
+                    if (val & 0x80) {
+                        vdp->reg[val & 0x0F] = vdp->pending;
+                        if (g_tms_trace)
+                            printf("    [TMS-99] REG R%d = %02X (B1=%02X B2=%02X)\n",
+                                   val & 0x0F, vdp->pending, vdp->pending, val);
+                    } else {
+                        vdp->write_mode = 0;   /* read setup */
+                        if (g_tms_trace)
+                            printf("    [TMS-99] READ-set (B1=%02X B2=%02X) addr=%04X\n",
+                                   vdp->pending, val, vdp->addr);
+                    }
                 } else {
-                    vdp->addr = (UInt16)first | ((UInt16)(val & 0x3F) << 8);
-                    vdp->write_mode = (val & 0x40) ? 1 : 0;
+                    vdp->write_mode = 1;       /* address set -> write mode */
+                    if (g_tms_trace)
+                        printf("    [TMS-99] ADDR = %04X (B1=%02X B2=%02X)\n",
+                               vdp->addr, vdp->pending, val);
                 }
+                vdp->key = 0;
             }
             break;
         default:
@@ -91,7 +142,11 @@ void tms9918_write_reg(TMS9918 *vdp, UInt16 port, UInt8 val) {
 }
 
 void tms9918_gen_sync_irq(TMS9918 *vdp) {
-    if (vdp->reg[1] & 0x40) vdp->irq = 1;
+    /* INTEN = R1 bit 5 (0x20). R1 bit 6 (0x40) is BLANK (display on/off),
+     * NOT the interrupt-enable bit. Confirmed against openMSX
+     * (VDP.cc: controlRegs[1] & 0x20 -> irqVertical.set()) and
+     * BlueberryMSX-2.0plus (VDP.c: vdpRegs[1] & 0x20 -> boardSetInt). */
+    if (vdp->reg[1] & 0x20) vdp->irq = 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -100,19 +155,53 @@ void tms9918_gen_sync_irq(TMS9918 *vdp) {
 /* ------------------------------------------------------------------ */
 
 static void render_text(const TMS9918 *vdp, uint32_t *out, int pitch,
-                        UInt16 name_ba, UInt16 pat_ba, int fg, int bg) {
-    (void)pat_ba;   /* text mode uses the fixed ROM font, not a VRAM pattern base */
-    const int cols = 40, rows = 24;
+                        UInt16 name_ba, int cols, int gpx, int fg, int bg) {
+    const UInt16 mask = vdp->vram_size - 1;
+    const int rows = 24;
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
-            UInt8 ch = vdp->vram[name_ba + row * cols + col];
+            /* Text-mode glyphs come from the fixed TMS9918A ROM font, not VRAM. */
+            UInt8 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
             for (int py = 0; py < 8; py++) {
-                /* Text-mode glyphs come from the fixed TMS9918A ROM font, not VRAM. */
                 UInt8 byte = k_msx_font[ch * 8 + py];
                 uint32_t *line = out + (row * 8 + py) * pitch;
-                for (int px = 0; px < 6; px++) {
+                for (int px = 0; px < gpx; px++) {
                     int c = (byte & (0x80u >> px)) ? fg : bg;
-                    line[col * 6 + px] = k_msx_palette[c & 0x0F];
+                    line[col * gpx + px] = k_msx_palette[c & 0x0F];
+                }
+            }
+        }
+    }
+}
+
+/* SCREEN 1: 32x24 multicolor character mode. Patterns live in VRAM at
+ * pat_ba + ch*8; the color table at col_ba holds 2 bits per character
+ * selecting one of four fixed foreground/background pairs. */
+static const int k_s1_palette0[4][2] = {
+    { 1, 0 },  /* white on black   */
+    { 2, 6 },  /* red    on magenta */
+    { 3, 7 },  /* green  on cyan   */
+    { 4, 5 },  /* yellow on blue   */
+};
+
+static void render_screen1(const TMS9918 *vdp, uint32_t *out, int pitch,
+                           UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba) {
+    const int cols = 32, rows = 24;
+    const UInt16 mask = vdp->vram_size - 1;
+    for (int row = 0; row < rows; row++) {
+        for (int col = 0; col < cols; col++) {
+            int cell = row * cols + col;
+            UInt8 ch = vdp->vram[(name_ba + (UInt16)cell) & mask];
+            UInt8 cb = vdp->vram[(col_ba + (UInt16)(cell >> 2)) & mask];
+            int pair = (cb >> ((cell & 3) * 2)) & 0x03;
+            int fg = k_s1_palette0[pair][0];
+            int bg = k_s1_palette0[pair][1];
+            for (int py = 0; py < 8; py++) {
+                UInt8 byte = vdp->vram[(pat_ba + (UInt16)(ch * 8 + py)) & mask];
+                uint32_t *line = out + (row * 8 + py) * pitch;
+                for (int px = 0; px < 8; px++) {
+                    int c = (byte & (0x80u >> px)) ? fg : bg;
+                    line[col * 8 + px] = k_msx_palette[c & 0x0F];
                 }
             }
         }
@@ -120,13 +209,21 @@ static void render_text(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_graphics1(const TMS9918 *vdp, uint32_t *out, int pitch,
-                             UInt16 name_ba, UInt16 pat_ba, int fg, int bg) {
+                             UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba,
+                             int backdrop) {
     const int cols = 32, rows = 24;
+    const UInt16 mask = vdp->vram_size - 1;
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
-            UInt8 ch = vdp->vram[name_ba + row * cols + col];
+            UInt8 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
+            /* Graphics1 color table: one byte per 8 chars, high nibble = fg. */
+            UInt8 color = vdp->vram[(col_ba + (UInt16)(ch >> 3)) & mask];
+            int fg = (color >> 4) & 0x0F;
+            int bg = color & 0x0F;
+            if (fg == 0) fg = backdrop;   /* transparent -> backdrop */
+            if (bg == 0) bg = backdrop;
             for (int py = 0; py < 8; py++) {
-                UInt8 byte = vdp->vram[pat_ba + ch * 8 + py];
+                UInt8 byte = vdp->vram[(pat_ba + (UInt16)(ch * 8 + py)) & mask];
                 uint32_t *line = out + (row * 8 + py) * pitch;
                 for (int px = 0; px < 8; px++) {
                     int c = (byte & (0x80u >> px)) ? fg : bg;
@@ -138,18 +235,37 @@ static void render_graphics1(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
-                             UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba) {
+                             UInt16 name_ba, int backdrop, int reg3, int reg4) {
     const int cols = 32, rows = 24;
     const UInt16 mask = vdp->vram_size - 1;
+    /* GRAPHICS 2 window decode, following openMSX VDP::updateColorBase /
+     * updatePatternBase.  Each table is a setMask() window whose address is
+     *
+     *     addr = effectiveBaseMask & (indexMask | index)
+     *
+     * with indexMask == ~0 << 13, so bits 0-12 come from `index` and bit 13+
+     * from the base.  On TMS99XX the color base register R3 leaks into the
+     * pattern base, so both windows are built from R3 *and* R4. */
+    const UInt16 col_eff = (UInt16)((((UInt16)reg3 << 6) | 0x003F) & mask);
+    const UInt16 pat_eff = (UInt16)((((UInt16)reg4 << 11) |
+                                     (((UInt16)reg3 & 0x1F) << 6) | 0x003F) & mask);
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
-            UInt8 ch = vdp->vram[name_ba + row * cols + col];
+            /* openMSX renderGraphic2 (CharacterConverter.cc):
+             *   quarter8 = (((line / 8) * 32) & ~0xFF) * 8   -> (row / 8) << 11
+             *   line7    = line & 7                          -> py
+             * The color byte is indexed exactly like the pattern byte, i.e.
+             * GRAPHICS 2 keeps one color byte per character *per scanline*, and
+             * the three row-groups live in separate 0x800 regions. */
+            UInt16 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
             for (int py = 0; py < 8; py++) {
-                UInt16 off = (UInt16)(ch * 8 + py);
-                UInt8 byte = vdp->vram[(pat_ba + off) & mask];
-                UInt8 color = vdp->vram[(col_ba + off) & mask];
+                UInt16 off = (UInt16)(((UInt16)(row >> 3) << 11) + (UInt16)(ch * 8) + py);
+                UInt8 byte = vdp->vram[((pat_eff & 0xE000) | (pat_eff & off)) & mask];
+                UInt8 color = vdp->vram[((col_eff & 0xE000) | (col_eff & off)) & mask];
                 int fg = (color >> 4) & 0x0F;   /* high nibble = 1 pixels */
                 int bg = color & 0x0F;          /* low nibble = 0 pixels */
+                if (fg == 0) fg = backdrop;
+                if (bg == 0) bg = backdrop;
                 uint32_t *line = out + (row * 8 + py) * pitch;
                 for (int px = 0; px < 8; px++) {
                     int c = (byte & (0x80u >> px)) ? fg : bg;
@@ -161,17 +277,19 @@ static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_multicolor(const TMS9918 *vdp, uint32_t *out, int pitch,
-                              UInt16 name_ba, UInt16 pat_ba) {
+                              UInt16 name_ba, UInt16 pat_ba, int backdrop) {
     const UInt16 mask = vdp->vram_size - 1;
     for (int line = 0; line < 192; line++) {
         uint32_t *dst = out + line * pitch;
         int nameRow = line / 8;
         int patRow = (line / 4) & 7;
         for (int col = 0; col < 64; col++) {
-            UInt8 ch = vdp->vram[name_ba + nameRow * 32 + (col / 2)];
+            UInt8 ch = vdp->vram[(name_ba + (UInt16)(nameRow * 32 + (col / 2))) & mask];
             UInt8 byte = vdp->vram[(pat_ba + (UInt16)(ch * 8 + patRow)) & mask];
-            int cl = (byte >> 4) & 0x0F;
-            int cr = byte & 0x0F;
+            int cl = byte & 0x0F;            /* lower nibble = left block */
+            int cr = (byte >> 4) & 0x0F;     /* upper nibble = right block */
+            if (cl == 0) cl = backdrop;
+            if (cr == 0) cr = backdrop;
             int sx = (col / 2) * 8;
             for (int k = 0; k < 4; k++) dst[sx + k] = k_msx_palette[cl];
             for (int k = 4; k < 8; k++) dst[sx + k] = k_msx_palette[cr];
@@ -181,28 +299,45 @@ static void render_multicolor(const TMS9918 *vdp, uint32_t *out, int pitch,
 
 void tms9918_render(const TMS9918 *vdp, uint32_t *out, int pitch) {
     int pitch_px = pitch / 4;
-    UInt16 mask = vdp->vram_size - 1;
-    int m1 = (vdp->reg[0] & 0x02) ? 1 : 0;
-    int m2 = (vdp->reg[1] & 0x08) ? 1 : 0;
-    int m3 = (vdp->reg[1] & 0x01) ? 1 : 0;
-    int fg = vdp->reg[7] & 0x0F;
-    int bg = (vdp->reg[7] >> 4) & 0x0F;
-
-    UInt16 name_ba = (UInt16)((vdp->reg[2] & 0x0F) << 10) & mask;
-    UInt16 pat_ba = (UInt16)((vdp->reg[4] & 0x07) << 11);
-    UInt16 col_ba = (UInt16)((vdp->reg[3] & 0x7F) << 6);
-
     if (pitch_px < 256) return;
 
-    if (m1 && !m2 && !m3) {
-        /* Text mode: pattern base uses only 2 register bits. */
-        pat_ba = (UInt16)((vdp->reg[4] & 0x03) << 11);
-        render_text(vdp, out, pitch_px, name_ba, pat_ba, fg, bg);
-    } else if (m3) {
-        render_multicolor(vdp, out, pitch_px, name_ba, pat_ba);
-    } else if (m2) {
-        render_graphics2(vdp, out, pitch_px, name_ba, pat_ba, col_ba);
+    /* R7 color bits: high nibble = foreground (text color), low nibble =
+     * background (backdrop).  In graphics modes the per-character colors come
+     * from the color table; R7 supplies the backdrop when a color is 0. */
+    int bg = vdp->reg[7] & 0x0F;
+    int r0 = vdp->reg[0], r1 = vdp->reg[1];
+
+    /* Base address decode, following openMSX VDP::updateNameBase /
+     * updateColorBase / updatePatternBase (and identically BlueberryMSX
+     * VDP.c chrTabBase / colTabBase):
+     *   base = (reg << shift) | ~(~0 << shift)      then & vramMask
+     * The register's low bits land in the index (acting as a mask); only the
+     * high bits survive & indexMask to become the window base. */
+    int is_text = (r1 & 0x10) != 0;   /* M1: 1 = text, 0 = graphics */
+    UInt16 name_ba = is_text ? (UInt16)((vdp->reg[2] & 0x0C) << 10)
+                             : (UInt16)((vdp->reg[2] & 0x0F) << 10);
+    UInt16 col_ba  = (UInt16)(((vdp->reg[3] << 6) | 0x003F) & 0x3FC0);
+    UInt16 pat_ba  = (UInt16)((vdp->reg[4] & 0x07) << 11);
+
+    /* Mode decode per openMSX DisplayMode:
+     *   M1 = R1.4, M2 = R1.3, G2 = R0.1, TEXT2 = R0.2 (with M1 set).
+     *   M1=1            -> text (R0.2 picks 80-col TEXT2 vs 40-col TEXT1)
+     *   M1=0, M2=1      -> multicolor
+     *   M1=0, M2=0, G2=1-> graphics 2
+     *   M1=0, M2=0, G2=0-> graphics 1
+     * Note R1.6 is *display enable* (not blank) and R1.5 is the VBlank IRQ. */
+    if (is_text) {
+        int fg = (vdp->reg[7] >> 4) & 0x0F;
+        if (r0 & 0x04)
+            render_text(vdp, out, pitch_px, name_ba, 80, 3, fg, bg);
+        else
+            render_text(vdp, out, pitch_px, name_ba, 40, 6, fg, bg);
+    } else if (r1 & 0x08) {
+        render_multicolor(vdp, out, pitch_px, name_ba, pat_ba, bg);
+    } else if (r0 & 0x02) {
+        render_graphics2(vdp, out, pitch_px, name_ba, bg,
+                         vdp->reg[3], vdp->reg[4]);
     } else {
-        render_graphics1(vdp, out, pitch_px, name_ba, pat_ba, fg, bg);
+        render_graphics1(vdp, out, pitch_px, name_ba, pat_ba, col_ba, bg);
     }
 }

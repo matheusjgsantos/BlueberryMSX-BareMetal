@@ -8,6 +8,7 @@
 #include "msx_task.h"
 #include "vdpblit.h"
 #include "cbios_roms.h"
+#include "knightmare_roms.h"
 
 #include <circle/string.h>
 #include <string.h>
@@ -35,11 +36,41 @@ static void msx_load_cbios (MSX_Machine *machine)
 	machine->bus.write_io (machine->bus.ref, 0xA8, 0xC0);
 }
 
+// Load the Knightmare 32K cartridge into slot 1, subslot 0.
+// A 32K MSX1 cart spans both the 4000-7FFF (R1) and 8000-BFFF (R2) regions:
+//   file[0x0000-0x3FFF] -> data offset 0x4000 (magic at 0x4000 = "AB")
+//   file[0x4000-0x7FFF] -> data offset 0x8000
+// C-BIOS search_roms remaps R1/R2 to slot 1 on the fly when it finds the
+// "AB" header, so the permanent slot map above stays C-BIOS-owned.
+static void msx_load_knightmare (MSX_Machine *machine)
+{
+	if (knightmare_rom_size != 32768u)
+	{
+		return;
+	}
+
+	msx_load_data (machine, 1, 0, 0x4000, (uint8_t *) knightmare_rom, 16384);
+	msx_load_data (machine, 1, 0, 0x8000, (uint8_t *) knightmare_rom + 16384, 16384);
+}
+
+// Diagnostic bridge: core logs CHKRAM trace through this C function pointer
+// (set on MSX_Machine.diag_log). The CKernel is passed as diag_user so we
+// can reach its DiagLog() accessor. Budget (diag_log_budget) is enforced
+// by the core so this is never called after the budget is exhausted.
+extern "C" void msx_diag_cb (const char *line, void *opaque)
+{
+	CKernel *k = (CKernel *) opaque;
+	if (k == 0) return;
+	k->DiagLog (line);
+}
+
 CKernel::CKernel (void):
 	m_Screen (m_Options.GetWidth (), m_Options.GetHeight ()),
 	m_TeeLog (&m_Serial),
 	m_Timer (&m_Interrupt),
 	m_Logger (m_Options.GetLogLevel (), &m_Timer),
+	m_EMMC (&m_Interrupt, &m_Timer, &m_ActLED),
+	m_bFsMounted (FALSE),
 	m_pMachine (0)
 	, m_bPaused (FALSE)
 	, m_bInStep (FALSE)
@@ -82,6 +113,24 @@ boolean CKernel::Initialize (void)
 		bOK = m_Timer.Initialize ();
 	}
 
+	// SD card (boot partition) for frame dumps - non-fatal if unavailable.
+	{
+		CDevice *pPartition = m_EMMC.Initialize ()
+			? m_DeviceNameService.GetDevice ("emmc1-1", TRUE)
+			: 0;
+
+		if (   pPartition != 0
+		    && (m_FileSystem.Mount (pPartition) != 0))
+		{
+			m_bFsMounted = TRUE;
+			m_Logger.Write (FromKernel, LogNotice, "SD card mounted: emmc1-1");
+		}
+		else
+		{
+			m_Logger.Write (FromKernel, LogNotice, "SD card not available - no frame dumps");
+		}
+	}
+
 	return bOK;
 }
 
@@ -91,15 +140,43 @@ TShutdownMode CKernel::Run (void)
 		    "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
 
 	VDPBlit_Init (&m_Screen);
+	VDPBlit_SetDumpHook (
+		[](const unsigned char *pRGB, unsigned nBytes, unsigned nFrame, void *pUser)
+		{
+			((CKernel *) pUser)->WriteFrame (pRGB, nBytes, nFrame);
+		},
+		this);
 
+	LogLine ("msx_create() starting...");
 	m_pMachine = msx_create ();
 	if (!m_pMachine)
 	{
 		LogLine ("FATAL: msx_create() failed");
 		return ShutdownHalt;
 	}
+	m_pMachine->diag_log       = msx_diag_cb;
+	m_pMachine->diag_user      = this;
+	m_pMachine->diag_log_count = 0;
+	m_pMachine->diag_log_budget = 200;   // cap: ~30 CHKRAM tests + I/O trace
+	{
+		char sBuf[96];
+		snprintf (sBuf, sizeof(sBuf), "msx_create() succeeded at %p", (void*)m_pMachine);
+		LogLine (sBuf);
+	}
 
 	msx_load_cbios (m_pMachine);
+	LogLine ("C-BIOS loaded successfully");
+
+	{
+		msx_load_knightmare (m_pMachine);
+		char sBuf[96];
+		snprintf (sBuf, sizeof(sBuf),
+			"Knightmare loaded in slot1s0: [0x4000]=0x%02X [0x4001]=0x%02X init=0x%04X",
+			m_pMachine->slots[1].subslots[0].data[0x4000],
+			m_pMachine->slots[1].subslots[0].data[0x4001],
+			(m_pMachine->slots[1].subslots[0].data[0x4003] << 8) | m_pMachine->slots[1].subslots[0].data[0x4002]);
+		LogLine (sBuf);
+	}
 
 	{
 		char sBuf[96];
@@ -147,6 +224,7 @@ void CKernel::DoReset (void)
 	}
 
 	msx_load_cbios (m_pMachine);
+	msx_load_knightmare (m_pMachine);
 	m_nFrames = 0;
 	LogLine ("MSX machine reset");
 }
@@ -154,4 +232,44 @@ void CKernel::DoReset (void)
 void CKernel::LogLine (const char *pText)
 {
 	m_Logger.Write ("msx", LogNotice, "%s", pText);
+}
+
+void CKernel::DiagLog (const char *pText)
+{
+	LogLine (pText);
+}
+
+// Write one captured 256x192 RGB frame to the SD card as a PPM (P6) file.
+// pFrame must already be converted to 8bpp-per-channel RGB (73728 bytes).
+void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo)
+{
+	if (!m_bFsMounted)
+	{
+		return;
+	}
+
+	char sName[16];
+	snprintf (sName, sizeof(sName), "msxf%u.ppm", nFrameNo);
+
+	unsigned hFile = m_FileSystem.FileCreate (sName);
+	if (hFile == 0)
+	{
+		LogLine ("frame dump: FileCreate failed");
+		return;
+	}
+
+	unsigned char sHeader[64];
+	unsigned nHeaderLen = snprintf ((char *) sHeader, sizeof(sHeader),
+		"P6\n256 192\n255\n");
+
+	if (   m_FileSystem.FileWrite (hFile, sHeader, nHeaderLen) != nHeaderLen
+	    || m_FileSystem.FileWrite (hFile, pFrame, nBytes) != nBytes)
+	{
+		m_FileSystem.FileClose (hFile);
+		LogLine ("frame dump: FileWrite failed");
+		return;
+	}
+
+	m_FileSystem.FileClose (hFile);
+	LogLine (sName);
 }

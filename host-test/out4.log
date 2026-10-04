@@ -1,0 +1,438 @@
+MSX Machine created with Z80 and TMS9918
+[VRAM-pop] frame=10 nonzero=0 first_at=0000  vdp_addr=0000 pending=00
+[VRAM-pop] frame=20 nonzero=3024 first_at=0002  vdp_addr=2459 pending=59
+    [0000] 00 00 70 20 70 08 00 00 20 20 20 20 20 20 20 20 
+    [0010] 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 
+    [0020] 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 
+    [0030] 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 
+    [0040] 20 00 70 20 00 FE 00 20 20 20 20 20 20 20 20 20 
+    [0050] 20 20 20 20 20 20 20 20 00 00 00 00 00 00 00 00 
+
+=== VDP @ frame 40 ===
+  regs: R0=00 R1=A0 R2=06 R3=80 R4=59 R5=36 R6=07 R7=F4
+  addr=2459 write_mode=1 pending=59 irq=1
+  mode: GRAPHICS 1
+  bases: name=0000 col=2000 pat=0800  (sprite_pat=3800)
+  name table:
+    0000: 00 00 70 20 70 08 00 00 20 20 20 20 20 20 20 20  |..p p...         |
+    0010: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0020: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0030: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+  pat  table:
+    0000: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+    0010: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+  col  table:
+    0000: F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4  |................ |
+    0010: F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4  |................ |
+  sprite RAM 0x3C0:
+    0000: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+    0010: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+  VRAM @0x0000:
+    0000: 00 00 70 20 70 08 00 00 20 20 20 20 20 20 20 20  |..p p...         |
+    0010: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0020: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0030: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+  render histogram (of 49152 px):
+     0 black      49152    0.0%
+    distinct palette slots: 1
+  row 0 (run-length):
+    x=  0..255 col=0 len=256
+  row 48 (run-length):
+    x=  0..255 col=0 len=256
+  row 96 (run-length):
+    x=  0..255 col=0 len=256
+  row 144 (run-length):
+    x=  0..255 col=0 len=256
+  row 191 (run-length):
+    x=  0..255 col=0 len=256
+  VRAM scan @ frame 40 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=241 first=02 maxval=FE
+    block 001 (0x0100-0x01FF): nz=256 first=00 maxval=F1
+    block 002 (0x0200-0x02FF): nz=256 first=00 maxval=F1
+    block 003 (0x0300-0x03FF): nz=256 first=00 maxval=F5
+    block 004 (0x0400-0x04FF): nz=256 first=00 maxval=F5
+    block 005 (0x0500-0x05FF): nz=256 first=00 maxval=F5
+    block 006 (0x0600-0x06FF): nz=256 first=00 maxval=F5
+    block 007 (0x0700-0x07FF): nz=256 first=00 maxval=F5
+    block 008 (0x0800-0x08FF): nz= 96 first=00 maxval=F5
+    block 018 (0x1800-0x18FF): nz=256 first=00 maxval=20
+    block 019 (0x1900-0x19FF): nz=256 first=00 maxval=20
+    block 01A (0x1A00-0x1AFF): nz=256 first=00 maxval=20
+    block 01B (0x1B00-0x1BFF): nz= 95 first=00 maxval=D1
+    block 020 (0x2000-0x20FF): nz= 32 first=00 maxval=F4
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 70 20 70 08 00 00 20 20 20 20 20 20 20 20  |..p p...         |
+    0010: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0020: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+    0030: 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20  |                 |
+  pat  table @ pat_ba :
+    0000: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+  col  table @ col_ba :
+    0000: F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4  |................ |
+    0010: F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4 F4  |................ |
+  z80@40: PC=10AF SP=F2FE AF=0048 BC=6084 DE=19C4 HL=880C I=00 im=0 iff1=1 mode=0
+[VRAM-pop] frame=50 nonzero=3024 first_at=0002  vdp_addr=2459 pending=59
+[VRAM-pop] frame=100 nonzero=3024 first_at=0002  vdp_addr=2459 pending=59
+
+-- frame 100 --
+  z80@100: PC=10AF SP=F2FE AF=0048 BC=2484 DE=19C4 HL=880C I=00 im=0 iff1=1 mode=0
+  VDP R0=00 R1=A0 R2=06 R3=80 R4=59 R5=36 R6=07 R7=F4
+[VRAM-pop] frame=200 nonzero=2002 first_at=0008  vdp_addr=396C pending=6C
+
+-- frame 200 --
+  z80@200: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+=== VDP @ frame 240 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  addr=396C write_mode=1 pending=6C irq=1
+  mode: GRAPHICS 2
+  bases: name=0000 col=1C00 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     0 black      49152    0.0%
+    distinct palette slots: 1
+  row 0 (run-length):
+    x=  0..255 col=0 len=256
+  row 48 (run-length):
+    x=  0..255 col=0 len=256
+  row 96 (run-length):
+    x=  0..255 col=0 len=256
+  row 144 (run-length):
+    x=  0..255 col=0 len=256
+  row 191 (run-length):
+    x=  0..255 col=0 len=256
+  VRAM scan @ frame 240 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=152 first=00 maxval=F0
+    block 002 (0x0200-0x02FF): nz=216 first=00 maxval=F0
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=152 first=00 maxval=F0
+    block 00A (0x0A00-0x0AFF): nz=216 first=00 maxval=F0
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=152 first=00 maxval=F0
+    block 012 (0x1200-0x12FF): nz=216 first=00 maxval=F0
+    block 038 (0x3800-0x38FF): nz=  3 first=EA maxval=42
+    block 039 (0x3900-0x39FF): nz= 23 first=0A maxval=59
+    block 03B (0x3B00-0x3BFF): nz=128 first=00 maxval=D0
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table @ col_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  z80@240: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+
+-- frame 300 --
+  z80@300: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+-- frame 400 --
+  z80@400: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+[VRAM-pop] frame=500 nonzero=2042 first_at=0008  vdp_addr=3A17 pending=16
+
+-- frame 500 --
+  z80@500: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 600 --
+  z80@600: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 700 --
+  z80@700: PC=4436 SP=E7D8 AF=E154 BC=0498 DE=0000 HL=0067 I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 800 --
+  z80@800: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 900 --
+  z80@900: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+[VRAM-pop] frame=1000 nonzero=2123 first_at=0008  vdp_addr=3B18 pending=18
+
+-- frame 1000 --
+  z80@1000: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1100 --
+  z80@1100: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1200 --
+  z80@1200: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+=== VDP @ frame 1200 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  addr=3B18 write_mode=1 pending=18 irq=1
+  mode: GRAPHICS 2
+  bases: name=0000 col=1C00 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table:
+    0000: 5C 5C 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |\\.............. |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     0 black      49152    0.0%
+    distinct palette slots: 1
+  row 0 (run-length):
+    x=  0..255 col=0 len=256
+  row 48 (run-length):
+    x=  0..255 col=0 len=256
+  row 96 (run-length):
+    x=  0..255 col=0 len=256
+  row 144 (run-length):
+    x=  0..255 col=0 len=256
+  row 191 (run-length):
+    x=  0..255 col=0 len=256
+  VRAM scan @ frame 1200 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=152 first=00 maxval=F0
+    block 002 (0x0200-0x02FF): nz=216 first=00 maxval=F0
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=152 first=00 maxval=F0
+    block 00A (0x0A00-0x0AFF): nz=216 first=00 maxval=F0
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=152 first=00 maxval=F0
+    block 012 (0x1200-0x12FF): nz=216 first=00 maxval=F0
+    block 01D (0x1D00-0x1DFF): nz=116 first=02 maxval=FF
+    block 038 (0x3800-0x38FF): nz=  2 first=00 maxval=5C
+    block 03A (0x3A00-0x3AFF): nz= 29 first=C3 maxval=25
+    block 03B (0x3B00-0x3BFF): nz=128 first=00 maxval=C3
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 5C 5C 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |\\.............. |
+  col  table @ col_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  z80@1200: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+
+-- frame 1300 --
+  z80@1300: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1400 --
+  z80@1400: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1500 --
+  z80@1500: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1600 --
+  z80@1600: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1700 --
+  z80@1700: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1800 --
+  z80@1800: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 1900 --
+  z80@1900: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+[VRAM-pop] frame=2000 nonzero=2123 first_at=0008  vdp_addr=3B18 pending=18
+
+-- frame 2000 --
+  z80@2000: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2100 --
+  z80@2100: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2200 --
+  z80@2200: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2300 --
+  z80@2300: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2400 --
+  z80@2400: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2500 --
+  z80@2500: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 2600 --
+  z80@2600: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+-- frame 2700 --
+  z80@2700: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+-- frame 2800 --
+  z80@2800: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+-- frame 2900 --
+  z80@2900: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3000 --
+  z80@3000: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3100 --
+  z80@3100: PC=64FB SP=E7DE AF=00BB BC=EE98 DE=0000 HL=E9B2 I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3200 --
+  z80@3200: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3300 --
+  z80@3300: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3400 --
+  z80@3400: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3500 --
+  z80@3500: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3600 --
+  z80@3600: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3700 --
+  z80@3700: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3800 --
+  z80@3800: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+
+-- frame 3900 --
+  z80@3900: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+[VRAM-pop] frame=4000 nonzero=2226 first_at=0008  vdp_addr=396C pending=6C
+
+-- frame 4000 --
+  z80@4000: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+
+=== VDP @ frame 4000 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  addr=396C write_mode=1 pending=6C irq=1
+  mode: GRAPHICS 2
+  bases: name=0000 col=1C00 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     0 black      49152    0.0%
+    distinct palette slots: 1
+  row 0 (run-length):
+    x=  0..255 col=0 len=256
+  row 48 (run-length):
+    x=  0..255 col=0 len=256
+  row 96 (run-length):
+    x=  0..255 col=0 len=256
+  row 144 (run-length):
+    x=  0..255 col=0 len=256
+  row 191 (run-length):
+    x=  0..255 col=0 len=256
+  VRAM scan @ frame 4000 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=152 first=00 maxval=F0
+    block 002 (0x0200-0x02FF): nz=216 first=00 maxval=F0
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=152 first=00 maxval=F0
+    block 00A (0x0A00-0x0AFF): nz=216 first=00 maxval=F0
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=152 first=00 maxval=F0
+    block 012 (0x1200-0x12FF): nz=216 first=00 maxval=F0
+    block 01D (0x1D00-0x1DFF): nz=116 first=02 maxval=FF
+    block 01E (0x1E00-0x1EFF): nz=108 first=00 maxval=FC
+    block 038 (0x3800-0x38FF): nz=  3 first=EA maxval=42
+    block 039 (0x3900-0x39FF): nz= 23 first=0A maxval=59
+    block 03B (0x3B00-0x3BFF): nz=128 first=00 maxval=D0
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table @ col_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  z80@4000: PC=40C9 SP=E800 AF=0044 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+MSX Machine destroyed

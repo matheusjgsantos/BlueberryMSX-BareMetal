@@ -6,7 +6,7 @@
 # images are chain-booted at 0x8000 (the MSX emulator's LOADADDR).
 #
 
-CIRCLEHOME ?= ../../../circle
+CIRCLEHOME ?= /home/opencode/MSX/BlueberryMSX/circle
 
 # Target Pi 3B+ / Cortex-A53, 32-bit ARM
 RASPPI = 3

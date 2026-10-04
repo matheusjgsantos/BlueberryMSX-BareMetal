@@ -12,7 +12,7 @@ TARGET	= msx
 RASPPI	= 3
 AARCH	= 32
 
-CIRCLEHOME ?= ../../../circle
+CIRCLEHOME ?= ../../../BlueberryMSX/circle
 
 EXTRAINCLUDE	+= -I../../include \
 			-I../core \
@@ -27,11 +27,15 @@ OBJS = main.o \
 	apilog.o \
 	syscalls.o \
 	cbios_roms.o \
+	knightmare_roms.o \
 	msx_core.o \
 	r800.o \
 	tms9918.o
 
-LIBS = $(CIRCLEHOME)/lib/sched/libsched.a \
+LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+	$(CIRCLEHOME)/lib/fs/fat/libfatfs.a \
+	$(CIRCLEHOME)/lib/fs/libfs.a \
+	$(CIRCLEHOME)/lib/sched/libsched.a \
 	$(CIRCLEHOME)/lib/libcircle.a
 
 # toolchain newlib (printf, malloc via _sbrk, ...) - recipe-only, like LIBGCC.

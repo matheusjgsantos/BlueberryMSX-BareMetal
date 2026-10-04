@@ -1,9 +1,10 @@
-#include "msx.h"
+#include <msx.h>
 #include "../../src/chips/z80/R800.h"
 #include "../../src/chips/vdp/tms9918.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 /* Optional per-frame display hook. The Circle app overrides this with a strong
  * definition in src/app/vdpblit.cpp that blits the VDP screen to the
@@ -15,10 +16,19 @@ void msx_frame_render(void *vdp) {
     (void)vdp;
 }
 
+static int g_boot_frames = 0;
+static int g_boot_first_pc = -1;
+
 static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     MSX_Machine *machine = (MSX_Machine*)ref;
+    
+    if (addr >= 0x1A7E && addr <= 0x1A90 && g_boot_frames < 10) {
+        printf("[MEM-R-PC] PC=%04X slot=%d sslot=%d base=%p\n", 
+               addr, machine->activeSlot[addr/REGION_SIZE], 
+               (machine->activeSlot[addr/REGION_SIZE]) >> 2, ref);
+    }
+
     int region = addr / REGION_SIZE;
-    int offset = addr % REGION_SIZE;
     if (region > 3) region = 3;
 
     int active = machine->activeSlot[region];
@@ -28,18 +38,25 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
         uint8_t *base = machine->slots[slot].subslots[sslot].data;
         int size = machine->slots[slot].subslots[sslot].size;
-        // Each slot provides data for the full 64KB address space
-        // The offset within the region maps to (addr - region_start) in the slot's data
-        UInt16 slotAddr = region * REGION_SIZE + offset;
-        if (size > 0 && slotAddr < size) return base[slotAddr];
+        // Each (slot, subslot) backs a full 64KB address space, indexed by the
+        // complete Z80 address (region << 14 | offset). The active slot for the
+        // 16KB region selects which slot's buffer is visible.
+        if (size > 0 && addr < size) return base[addr];
     }
     return 0xFF;
 }
 
 static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     MSX_Machine *machine = (MSX_Machine*)ref;
+    
+    if (addr >= 0x1A7E && addr <= 0x1A90 && g_boot_frames < 5) {
+        printf("[MEM-W] PC=%04X slot=%d sslot=%d val=%02X\n", 
+               addr, machine->activeSlot[addr/REGION_SIZE],
+               (machine->activeSlot[addr/REGION_SIZE]) >> 2, val);
+        g_boot_frames++;
+    }
+
     int region = addr / REGION_SIZE;
-    int offset = addr % REGION_SIZE;
     if (region > 3) region = 3;
 
     int active = machine->activeSlot[region];
@@ -49,19 +66,48 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
         MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
         int size = ss->size;
-        UInt16 slotAddr = region * REGION_SIZE + offset;
         // ROM bytes are read-only: ignore writes (matches real hardware, where
         // writing to a ROM region has no effect). This is what lets the BIOS
         // RAM test (chkram) detect the RAM/ROM boundary and exit its loop.
-        if (size > 0 && slotAddr < size && !ss->rom[slotAddr]) ss->data[slotAddr] = val;
+        if (size > 0 && addr < size && !ss->rom[addr]) ss->data[addr] = val;
     }
 }
 
-static int g_trace_io = 0;
+int g_trace_io = 0;   /* promoted to non-static so host harness can enable */
+int g_tms_trace = 0;  /* VDP-level trace (tms9918.c) */
+unsigned g_trace_count = 0;   /* promoted to non-static so harness can reset */
+unsigned g_trace_cap = 500;   /* promoted to non-static so harness can raise cap */
+#define TRACE_MAX g_trace_cap
+
+/* Diagnostic logger (bridged to CKernel::LogLine by the app).
+ * C implementation without vprintf-style expansion: uses snprintf into a
+ * stack buffer (up to 160 chars). Caller passes a printf-style fmt. */
+void msx_diag(MSX_Machine *machine, const char *fmt, ...) {
+    if (machine && machine->diag_log == 0) return;
+    if (!machine) return;
+    if (machine->diag_log_budget > 0 &&
+        machine->diag_log_count >= machine->diag_log_budget) return;
+
+    char line[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    line[sizeof line - 1] = 0;
+
+    machine->diag_log(line, machine->diag_user);
+    machine->diag_log_count++;
+}
 
 static UInt8 slot_read_io(void *ref, UInt16 port) {
+    /* MSX peripherals decode A0-A7; the Z80 also drives A8-A15 on I/O. */
+    port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
-    if (g_trace_io) printf("    [IO-R] PC=%04X port=%02X\n", ((R800*)machine->z80)->regs.PC.W, port);
+    if (g_trace_io && (port >= 0x98 && port <= 0x9F) && g_trace_count < TRACE_MAX) {
+        printf("    [IO-R] PC=%04X port=%02X\n", ((R800*)machine->z80)->regs.PC.W, port);
+        if (++g_trace_count == TRACE_MAX)
+            printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
+    }
     if (port >= 0x98 && port <= 0x9F) {
         UInt8 v = tms9918_read_reg((TMS9918*)machine->vdp, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
@@ -75,18 +121,46 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
 }
 
 static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
+    port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
-    if (g_trace_io) printf("    [IO-W] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, val);
+    if (g_trace_io && (port >= 0x98 && port <= 0x9F) && g_trace_count < TRACE_MAX) {
+        printf("    [IO-W] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, val);
+        if (++g_trace_count == TRACE_MAX)
+            printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
+    }
     if (port >= 0x98 && port <= 0x9F) {
         tms9918_write_reg((TMS9918*)machine->vdp, port, val);
         return;
     }
     if (port == 0xA8) {
+        unsigned pc = ((R800*)machine->z80)->regs.PC.W;
+        msx_diag(machine, "CKR [A8] PC=%04X val=%02X -> R0=%d R1=%d R2=%d R3=%d",
+                 (int)pc, (int)val,
+                 val & 0x03, (val>>2)&0x03, (val>>4)&0x03, (val>>6)&0x03);
         machine->slotReg = val;
         machine->activeSlot[0] = val & 0x03;
         machine->activeSlot[1] = (val >> 2) & 0x03;
         machine->activeSlot[2] = (val >> 4) & 0x03;
         machine->activeSlot[3] = (val >> 6) & 0x03;
+        return;
+    }
+    if (port == 0xAA) {
+        msx_diag(machine, "CKR [AA-GIO] PC=%04X val=%02X",
+                 (int)((R800*)machine->z80)->regs.PC.W, (int)val);
+        return;
+    }
+    if (port == 0xAB) {
+        msx_diag(machine, "CKR [AB-PPI] PC=%04X val=%02X",
+                 (int)((R800*)machine->z80)->regs.PC.W, (int)val);
+        return;
+    }
+    if (port >= 0xFC && port <= 0xFF) {
+        // C-BIOS MAP_REG1..4: per-region slot/subslot bank select. Currently
+        // IGNORED by the core (this is the suspect: chkram relies on it).
+        const char *name = (port==0xFC)?"MAP_REG1":(port==0xFD)?"MAP_REG2":
+                           (port==0xFE)?"MAP_REG3":"MAP_REG4";
+        msx_diag(machine, "CKR [%s=%02X] PC=%04X val=%02X (IGNORED)",
+                 name, (int)port, (int)((R800*)machine->z80)->regs.PC.W, (int)val);
         return;
     }
 }
@@ -221,6 +295,15 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
     msx_frame_render(vdp);
     if (vdp->irq) {
         r800SetInt(z80);
+        /* Throttled IRQ delivery trace (~1 line / 60 frames) for the Knightmare
+         * bring-up serial log: tells us the IRQ is being latched, the IM mode,
+         * whether interrupts are enabled (IFF1), and where the PC is.
+         * Respect the diag_log budget. */
+        static int s_irq_log_frame = 0;
+        if ((++s_irq_log_frame % 60) == 0)
+            msx_diag(machine, "IRQ: pending iff1=%u im=%u pc=%04X",
+                     z80->regs.iff1, z80->regs.im,
+                     z80->regs.PC.W);
     }
     return vdp_frame_instr;
 }
