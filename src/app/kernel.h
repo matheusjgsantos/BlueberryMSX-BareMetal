@@ -16,6 +16,7 @@
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/usb/usbhcidevice.h>
+#include <circle/usb/usbkeyboard.h>
 #include <circle/sched/scheduler.h>
 #include <circle/fs/fat/fatfs.h>
 #include <SDCard/emmc.h>
@@ -74,6 +75,17 @@ public:
 	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
 
+	// Service the USB host: run plug-and-play and look for a HID keyboard.
+	// Must be called from TASK_LEVEL. Returns TRUE if a keyboard is available.
+	boolean UpdateUSB (void);
+
+	CUSBKeyboardDevice *GetKeyboard (void) const { return m_pKeyboard; }
+
+private:
+	static void KeyStatusHandlerRaw (unsigned char ucModifiers,
+					const unsigned char RawKeys[6],
+					void *pArg);
+
 private:
 	// this order must not change
 	CKernelOptions	m_Options;
@@ -85,6 +97,7 @@ private:
 	CInterruptSystem	m_Interrupt;
 	CTimer		m_Timer;
 	CUSBHCIDevice	*m_pUSBController;
+	CUSBKeyboardDevice * volatile m_pKeyboard;
 	CLogger		m_Logger;
 	CScheduler	m_Scheduler;
 	CActLED		m_ActLED;

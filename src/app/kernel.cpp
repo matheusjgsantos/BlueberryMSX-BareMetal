@@ -11,10 +11,111 @@
 #include "msxdiag_roms.h"
 
 #include <circle/string.h>
+#include <circle/usb/usbhid.h>
 #include <string.h>
 #include <stdio.h>
 
 static const char *FromKernel = "kernel";
+
+// USB HID usage code -> MSX EC code, or -1 when unmapped.
+// Usage values follow the USB HID keyboard page (see circle/usb/usbhid.h and
+// the Linux evdev mapping); EC codes are the MSX ones from include/msx.h.
+static int HidKeyToEC (unsigned char ucKey)
+{
+	switch (ucKey)
+	{
+	case 0x04: return MSX_EC_A;
+	case 0x05: return MSX_EC_B;
+	case 0x06: return MSX_EC_C;
+	case 0x07: return MSX_EC_D;
+	case 0x08: return MSX_EC_E;
+	case 0x09: return MSX_EC_F;
+	case 0x0A: return MSX_EC_G;
+	case 0x0B: return MSX_EC_H;
+	case 0x0C: return MSX_EC_I;
+	case 0x0D: return MSX_EC_J;
+	case 0x0E: return MSX_EC_K;
+	case 0x0F: return MSX_EC_L;
+	case 0x10: return MSX_EC_M;
+	case 0x11: return MSX_EC_N;
+	case 0x12: return MSX_EC_O;
+	case 0x13: return MSX_EC_P;
+	case 0x14: return MSX_EC_Q;
+	case 0x15: return MSX_EC_R;
+	case 0x16: return MSX_EC_S;
+	case 0x17: return MSX_EC_T;
+	case 0x18: return MSX_EC_U;
+	case 0x19: return MSX_EC_V;
+	case 0x1A: return MSX_EC_W;
+	case 0x1B: return MSX_EC_X;
+	case 0x1C: return MSX_EC_Y;
+	case 0x1D: return MSX_EC_Z;
+
+	case 0x1E: return MSX_EC_1;
+	case 0x1F: return MSX_EC_2;
+	case 0x20: return MSX_EC_3;
+	case 0x21: return MSX_EC_4;
+	case 0x22: return MSX_EC_5;
+	case 0x23: return MSX_EC_6;
+	case 0x24: return MSX_EC_7;
+	case 0x25: return MSX_EC_8;
+	case 0x26: return MSX_EC_9;
+	case 0x27: return MSX_EC_0;
+
+	case 0x28: return MSX_EC_RETURN;
+	case 0x29: return MSX_EC_ESC;
+	case 0x2A: return MSX_EC_BKSPACE;
+	case 0x2B: return MSX_EC_TAB;
+	case 0x2C: return MSX_EC_SPACE;
+	case 0x2D: return MSX_EC_NEG;
+	case 0x2E: return MSX_EC_LBRACK;
+	case 0x2F: return MSX_EC_RBRACK;
+	case 0x30: return MSX_EC_BKSLASH;
+	case 0x31: return MSX_EC_CIRCFLX;	// non-US # / ~
+	case 0x32: return MSX_EC_SEMICOL;
+	case 0x33: return MSX_EC_AT;
+	case 0x34: return MSX_EC_UNDSCRE;	// ` / accent
+	case 0x35: return MSX_EC_COMMA;
+	case 0x36: return MSX_EC_PERIOD;
+	case 0x37: return MSX_EC_DIV;
+	case 0x38: return MSX_EC_CAPS;
+
+	case 0x3A: return MSX_EC_F1;
+	case 0x3B: return MSX_EC_F2;
+	case 0x3C: return MSX_EC_F3;
+	case 0x3D: return MSX_EC_F4;
+	case 0x3E: return MSX_EC_F5;
+
+	case 0x4F: return MSX_EC_RIGHT;
+	case 0x50: return MSX_EC_LEFT;
+	case 0x51: return MSX_EC_DOWN;
+	case 0x52: return MSX_EC_UP;
+
+	case 0x53: return MSX_EC_JIKKOU;	// Katakana/Hiragana
+	case 0x54: return MSX_EC_CODE;
+	case 0x55: return MSX_EC_UNDSCRE;	// non-US \ and |
+	case 0x56: return MSX_EC_TORIKE;
+	case 0x57: return MSX_EC_TORIKE;
+	case 0x58: return MSX_EC_JIKKOU;	// Henkan_Mode
+	case 0x5A: return MSX_EC_NUMDIV;
+	case 0x5B: return MSX_EC_NUMMUL;
+	case 0x5C: return MSX_EC_NUMSUB;
+	case 0x5D: return MSX_EC_NUMPER;
+	case 0x5E: return MSX_EC_NUMADD;
+	case 0x5F: return MSX_EC_NUM0;
+	case 0x60: return MSX_EC_NUM1;
+	case 0x61: return MSX_EC_NUM2;
+	case 0x62: return MSX_EC_NUM3;
+	case 0x63: return MSX_EC_NUM4;
+	case 0x64: return MSX_EC_NUM5;
+	case 0x65: return MSX_EC_NUM6;
+	case 0x66: return MSX_EC_NUM7;
+	case 0x67: return MSX_EC_NUM8;
+	case 0x68: return MSX_EC_NUM9;
+	}
+
+	return -1;
+}
 
 // Load the C-BIOS MSX1 ROMs and set up the slot map (same mapping as the
 // host build):
@@ -69,6 +170,7 @@ CKernel::CKernel (void):
 	m_TeeLog (&m_Serial),
 	m_Timer (&m_Interrupt),
 	m_pUSBController (nullptr),
+	m_pKeyboard (nullptr),
 	m_Logger (m_Options.GetLogLevel (), &m_Timer),
 	m_EMMC (&m_Interrupt, &m_Timer, &m_ActLED),
 	m_bFsMounted (FALSE),
@@ -243,18 +345,43 @@ TShutdownMode CKernel::Run (void)
 		LogLine (sBuf);
 	}
 
-	m_Logger.Write ("App", LogNotice, "Stage 12: Creating MSX task");
-	new CMsxTask (this);
-	m_Logger.Write ("App", LogNotice, "Stage 13: MSX task created");
+	m_Logger.Write ("App", LogNotice, "Stage 12: Scanning USB devices");
 
-	m_Logger.Write ("App", LogNotice, "Stage 14: Entering scheduler loop");
+	// Enumerate the USB device tree *before* the MSX task exists. The DWHCI
+	// blocking transfers spin (libusb is built without NO_BUSY_WAIT, which is
+	// required because the DWHCI locks are IRQ-context CSpinLocks). Doing the
+	// scan here means nothing can be starved by the busy wait, and the HID
+	// keyboard is known to the app before the first MSX frame.
+	if (m_pUSBController != nullptr)
+	{
+		for (unsigned nScan = 1; nScan <= 4; nScan++)
+		{
+			m_Logger.Write ("App", LogDebug, "USB scan %u start", nScan);
+			m_pUSBController->UpdatePlugAndPlay ();
+			m_Logger.Write ("App", LogDebug, "USB scan %u done", nScan);
+
+			if (UpdateUSB ())
+			{
+				break;
+			}
+
+			m_Timer.MsDelay (100);
+		}
+	}
+
+	LogLine (m_pKeyboard != 0 ? "USB keyboard ready" : "USB keyboard not found");
+
+	m_Logger.Write ("App", LogNotice, "Stage 13: Creating MSX task");
+	new CMsxTask (this);
+	m_Logger.Write ("App", LogNotice, "Stage 14: MSX task created");
+
+	m_Logger.Write ("App", LogNotice, "Stage 15: Entering scheduler loop");
 
 	unsigned nUSBPollCountdown = 0;
 	unsigned nUSBPollCount = 0;
 	for (;;)
 	{
-		// Poll USB plug-and-play from task level. Must be called periodically
-		// because Initialize(FALSE) skipped the initial device scan.
+		// Continue USB plug-and-play from task level for hot-plugged devices.
 		if (m_pUSBController != nullptr && ++nUSBPollCountdown >= 30)
 		{
 			nUSBPollCountdown = 0;
@@ -262,12 +389,109 @@ TShutdownMode CKernel::Run (void)
 			m_Logger.Write ("App", LogDebug, "USB poll %u start", nUSBPollCount);
 			m_pUSBController->UpdatePlugAndPlay ();
 			m_Logger.Write ("App", LogDebug, "USB poll %u done", nUSBPollCount);
+
+			UpdateUSB ();
 		}
 
 		m_Scheduler.Yield ();
 	}
 
 	return ShutdownHalt;
+}
+
+// USB HID raw report handler. Called from the USB interrupt context, so it
+// only touches the PPI key matrix (single-byte stores) and the log.
+void CKernel::KeyStatusHandlerRaw (unsigned char ucModifiers,
+	const unsigned char RawKeys[6], void *pArg)
+{
+	CKernel *pSelf = (CKernel *) pArg;
+	MSX_Machine *machine = pSelf->m_pMachine;
+
+	if (machine == 0)
+	{
+		return;
+	}
+
+	static unsigned char PrevKeys[6] = {0, 0, 0, 0, 0, 0};
+	static int PrevModifier = MSX_EC_NONE;
+
+	// The USB HID modifier byte only has one bit for SHIFT and one for CTRL,
+	// while the MSX keyboard matrix has a separate bit for right SHIFT. Map
+	// the HID report onto a single MSX modifier key, exactly like the real
+	// MSX keyboard controller does.
+	int Modifier = MSX_EC_NONE;
+	if ((ucModifiers & (LWIN | ALTGR)) != 0)
+	{
+		Modifier = MSX_EC_CODE;
+	}
+	else if ((ucModifiers & ALT) != 0)
+	{
+		Modifier = MSX_EC_GRAPH;
+	}
+	else if ((ucModifiers & LSHIFT) != 0)
+	{
+		Modifier = (ucModifiers & RCTRL) != 0 ? MSX_EC_RSHIFT : MSX_EC_LSHIFT;
+	}
+	else if ((ucModifiers & (LCTRL | RCTRL)) != 0)
+	{
+		Modifier = MSX_EC_CTRL;
+	}
+
+	if (Modifier != PrevModifier)
+	{
+		if (PrevModifier != MSX_EC_NONE)
+		{
+			msx_ppi_set_ec (machine, PrevModifier, 0);
+		}
+		if (Modifier != MSX_EC_NONE)
+		{
+			msx_ppi_set_ec (machine, Modifier, 1);
+		}
+		PrevModifier = Modifier;
+	}
+
+	// Handle each of the (up to six) simultaneously pressed keys
+	for (unsigned i = 0; i < 6; i++)
+	{
+		if (RawKeys[i] != PrevKeys[i])
+		{
+			if (PrevKeys[i] != 0)
+			{
+				int ec = HidKeyToEC (PrevKeys[i]);
+				if (ec >= 0)
+				{
+					msx_ppi_set_ec (machine, ec, 0);
+				}
+			}
+			if (RawKeys[i] != 0)
+			{
+				int ec = HidKeyToEC (RawKeys[i]);
+				if (ec >= 0)
+				{
+					msx_ppi_set_ec (machine, ec, 1);
+				}
+			}
+			PrevKeys[i] = RawKeys[i];
+		}
+	}
+}
+
+boolean CKernel::UpdateUSB (void)
+{
+	if (m_pKeyboard == 0)
+	{
+		CDevice *pDevice = m_DeviceNameService.GetDevice ("ukbd1", FALSE);
+		if (pDevice == 0)
+		{
+			return FALSE;
+		}
+
+		m_pKeyboard = (CUSBKeyboardDevice *) pDevice;
+		m_Logger.Write ("App", LogNotice, "USB keyboard detected, registering handler");
+		m_pKeyboard->RegisterKeyStatusHandlerRaw (KeyStatusHandlerRaw, FALSE, this);
+	}
+
+	return TRUE;
 }
 
 boolean CKernel::TakeResetRequest (void)

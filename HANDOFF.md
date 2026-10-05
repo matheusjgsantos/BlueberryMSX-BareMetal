@@ -18,46 +18,74 @@ found. Stage numbering: 1 hardware, 2 interrupts, 3 timer, 4 USB (4a create,
 4b created, 4c initialize), 5 network (absent), 6 Run, 7 VDP blit, 8/9
 `msx_create`, 10 C-BIOS, 11 MSX Diag, 12/13 MSX task, 14 scheduler loop.
 
-### USB host: two hangs and their fixes
+### USB host: the two hangs, and why NO_BUSY_WAIT is the wrong fix
 
 1. `CUSBHCIDevice::Initialize(TRUE)` (the default `bScanDevices = TRUE`)
-   deadlocked. `Initialize` → `ReScanDevices` → `EnableRootPort` →
-   `SubmitBlockingRequest` → `TransferStage`, which spins on
-   `while (m_bWaiting[nWaitBlock])` in
-   `BlueberryMSX/circle/lib/usb/dwhcidevice.cpp` with **no timeout**; only the
-   USB IRQ completion routine clears the flag. Fix: `Initialize(FALSE)` and
+   deadlocked with no output after `Stage 4c`. Fix: `Initialize(FALSE)` and
    discover devices later from task level.
 
-2. The prebuilt `libusb.a` was compiled **without** `NO_BUSY_WAIT`, so those
-   blocking spins never yielded and starved every other task: USB enumeration
-   ran ~1.9 s and the MSX task never ran (blank display, no `CKR` traces, no
-   `frame=` heartbeat). Fix — rebuild the library, the define is compiled in:
+2. Scanning from the task loop with the stock `libusb.a` enumerated the whole
+   device tree in ~1.9 s but starved the MSX task (blank display, no `CKR`
+   traces, no `frame=` heartbeat), because `SubmitBlockingRequest` →
+   `TransferStage` spins on `while (m_bWaiting[nWaitBlock])` in
+   `BlueberryMSX/circle/lib/usb/dwhcidevice.cpp:735` with **no timeout** and no
+   yield; only the USB IRQ completion routine clears the flag.
 
-   ```
-   cd BlueberryMSX/circle/lib/usb && make clean && make DEFINE+=-DNO_BUSY_WAIT
-   ```
+The obvious fix — rebuilding the library with `NO_BUSY_WAIT` — is **wrong for
+this project** and must not be used:
 
-   Verify with
-   `arm-none-eabi-ar x libusb.a dwhcidevice.o && arm-none-eabi-nm -C dwhcidevice.o | grep CScheduler`
-   (undefined `CScheduler::Get`/`Yield` prove the yielding path is active).
-   `*.a` is gitignored, so rebuilding does not dirty the Circle repo.
+- With `NO_BUSY_WAIT` the wait loop calls `CScheduler::Get()->Yield()`, but the
+  first control transfer of the scan then never completes, so
+  `UpdatePlugAndPlay()` never returns at all: the log shows `USB poll 1 start`
+  and no `done`, with no `usbdev` line after it.
+- The MSX task is the only other task, so every yield runs another full frame
+  and the root-port transaction never gets a clean window.
+
+Working configuration (current source):
+
+- `libusb.a` is built **plain**, i.e. *without* `NO_BUSY_WAIT`
+  (`cd BlueberryMSX/circle/lib/usb && make clean && make`). Verify with
+  `arm-none-eabi-ar x libusb.a dwhcidevice.o && arm-none-eabi-nm -C dwhcidevice.o | grep CScheduler`
+  (must print nothing) and `arm-none-eabi-nm -C libusb.a | grep CMutex`
+  (must print nothing — the DWHCI locks are IRQ-context `CSpinLock`s, and
+  `CGenericLock` in `circle/include/circle/genericlock.h` would turn them into
+  scheduler `CMutex`es when `NO_BUSY_WAIT` is defined globally).
+- `CKernel::Run()` scans **before** `new CMsxTask(this)` (stages 12/13/14),
+  because nothing can be starved while the emulator task does not exist yet.
+  This also matches the timing of the one call site that always worked
+  (~1.5 s after boot, i.e. after the VDP/machine/ROM stages).
+- The idle loop keeps polling `UpdatePlugAndPlay()` every 30 yields for
+  hot-plug, and calls `UpdateUSB()` to (re)acquire `ukbd1`.
 
 `src/app/kernel.h` holds `CUSBHCIDevice *m_pUSBController` (a pointer, created
 lazily in `Initialize` after the timer is up). `src/app/Makefile` links
 `libusb.a` then `libinput.a` before `libcircle.a`; `libinput.a` is required or
 `libusb.a` fails to link (`CKeyboardBehaviour`, `CMouseDevice`).
 
+### USB keyboard → MSX PPI
+
+- `CKernel::UpdateUSB()` acquires `ukbd1` from the device name service and calls
+  `RegisterKeyStatusHandlerRaw(KeyStatusHandlerRaw, FALSE, this)` (the `Ex`
+  variant passes `CKernel *` as the argument).
+- `CKernel::KeyStatusHandlerRaw()` runs in USB IRQ context. It only writes the
+  PPI matrix through `msx_ppi_set_ec()` (single-byte stores, no allocation).
+- `HidKeyToEC()` maps USB HID usage codes to `MSX_EC_*`. Unmapped keys are
+  ignored; a Japanese-layout key maps to `MSX_EC_JIKKOU`/`MSX_EC_TORIKE`.
+- The HID report is diffed per slot, so up to six simultaneous keys and
+  modifier transitions are handled. `MSX_EC_LSHIFT`/`MSX_EC_RSHIFT` share one
+  matrix bit, which is why the modifier is reduced to a single EC code before
+  being applied.
+- `msx_ppi_set_ec()` is implemented in `src/core/msx.c`; `keyState` is
+  active-low (`0` = pressed).
+
 ### Known open issues
 
-- **No keyboard input yet.** No `CUSBKeyboardDevice` is acquired and no HID
-  handler is registered, so no key can reach `msx_ppi_set_ec()`.
-- **`UpdatePlugAndPlay()` never returns.** The log has `USB poll 1 start` and
-  no matching `done`, so PnP is permanently stuck after the first enumeration
-  (last USB line: `usbhub: Port 5: Device configured`). Because the library now
-  yields, the emulator survives, but hot-plug events are never processed.
-- **No keyboard was enumerated.** The devices found are hub `ven424-9514`,
-  `ven424-ec00`, `ven45e-800` (Microsoft wireless receiver), `ven781-5406`
-  (SanDisk U3 Cruzer Micro), `ven1a86-7523` (CH340 console adapter).
+- **Hardware verification pending.** The pre-task scan plus the raw HID handler
+  has not yet been run on the Pi; expect `USB scan 1 start/done`,
+  `usbdev` lines, `USB keyboard ready`, and key presses landing in BASIC.
+- A scan that runs later from the idle loop still busy-waits and can stall the
+  emulator for up to ~2 s when a device actually changes (hot-plug). Tolerable
+  for now.
 - Enumeration also mounts the SanDisk and brings up the SMC951x network driver,
   costing ~1.9 s at boot for hardware we do not use.
 
