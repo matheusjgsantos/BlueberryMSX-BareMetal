@@ -8,7 +8,7 @@
 #include "msx_task.h"
 #include "vdpblit.h"
 #include "cbios_roms.h"
-#include "knightmare_roms.h"
+#include "msxdiag_roms.h"
 
 #include <circle/string.h>
 #include <string.h>
@@ -36,21 +36,21 @@ static void msx_load_cbios (MSX_Machine *machine)
 	machine->bus.write_io (machine->bus.ref, 0xA8, 0xC0);
 }
 
-// Load the Knightmare 32K cartridge into slot 1, subslot 0.
+// Load the MSX Diagnostics 32K cartridge into slot 1, subslot 0.
 // A 32K MSX1 cart spans both the 4000-7FFF (R1) and 8000-BFFF (R2) regions:
 //   file[0x0000-0x3FFF] -> data offset 0x4000 (magic at 0x4000 = "AB")
 //   file[0x4000-0x7FFF] -> data offset 0x8000
 // C-BIOS search_roms remaps R1/R2 to slot 1 on the fly when it finds the
 // "AB" header, so the permanent slot map above stays C-BIOS-owned.
-static void msx_load_knightmare (MSX_Machine *machine)
+static void msx_load_msxdiag (MSX_Machine *machine)
 {
-	if (knightmare_rom_size != 32768u)
+	if (msxdiag_rom_size != 32768u)
 	{
 		return;
 	}
 
-	msx_load_data (machine, 1, 0, 0x4000, (uint8_t *) knightmare_rom, 16384);
-	msx_load_data (machine, 1, 0, 0x8000, (uint8_t *) knightmare_rom + 16384, 16384);
+	msx_load_data (machine, 1, 0, 0x4000, (uint8_t *) msxdiag_rom, 16384);
+	msx_load_data (machine, 1, 0, 0x8000, (uint8_t *) msxdiag_rom + 16384, 16384);
 }
 
 // Diagnostic bridge: core logs CHKRAM trace through this C function pointer
@@ -68,6 +68,7 @@ CKernel::CKernel (void):
 	m_Screen (m_Options.GetWidth (), m_Options.GetHeight ()),
 	m_TeeLog (&m_Serial),
 	m_Timer (&m_Interrupt),
+	m_pUSBController (nullptr),
 	m_Logger (m_Options.GetLogLevel (), &m_Timer),
 	m_EMMC (&m_Interrupt, &m_Timer, &m_ActLED),
 	m_bFsMounted (FALSE),
@@ -105,13 +106,61 @@ boolean CKernel::Initialize (void)
 
 	if (bOK)
 	{
+		m_Logger.Write ("App", LogNotice, "Stage 1: Hardware Initialized");
+	}
+
+	if (bOK)
+	{
 		bOK = m_Interrupt.Initialize ();
+	}
+
+	if (bOK)
+	{
+		m_Logger.Write ("App", LogNotice, "Stage 2: Interrupts Initialized");
 	}
 
 	if (bOK)
 	{
 		bOK = m_Timer.Initialize ();
 	}
+
+	if (bOK)
+	{
+		m_Logger.Write ("App", LogNotice, "Stage 3: Timer Initialized");
+	}
+
+	// USB host controller - lazy init after timer/interrupt ready
+	if (bOK)
+	{
+		m_Logger.Write ("App", LogNotice, "Stage 4a: Creating USB controller");
+		m_pUSBController = new CUSBHCIDevice(&m_Interrupt, &m_Timer, TRUE);
+		m_Logger.Write ("App", LogNotice, "Stage 4b: USB controller created");
+		if (m_pUSBController != nullptr)
+		{
+			m_Logger.Write ("App", LogNotice, "Stage 4c: Initializing USB controller");
+			// Scan devices disabled: enumeration of the CH340 USB-serial console
+			// adapter deadlocks in a blocking transfer (no IRQ for interrupt IN
+			// endpoints). Devices are discovered later via UpdatePlugAndPlay().
+			if (m_pUSBController->Initialize (FALSE))
+			{
+				m_Logger.Write ("App", LogNotice, "Stage 4: USB Initialized");
+			}
+			else
+			{
+				m_Logger.Write ("App", LogWarning, "Stage 4: USB Initialize failed");
+			}
+		}
+		else
+		{
+			m_Logger.Write ("App", LogWarning, "Stage 4: USB controller alloc failed");
+		}
+	}
+	else
+	{
+		m_Logger.Write ("App", LogWarning, "Stage 4: Skipped (previous init failed)");
+	}
+
+	m_Logger.Write ("App", LogNotice, "Stage 5: Network not present in this build");
 
 	// SD card (boot partition) for frame dumps - non-fatal if unavailable.
 	{
@@ -139,6 +188,8 @@ TShutdownMode CKernel::Run (void)
 	m_Logger.Write (FromKernel, LogNotice,
 		    "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
 
+	m_Logger.Write ("App", LogNotice, "Stage 6: Run started");
+
 	VDPBlit_Init (&m_Screen);
 	VDPBlit_SetDumpHook (
 		[](const unsigned char *pRGB, unsigned nBytes, unsigned nFrame, void *pUser)
@@ -147,8 +198,12 @@ TShutdownMode CKernel::Run (void)
 		},
 		this);
 
+	m_Logger.Write ("App", LogNotice, "Stage 7: VDP blit initialized");
+
 	LogLine ("msx_create() starting...");
+	m_Logger.Write ("App", LogNotice, "Stage 8: msx_create starting");
 	m_pMachine = msx_create ();
+	m_Logger.Write ("App", LogNotice, "Stage 9: msx_create returned");
 	if (!m_pMachine)
 	{
 		LogLine ("FATAL: msx_create() failed");
@@ -165,18 +220,21 @@ TShutdownMode CKernel::Run (void)
 	}
 
 	msx_load_cbios (m_pMachine);
+	m_Logger.Write ("App", LogNotice, "Stage 10: C-BIOS loaded");
 	LogLine ("C-BIOS loaded successfully");
 
 	{
-		msx_load_knightmare (m_pMachine);
+		msx_load_msxdiag (m_pMachine);
 		char sBuf[96];
 		snprintf (sBuf, sizeof(sBuf),
-			"Knightmare loaded in slot1s0: [0x4000]=0x%02X [0x4001]=0x%02X init=0x%04X",
+			"MSX Diag loaded in slot1s0: [0x4000]=0x%02X [0x4001]=0x%02X init=0x%04X",
 			m_pMachine->slots[1].subslots[0].data[0x4000],
 			m_pMachine->slots[1].subslots[0].data[0x4001],
 			(m_pMachine->slots[1].subslots[0].data[0x4003] << 8) | m_pMachine->slots[1].subslots[0].data[0x4002]);
 		LogLine (sBuf);
 	}
+
+	m_Logger.Write ("App", LogNotice, "Stage 11: MSX Diag loaded");
 
 	{
 		char sBuf[96];
@@ -185,10 +243,27 @@ TShutdownMode CKernel::Run (void)
 		LogLine (sBuf);
 	}
 
+	m_Logger.Write ("App", LogNotice, "Stage 12: Creating MSX task");
 	new CMsxTask (this);
+	m_Logger.Write ("App", LogNotice, "Stage 13: MSX task created");
 
+	m_Logger.Write ("App", LogNotice, "Stage 14: Entering scheduler loop");
+
+	unsigned nUSBPollCountdown = 0;
+	unsigned nUSBPollCount = 0;
 	for (;;)
 	{
+		// Poll USB plug-and-play from task level. Must be called periodically
+		// because Initialize(FALSE) skipped the initial device scan.
+		if (m_pUSBController != nullptr && ++nUSBPollCountdown >= 30)
+		{
+			nUSBPollCountdown = 0;
+			nUSBPollCount++;
+			m_Logger.Write ("App", LogDebug, "USB poll %u start", nUSBPollCount);
+			m_pUSBController->UpdatePlugAndPlay ();
+			m_Logger.Write ("App", LogDebug, "USB poll %u done", nUSBPollCount);
+		}
+
 		m_Scheduler.Yield ();
 	}
 
@@ -224,7 +299,7 @@ void CKernel::DoReset (void)
 	}
 
 	msx_load_cbios (m_pMachine);
-	msx_load_knightmare (m_pMachine);
+	msx_load_msxdiag (m_pMachine);
 	m_nFrames = 0;
 	LogLine ("MSX machine reset");
 }

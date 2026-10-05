@@ -15,6 +15,7 @@
 #include <circle/interrupt.h>
 #include <circle/timer.h>
 #include <circle/logger.h>
+#include <circle/usb/usbhcidevice.h>
 #include <circle/sched/scheduler.h>
 #include <circle/fs/fat/fatfs.h>
 #include <SDCard/emmc.h>
@@ -83,6 +84,7 @@ private:
 	CExceptionHandler	m_ExceptionHandler;
 	CInterruptSystem	m_Interrupt;
 	CTimer		m_Timer;
+	CUSBHCIDevice	*m_pUSBController;
 	CLogger		m_Logger;
 	CScheduler	m_Scheduler;
 	CActLED		m_ActLED;

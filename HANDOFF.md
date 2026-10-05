@@ -1,8 +1,91 @@
-# Session Handoff — display fixes after boot10 (2026-10-04)
+# Session Handoff — MSX Diag ROM + USB host boots on hardware (2026-10-05)
 
 ## Current status
 
-Three fixes are now applied:
+Hardware run confirmed (`MSX/serial-out/msx-boot.log`):
+
+- `make` in `src/app` builds cleanly; `msx.img` is 478,832 bytes.
+- The firmware chain-boots, initializes USB, loads C-BIOS plus the MSX
+  Diagnostics cartridge, and sustains 59.25 fps
+  (`PACE: target=60 fps=59.25 work_avg_us=15013`).
+- MSX Diag replaced the Knightmare ROM: `src/app/msxdiag.rom` (32,768 bytes,
+  md5 `ff73168bc0dcb9c7af596711d091bc89`, header `"AB"`, init `0x401C`)
+  embedded via `src/app/msxdiag_roms.{h,cpp}`.
+
+Startup stage logging (`Stage 1` … `Stage 14`) was added to
+`src/app/kernel.cpp` to localize boot stalls; it is the reason two hangs were
+found. Stage numbering: 1 hardware, 2 interrupts, 3 timer, 4 USB (4a create,
+4b created, 4c initialize), 5 network (absent), 6 Run, 7 VDP blit, 8/9
+`msx_create`, 10 C-BIOS, 11 MSX Diag, 12/13 MSX task, 14 scheduler loop.
+
+### USB host: two hangs and their fixes
+
+1. `CUSBHCIDevice::Initialize(TRUE)` (the default `bScanDevices = TRUE`)
+   deadlocked. `Initialize` → `ReScanDevices` → `EnableRootPort` →
+   `SubmitBlockingRequest` → `TransferStage`, which spins on
+   `while (m_bWaiting[nWaitBlock])` in
+   `BlueberryMSX/circle/lib/usb/dwhcidevice.cpp` with **no timeout**; only the
+   USB IRQ completion routine clears the flag. Fix: `Initialize(FALSE)` and
+   discover devices later from task level.
+
+2. The prebuilt `libusb.a` was compiled **without** `NO_BUSY_WAIT`, so those
+   blocking spins never yielded and starved every other task: USB enumeration
+   ran ~1.9 s and the MSX task never ran (blank display, no `CKR` traces, no
+   `frame=` heartbeat). Fix — rebuild the library, the define is compiled in:
+
+   ```
+   cd BlueberryMSX/circle/lib/usb && make clean && make DEFINE+=-DNO_BUSY_WAIT
+   ```
+
+   Verify with
+   `arm-none-eabi-ar x libusb.a dwhcidevice.o && arm-none-eabi-nm -C dwhcidevice.o | grep CScheduler`
+   (undefined `CScheduler::Get`/`Yield` prove the yielding path is active).
+   `*.a` is gitignored, so rebuilding does not dirty the Circle repo.
+
+`src/app/kernel.h` holds `CUSBHCIDevice *m_pUSBController` (a pointer, created
+lazily in `Initialize` after the timer is up). `src/app/Makefile` links
+`libusb.a` then `libinput.a` before `libcircle.a`; `libinput.a` is required or
+`libusb.a` fails to link (`CKeyboardBehaviour`, `CMouseDevice`).
+
+### Known open issues
+
+- **No keyboard input yet.** No `CUSBKeyboardDevice` is acquired and no HID
+  handler is registered, so no key can reach `msx_ppi_set_ec()`.
+- **`UpdatePlugAndPlay()` never returns.** The log has `USB poll 1 start` and
+  no matching `done`, so PnP is permanently stuck after the first enumeration
+  (last USB line: `usbhub: Port 5: Device configured`). Because the library now
+  yields, the emulator survives, but hot-plug events are never processed.
+- **No keyboard was enumerated.** The devices found are hub `ven424-9514`,
+  `ven424-ec00`, `ven45e-800` (Microsoft wireless receiver), `ven781-5406`
+  (SanDisk U3 Cruzer Micro), `ven1a86-7523` (CH340 console adapter).
+- Enumeration also mounts the SanDisk and brings up the SMC951x network driver,
+  costing ~1.9 s at boot for hardware we do not use.
+
+Earlier verified state (boot11, still valid for the display path) follows.
+
+Boot11 hardware run confirmed:
+
+- The C-BIOS logo, Knightmare splash, and attract-mode animation are visible.
+- `MSX/serial-out/msx-boot11.log` reports
+  `VIDEO: ... fb=800x480 pitch=1600 depth=16` with nonzero `different` values,
+  including `12221`, `1069`, `2032`, and sustained 40k–46k values.
+- Remaining user-visible gaps: pacing slower than expected, no sprites, no sound,
+  and no keyboard input.
+
+Frame pacing is now deadline-based at 60 Hz:
+
+- `src/app/frame_pacer.h` advances a 1,666,666 µs deadline per frame, returns
+  the remaining sleep, counts late frames, and resyncs after long stalls to avoid
+  accumulating unbounded timing debt.
+- `src/app/msx_task.cpp` replaces the old fixed 16 ms post-frame sleep with
+  `CScheduler::usSleep(remaining)` and logs a `PACE:` line every 120 frames with
+  measured fps, average/max frame work, late frames, and resyncs.
+- `host-test/frame_pacer_test.c` covers exact 60 Hz deadlines, variable frame
+  work, timer wraparound, small overruns, long-stall resync, and overload.
+  It passes under both GCC C and G++ front-ends.
+- `make` in `src/app` builds cleanly; `msx.img` is 337,776 bytes.
+
+Display fixes verified in boot11:
 
 - `src/core/msx.c` masks I/O ports to eight bits on reads and writes, like the
   reference `Src/Memory/IoPort.c`. The Z80 supplies full 16-bit port addresses;
@@ -16,22 +99,20 @@ Three fixes are now applied:
 - `src/chips/vdp/tms9918.c` now uses the MSX palette ordering (1 black, 4 dark
   blue, 15 white). The host PPM export also had incorrect RGB shifts; corrected.
 
-Verification: `framebuffer_blit_test`, `render_g2_test`, and `io_decode_test`
-pass. The 4000-frame `hk` run completes without forced IRQs. Before port masking,
-all 6144 sampled G2 pattern rows were zero. After masking, 457 are nonzero,
-and `screen.ppm` has 2032 pixels differing from its black background (1088 red,
-944 white). This establishes nonuniform rendering, not yet a correct full title
-screen or gameplay. Pi display verification is still required.
+Verification: `framebuffer_blit_test`, `render_g2_test`, `io_decode_test`, and
+`frame_pacer_test` pass. The 4000-frame `hk` run completes without forced IRQs.
+Before port masking, all 6144 sampled G2 pattern rows were zero. After masking,
+457 are nonzero, and `screen.ppm` has 2032 pixels differing from its black
+background (1088 red, 944 white). Boot11 now confirms real graphics on the Pi.
 
-Build firmware with `make` in `src/app`. Host GCC requires the existing sysroot:
+Build firmware with `make` in `src/app`. Host GCC/G++ require the existing sysroot:
 `-isystem /home/opencode/.cache/musl-dev/usr/include`
 `-L/home/opencode/.cache/musl-dev/usr/lib -B/home/opencode/.cache/musl-dev/usr/lib/`.
 Regression test sources live in `host-test/`; blit test includes `src/app`, G2
 test links `tms9918.c`, and I/O test links `msx.c`, `R800.c`, and `tms9918.c`.
 
 The Pi was powered off by the user after boot10; cessation of that log was not
-a crash. Next hardware run should show `depth=16 pitch=1600` and nonuniform VIDEO
-samples. No forced-sync IRQ override was reintroduced.
+a crash. No forced-sync IRQ override was reintroduced.
 
 ## Historical investigation (superseded by current status above)
 

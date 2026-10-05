@@ -26,7 +26,7 @@ extern "C"
 
 void CMsxTask::Run (void)
 {
-	FramePacer Pacer;
+	FramePacer Pacer = {};
 	bool bPacingActive = false;
 	unsigned nWindowStart = 0, nWindowFrames = 0, nWorkMax = 0;
 	unsigned nLastLate = 0, nLastResync = 0;
@@ -74,6 +74,11 @@ void CMsxTask::Run (void)
 		msx_step_frame (machine, VDP_FRAME_INSTR);
 		m_pKernel->SetInStep (FALSE);
 		m_pKernel->IncFrames ();
+
+		if (m_pKernel->GetFrames () == 1)
+		{
+			m_pKernel->LogLine ("BOOT: MSX task produced first frame");
+		}
 
 		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
 		{

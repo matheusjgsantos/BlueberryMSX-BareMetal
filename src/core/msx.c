@@ -6,6 +6,93 @@
 #include <string.h>
 #include <stdarg.h>
 
+typedef struct {
+    UInt8 keyState[12];
+    UInt8 row;
+    UInt8 regCHi;
+} MSX_PPI;
+
+static void ppi_init_state(MSX_PPI *ppi) {
+    for (int i = 0; i < 12; i++) ppi->keyState[i] = 0xFF;
+    ppi->row = 0;
+    ppi->regCHi = 0;
+}
+
+void msx_ppi_init(MSX_Machine *machine) {
+    if (!machine) return;
+    MSX_PPI *ppi = (MSX_PPI *)calloc(1, sizeof(MSX_PPI));
+    if (!ppi) return;
+    machine->ppi = ppi;
+    ppi_init_state(ppi);
+}
+
+static const struct {
+    int ec;
+    int row;
+    int bit;
+} ppiEcMap[] = {
+    { MSX_EC_0, 0, 0 }, { MSX_EC_1, 0, 1 }, { MSX_EC_2, 0, 2 }, { MSX_EC_3, 0, 3 },
+    { MSX_EC_4, 0, 4 }, { MSX_EC_5, 0, 5 }, { MSX_EC_6, 0, 6 }, { MSX_EC_7, 0, 7 },
+    { MSX_EC_8, 1, 0 }, { MSX_EC_9, 1, 1 }, { MSX_EC_NEG, 1, 2 }, { MSX_EC_CIRCFLX, 1, 3 },
+    { MSX_EC_BKSLASH, 1, 4 }, { MSX_EC_AT, 1, 5 }, { MSX_EC_LBRACK, 1, 6 }, { MSX_EC_SEMICOL, 1, 7 },
+    { MSX_EC_COLON, 2, 0 }, { MSX_EC_RBRACK, 2, 1 }, { MSX_EC_COMMA, 2, 2 }, { MSX_EC_PERIOD, 2, 3 },
+    { MSX_EC_DIV, 2, 4 }, { MSX_EC_UNDSCRE, 2, 5 }, { MSX_EC_A, 2, 6 }, { MSX_EC_B, 2, 7 },
+    { MSX_EC_C, 3, 0 }, { MSX_EC_D, 3, 1 }, { MSX_EC_E, 3, 2 }, { MSX_EC_F, 3, 3 },
+    { MSX_EC_G, 3, 4 }, { MSX_EC_H, 3, 5 }, { MSX_EC_I, 3, 6 }, { MSX_EC_J, 3, 7 },
+    { MSX_EC_K, 4, 0 }, { MSX_EC_L, 4, 1 }, { MSX_EC_M, 4, 2 }, { MSX_EC_N, 4, 3 },
+    { MSX_EC_O, 4, 4 }, { MSX_EC_P, 4, 5 }, { MSX_EC_Q, 4, 6 }, { MSX_EC_R, 4, 7 },
+    { MSX_EC_S, 5, 0 }, { MSX_EC_T, 5, 1 }, { MSX_EC_U, 5, 2 }, { MSX_EC_V, 5, 3 },
+    { MSX_EC_W, 5, 4 }, { MSX_EC_X, 5, 5 }, { MSX_EC_Y, 5, 6 }, { MSX_EC_Z, 5, 7 },
+    { MSX_EC_LSHIFT, 6, 0 }, { MSX_EC_CTRL, 6, 1 }, { MSX_EC_GRAPH, 6, 2 }, { MSX_EC_CAPS, 6, 3 },
+    { MSX_EC_CODE, 6, 4 }, { MSX_EC_F1, 6, 5 }, { MSX_EC_F2, 6, 6 }, { MSX_EC_F3, 6, 7 },
+    { MSX_EC_RSHIFT, 6, 0 },
+    { MSX_EC_F4, 7, 0 }, { MSX_EC_F5, 7, 1 }, { MSX_EC_ESC, 7, 2 }, { MSX_EC_TAB, 7, 3 },
+    { MSX_EC_STOP, 7, 4 }, { MSX_EC_BKSPACE, 7, 5 }, { MSX_EC_SELECT, 7, 6 }, { MSX_EC_RETURN, 7, 7 },
+    { MSX_EC_SPACE, 8, 0 }, { MSX_EC_CLS, 8, 1 }, { MSX_EC_INS, 8, 2 }, { MSX_EC_DEL, 8, 3 },
+    { MSX_EC_LEFT, 8, 4 }, { MSX_EC_UP, 8, 5 }, { MSX_EC_DOWN, 8, 6 }, { MSX_EC_RIGHT, 8, 7 },
+    { MSX_EC_NUMMUL, 9, 0 }, { MSX_EC_NUMADD, 9, 1 }, { MSX_EC_NUMDIV, 9, 2 }, { MSX_EC_NUM0, 9, 3 },
+    { MSX_EC_NUM1, 9, 4 }, { MSX_EC_NUM2, 9, 5 }, { MSX_EC_NUM3, 9, 6 }, { MSX_EC_NUM4, 9, 7 },
+    { MSX_EC_NUM5, 10, 0 }, { MSX_EC_NUM6, 10, 1 }, { MSX_EC_NUM7, 10, 2 }, { MSX_EC_NUM8, 10, 3 },
+    { MSX_EC_NUM9, 10, 4 }, { MSX_EC_NUMSUB, 10, 5 }, { MSX_EC_NUMCOM, 10, 6 }, { MSX_EC_NUMPER, 10, 7 },
+    { MSX_EC_JIKKOU, 11, 1 }, { MSX_EC_TORIKE, 11, 3 }
+};
+
+void msx_ppi_set_ec(MSX_Machine *machine, int ecCode, int pressed) {
+    MSX_PPI *ppi;
+    unsigned i;
+    if (!machine) return;
+    ppi = (MSX_PPI *)machine->ppi;
+    if (!ppi) return;
+    for (i = 0; i < sizeof(ppiEcMap) / sizeof(ppiEcMap[0]); i++) {
+        if (ppiEcMap[i].ec == ecCode) {
+            if (pressed) {
+                ppi->keyState[ppiEcMap[i].row] &= (UInt8)(~(1u << ppiEcMap[i].bit));
+            } else {
+                ppi->keyState[ppiEcMap[i].row] |= (UInt8)(1u << ppiEcMap[i].bit);
+            }
+            return;
+        }
+    }
+}
+
+static UInt8 ppi_read_b(MSX_Machine *machine) {
+    MSX_PPI *ppi = (MSX_PPI *)machine->ppi;
+    if (!ppi) return 0xFF;
+    int row = ppi->row & 0x0F;
+    if (row > 11) return 0xFF;
+    return ppi->keyState[row];
+}
+
+static void ppi_write_clo(MSX_Machine *machine, UInt8 val) {
+    MSX_PPI *ppi = (MSX_PPI *)machine->ppi;
+    if (ppi) ppi->row = val;
+}
+
+static void ppi_write_chi(MSX_Machine *machine, UInt8 val) {
+    MSX_PPI *ppi = (MSX_PPI *)machine->ppi;
+    if (ppi) ppi->regCHi = val;
+}
+
 /* Optional per-frame display hook. The Circle app overrides this with a strong
  * definition in src/app/vdpblit.cpp that blits the VDP screen to the
  * framebuffer. */
@@ -115,8 +202,9 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
         return v;
     }
     if (port == 0xA8) return machine->slotReg;
-    // PPI keyboard scanner ports - return 0xFF (no keys pressed)
-    if (port >= 0xA9 && port <= 0xAB) return 0xFF;
+    if (port == 0xA9) return ppi_read_b(machine);
+    if (port == 0xAA) return 0xFF; /* CLo read not expected */
+    if (port == 0xAB) return 0xFF; /* CHi read not expected */
     return 0xFF;
 }
 
@@ -147,11 +235,13 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
     if (port == 0xAA) {
         msx_diag(machine, "CKR [AA-GIO] PC=%04X val=%02X",
                  (int)((R800*)machine->z80)->regs.PC.W, (int)val);
+        ppi_write_clo(machine, val);
         return;
     }
     if (port == 0xAB) {
         msx_diag(machine, "CKR [AB-PPI] PC=%04X val=%02X",
                  (int)((R800*)machine->z80)->regs.PC.W, (int)val);
+        ppi_write_chi(machine, val);
         return;
     }
     if (port >= 0xFC && port <= 0xFF) {
@@ -210,6 +300,7 @@ MSX_Machine* msx_create() {
 
     machine->sound = NULL;
     machine->ppi = NULL;
+    msx_ppi_init(machine);
 
     printf("MSX Machine created with Z80 and TMS9918\n");
     return machine;

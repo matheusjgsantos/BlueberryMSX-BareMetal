@@ -27,12 +27,14 @@ OBJS = main.o \
 	apilog.o \
 	syscalls.o \
 	cbios_roms.o \
-	knightmare_roms.o \
+	msxdiag_roms.o \
 	msx_core.o \
 	r800.o \
 	tms9918.o
 
 LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+	$(CIRCLEHOME)/lib/usb/libusb.a \
+	$(CIRCLEHOME)/lib/input/libinput.a \
 	$(CIRCLEHOME)/lib/fs/fat/libfatfs.a \
 	$(CIRCLEHOME)/lib/fs/libfs.a \
 	$(CIRCLEHOME)/lib/sched/libsched.a \
