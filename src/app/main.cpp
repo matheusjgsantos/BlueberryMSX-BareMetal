@@ -11,8 +11,12 @@
 #include <circle/startup.h>
 #include <stdlib.h>
 
+extern "C" void diag_uart (char c);
+
 int main (void)
 {
+	diag_uart ('0');
+
 	CKernel kernel;
 
 	if (!kernel.Initialize ())

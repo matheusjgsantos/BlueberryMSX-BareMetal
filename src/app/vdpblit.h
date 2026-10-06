@@ -13,6 +13,26 @@
 // Initialize the blit target. Call once from the main task after screen init.
 void VDPBlit_Init (CScreenDevice *pScreen);
 
+// Framebuffer geometry cached by VDPBlit_Init, so overlays can draw straight
+// into the screen buffer. nDepth is 16 (RGB565) or 32 (XRGB8888); nPitch is
+// in bytes. Returns FALSE when VDPBlit_Init has not run (or the depth is
+// unsupported), in which case pTarget is left untouched.
+typedef struct
+{
+	void *pBuffer;
+	int nPitch;
+	int nWidth;
+	int nHeight;
+	int nDepth;
+}
+VDPBlitTarget;
+
+boolean VDPBlit_GetTarget (VDPBlitTarget *pTarget);
+
+// Re-blit the most recently rendered MSX frame without rendering it again.
+// Used to restore the picture after an overlay has drawn over it.
+void VDPBlit_Redraw (void);
+
 // Summarize the last rendered source frame without reading VDP status ports.
 void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize);
 

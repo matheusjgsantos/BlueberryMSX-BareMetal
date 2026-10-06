@@ -146,6 +146,19 @@ void msx_destroy(MSX_Machine *machine);
 /* Non-blocking: execute one VDP frame's worth of Z80 instructions and fire the
  * sync IRQ + render hook once. For cooperative schedulers (e.g. Circle). */
 int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr);
+
+/* AY-3-8910 PSG. Master clock is 3579545 Hz; one MSX frame (1/60 s) is
+ * 59659 clocks. Render nSamples mono samples for the given number of master
+ * clocks and return the sample count written (0 on failure). */
+#define MSX_PSG_MASTER_CLOCK 3579545
+#define MSX_PSG_CLOCKS_PER_FRAME (MSX_PSG_MASTER_CLOCK / 60)
+unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
+                        unsigned nMasterCycles);
+
+/* PSG port activity, for the serial diagnostics. */
+extern unsigned g_psg_writes;
+extern unsigned g_psg_last_reg;
+extern unsigned g_psg_last_val;
 int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address);
 void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int size);
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size);

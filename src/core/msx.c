@@ -1,6 +1,7 @@
 #include <msx.h>
 #include "../../src/chips/z80/R800.h"
 #include "../../src/chips/vdp/tms9918.h"
+#include "../../src/chips/sound/psg.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -161,6 +162,12 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
 }
 
 int g_trace_io = 0;   /* promoted to non-static so host harness can enable */
+
+/* PSG port activity counters (diagnostics: proves the running ROM programs
+ * the sound chip, and which register it touched last). */
+unsigned g_psg_writes = 0;
+unsigned g_psg_last_reg = 0;
+unsigned g_psg_last_val = 0;
 int g_tms_trace = 0;  /* VDP-level trace (tms9918.c) */
 unsigned g_trace_count = 0;   /* promoted to non-static so harness can reset */
 unsigned g_trace_cap = 500;   /* promoted to non-static so harness can raise cap */
@@ -186,38 +193,64 @@ void msx_diag(MSX_Machine *machine, const char *fmt, ...) {
     machine->diag_log_count++;
 }
 
+
+/* Ports the harness trace watches: VDP (98-9F), PSG/PPI (A0-AB) and the
+ * joystick pseudo ports (DC/DD). The decode itself is unchanged. */
+static int io_traced (UInt16 port)
+{
+    return (port >= 0x98 && port <= 0x9F)
+        || (port >= 0xA0 && port <= 0xAB)
+        || port == 0xDC || port == 0xDD;
+}
+
 static UInt8 slot_read_io(void *ref, UInt16 port) {
     /* MSX peripherals decode A0-A7; the Z80 also drives A8-A15 on I/O. */
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
-    if (g_trace_io && (port >= 0x98 && port <= 0x9F) && g_trace_count < TRACE_MAX) {
-        printf("    [IO-R] PC=%04X port=%02X\n", ((R800*)machine->z80)->regs.PC.W, port);
+    UInt8 v;
+    if (port >= 0x98 && port <= 0x9F) {
+        v = tms9918_read_reg((TMS9918*)machine->vdp, port);
+        // Reading the VDP status register (0x99) clears the sync IRQ line.
+        if (port == 0x99) r800ClearInt((R800*)machine->z80);
+    }
+    else if (port == 0xA2) v = psg_read((PSG*)machine->sound, psg_get_reg_latch((PSG*)machine->sound));
+    else if (port == 0xA0 || port == 0xA1) v = 0xFF;
+    else if (port == 0xA8) v = machine->slotReg;
+    else if (port == 0xA9) v = ppi_read_b(machine);
+    else if (port == 0xAA) v = 0xFF; /* CLo read not expected */
+    else if (port == 0xAB) v = 0xFF; /* CHi read not expected */
+    else v = 0xFF;
+    if (g_trace_io && io_traced(port) && g_trace_count < TRACE_MAX) {
+        printf("    [IO-R] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, v);
         if (++g_trace_count == TRACE_MAX)
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
     }
-    if (port >= 0x98 && port <= 0x9F) {
-        UInt8 v = tms9918_read_reg((TMS9918*)machine->vdp, port);
-        // Reading the VDP status register (0x99) clears the sync IRQ line.
-        if (port == 0x99) r800ClearInt((R800*)machine->z80);
-        return v;
-    }
-    if (port == 0xA8) return machine->slotReg;
-    if (port == 0xA9) return ppi_read_b(machine);
-    if (port == 0xAA) return 0xFF; /* CLo read not expected */
-    if (port == 0xAB) return 0xFF; /* CHi read not expected */
-    return 0xFF;
+    return v;
 }
 
 static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
-    if (g_trace_io && (port >= 0x98 && port <= 0x9F) && g_trace_count < TRACE_MAX) {
+    if (g_trace_io && io_traced(port) && g_trace_count < TRACE_MAX) {
         printf("    [IO-W] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, val);
         if (++g_trace_count == TRACE_MAX)
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
     }
     if (port >= 0x98 && port <= 0x9F) {
         tms9918_write_reg((TMS9918*)machine->vdp, port, val);
+        return;
+    }
+    if (port == 0xA0 || port == 0xA1) {
+        PSG *psg = (PSG*)machine->sound;
+        if (!psg) return;
+        if (port == 0xA0) {
+            psg_set_reg_latch(psg, val);
+        } else {
+            psg_write(psg, psg_get_reg_latch(psg), val);
+        }
+        g_psg_writes++;
+        g_psg_last_reg = psg_get_reg_latch(psg);
+        g_psg_last_val = val;
         return;
     }
     if (port == 0xA8) {
@@ -298,7 +331,15 @@ MSX_Machine* msx_create() {
         return NULL;
     }
 
-    machine->sound = NULL;
+    machine->sound = psg_create();
+    if (!machine->sound) {
+        fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
+        tms9918_destroy((TMS9918*)machine->vdp);
+        r800Destroy((R800*)machine->z80);
+        free(machine);
+        return NULL;
+    }
+
     machine->ppi = NULL;
     msx_ppi_init(machine);
 
@@ -310,6 +351,7 @@ void msx_destroy(MSX_Machine *machine) {
     if (!machine) return;
     if (machine->z80) r800Destroy((R800*)machine->z80);
     if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
+    if (machine->sound) psg_destroy((PSG*)machine->sound);
     free(machine);
     printf("MSX Machine destroyed\n");
 }
@@ -397,4 +439,15 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
                      z80->regs.PC.W);
     }
     return vdp_frame_instr;
+}
+
+/* Render the PSG into nSamples mono samples covering nMasterCycles master
+ * clocks (3579545 Hz). Call once per emulated frame from the host loop: the
+ * core has no cycle counter, so the host passes the time it actually spent. */
+unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
+                        unsigned nMasterCycles)
+{
+    if (!machine || !machine->sound || !out || nSamples == 0) return 0;
+
+    return psg_render((PSG*)machine->sound, out, nSamples, (UInt32)nMasterCycles);
 }

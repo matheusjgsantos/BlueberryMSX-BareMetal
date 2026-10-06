@@ -4,7 +4,25 @@
 
 Hardware run confirmed (`MSX/serial-out/msx-boot.log`):
 
-- `make` in `src/app` builds cleanly; `msx.img` is 478,832 bytes.
+- `make` in `src/app` builds cleanly; `msx.img` was 479,952 bytes
+  (md5 `7b2a27472ba3dda91900258c25b48fe6`) for the USB/C-BIOS baseline and is
+  now 521,784 bytes (md5 `94cc0d24d3b31327f84796729a739918`) with sprites, the
+  overlay ROM menu and the HID keyboard fix added (see "Feature work" below).
+  That image has been copied to `/data/Projects/MSX/BlueberryMSX/msx.img`.
+
+Hardware status: sprites verified working on the Pi. The overlay opens with
+`ALT+F11`, but two problems were reported from that run and are **not yet
+re-verified**: unreliable key presses (fixed by the usage-based diff above) and
+a flickering menu. The overlay now logs `UI: overlay held, frames=N` about once
+a second; **if that counter advances while the menu is open, the emulator is not
+really frozen and that is what overwrites the menu** - the next step would be
+to find what else steps the machine.
+
+Latest image (fixes the Knightmare keyboard regression, see "Knightmare
+keyboard regression" below): `msx.img` 538,680 bytes, md5
+`fe7c933808fcc02caa208f76e306e121`, deployed to
+`/data/Projects/MSX/BlueberryMSX/msx.img` — needs a hardware re-test of both
+Knightmare and MSX Diag keyboard input.
 - The firmware chain-boots, initializes USB, loads C-BIOS plus the MSX
   Diagnostics cartridge, and sustains 59.25 fps
   (`PACE: target=60 fps=59.25 work_avg_us=15013`).
@@ -14,9 +32,303 @@ Hardware run confirmed (`MSX/serial-out/msx-boot.log`):
 
 Startup stage logging (`Stage 1` … `Stage 14`) was added to
 `src/app/kernel.cpp` to localize boot stalls; it is the reason two hangs were
-found. Stage numbering: 1 hardware, 2 interrupts, 3 timer, 4 USB (4a create,
-4b created, 4c initialize), 5 network (absent), 6 Run, 7 VDP blit, 8/9
-`msx_create`, 10 C-BIOS, 11 MSX Diag, 12/13 MSX task, 14 scheduler loop.
+found. Stage numbering in the current source: 1 hardware, 2 interrupts, 3 timer,
+4 USB (4a create, 4b created, 4c initialize), 5 network (absent), 6 Run,
+7 VDP blit, 8/9 `msx_create`, 10 C-BIOS, 11 MSX Diag, 12 USB scan, 13 MSX
+task creation, 14 MSX task created, 15 scheduler loop.
+
+## Feature work (2026-10-06)
+
+Three features were requested on top of the verified USB/C-BIOS baseline:
+
+1. TMS9918 sprite mode 1 — **implemented and host-verified**.
+2. Overlay ROM selector (`ALT+F11`, reboot `ALT+F12`) — **implemented,
+   host-verified and hardware-verified** (user: "Overlay menu is perfect
+   now").
+3. AY-3-8910 PSG audio — **implemented and host-verified; HDMI only, not yet
+   run on hardware** (see below).
+
+### 1. TMS9918 sprites — implemented
+
+`src/chips/vdp/tms9918.c` gained `sprite_mode1()` and `render_sprites()`,
+called at the end of `tms9918_render()` (background first, sprites on top,
+matching openMSX's overdraw order). Supporting changes:
+
+- `TMS9918` gained `UInt8 status` (S#0 bits) and `int fifth_sprite` scratch,
+  initialised in `tms9918_create()`.
+- Reading status register `0x99` returns `0x80 | status` and clears the IRQ
+  plus bits 6/5 (keeping bits 4-0, the 5S index); writing register `0`
+  (`R0`) clears status/irq the same way.
+- `tms9918_render()` lost its `const` qualifier (it now writes `status`).
+  Call sites: `src/app/vdpblit.cpp` casts `m->vdp` to `TMS9918 *`, and
+  `host-test/harness.c`'s `dump_vdp()` takes `TMS9918 *`.
+- `UInt64` was added to **both** copies of `msx_types.h`
+  (`include/msx_types.h` — the one the Makefile uses — and the stale
+  duplicate `src/include/msx_types.h`). Both files are now identical; do not
+  edit only one of them again.
+
+Semantics implemented (all from openMSX `SpriteChecker.cc` /
+`SpriteConverter.hh` and BlueberryMSX `SpriteLine.h`):
+
+- Mode gate: `base = ((R0 & 0x0E) << 1) | ((R1 & 0x08) >> 2) |
+  ((R1 & 0x10) >> 4)`, sprites drawn only when `getSpriteMode(base)` != 0,
+  i.e. bases `0x00`, `0x02`, `0x04`, `0x06`. **Per explicit user decision we
+  follow openMSX exactly, so there are no sprites in TEXT1/TEXT2 or in base
+  `0x03` (SCREEN 3), even though real TMS9918 hardware does show sprites in
+  text modes.** On a TMS9918 only bases 0-3 are reachable, so in practice
+  SCREEN 1 and SCREEN 2 get sprites.
+- Sprites need `R1.6` (display on) and `!(R8 & 0x02)`.
+- Sprite line: `row = (line - 1 - attr[0]) & 0xFF`, so a sprite attribute Y of
+  0 starts at display line 1 (attribute Y is one less than the top line).
+- Sprite X: `x = attr[1] - 32 + ((attr[3] >> 2) & 0x20)` for early clock;
+  screen X wrap is handled by clipping to the 256-pixel line.
+- Size `R1.1` 8x16, magnification `R1.0` (pixel doubled); pattern number is
+  masked with `0xFC` when 16x16.
+- Pattern fetch: `pat_ba = (R6 & 0x07) << 11` — **note this is `<< 11`, so
+  R6=1 is `0x0800`, not `0x2000`**; attributes come from
+  `attr_ba = ((R5 & 0x7F) << 7) + index * 4` with a 14-bit mask.
+- A 16x16 sprite is assembled from **four** patterns: `n` = top left,
+  `n+1` = bottom left, `n+2` = top right, `n+3` = bottom right. Left byte goes
+  into the high 8 bits (`patternPtr[index] << 24` in openMSX, whose bit 31 is
+  the leftmost pixel), right byte 16 bytes further into the generator.
+- Max 4 sprites per line on MSX1; list terminates at Y = 208; the **lowest**
+  index wins (sprites are drawn back-to-front, like openMSX's
+  `std::views::reverse(visibleSprites)`).
+- Colour 0 is transparent but **still participates in collision detection**
+  (MSX1 behaviour).
+- S#0: bit 7 = 1, bit 6 = 5S flag (sticky), bit 5 = collision, bits 4-0 =
+  index of the 5th sprite in the line's list. `no 5th sprite -> S#0 bits 0-4
+  = number of sprites in the list`, exactly as openMSX does.
+
+Host test `host-test/render_sprite_test.c` (40 checks, all passing):
+
+```sh
+cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
+gcc -O1 -Wall -Wextra -Wno-unused-parameter -Wno-unused-const-variable \
+    -I../include -I../src/chips/vdp \
+    -o render_sprite_test render_sprite_test.c ../src/chips/vdp/tms9918.c
+./render_sprite_test     # RESULT: PASS (0 failures)
+```
+
+Regression suite — all ten exit 0 after the PSG work (2026-10-06):
+`harness` (4000 frames), `psg_test`, `io_decode_test`, `render_sprite_test`,
+`render_g2_test`, `overlay_test`, `ui_queue_test`, `hid_keydiff_test`,
+`framebuffer_blit_test`, `frame_pacer_test`. Build commands are in section 9;
+the harness and `io_decode_test` need `-I../include` **and** `-I../src/include`,
+and both now link `../src/chips/sound/psg.c`.
+
+Known sprite gaps: only sprite mode 1 is decoded (GRAPHIC2's extra sprite
+planes and SCREEN 5/7/8 are not implemented), there is no per-line early-clock
+clash emulation beyond the ±32 px attribute offset, and `render_screen1()`
+in `tms9918.c` is still dead code (pre-existing `-Wunused-function`
+warning).
+
+### 2. PSG audio — implemented, host-verified, HDMI path only
+
+The user asked for PSG output to **both HDMI and the analogue jack via I2S**.
+On a Raspberry Pi 3 that combination is not reachable with one Circle device:
+`CHDMISoundBaseDevice` is the HDMI/S-PDIF DMA device, while `CI2SSoundBaseDevice`
+drives GPIO21/GPIO22 (PCM clock/data) for an *external* DAC and has no
+connection to the HDMI block; `CPWMSoundBaseDevice` is the PWM path. The
+implemented path is therefore `CHDMISoundBaseDevice` — **HDMI only**. Analogue
+output needs either a verified PWM wiring for the 3.5 mm jack or an external
+I2S DAC; that is still open.
+
+#### Core: `src/chips/sound/psg.{h,c}`
+
+A complete AY-3-8910/YM2149 model, semantics copied from
+`BlueberryMSX/msx2pp/openMSX/src/sound/AY8910.cc`:
+
+- one emulation tick = 16 master clocks, `MSX_PSG_MASTER_CLOCK = 3579545`
+  (so 223721.5625 ticks/s);
+- three square-wave channels, half period `max(1, fine | (coarse & 0x0F) << 8)`
+  ticks, i.e. `f = clock / (32 * period)`;
+- one shared noise generator, period `2 * max(1, R6 & 0x1F)` ticks, 17-bit
+  Galois LFSR `r = (r >> 1) ^ ((r & 1) << 13) ^ ((r & 1) << 16)`, seeded to 1;
+- one shared 32-step logarithmic envelope, step period
+  `EFINE + 256 * ECOARSE` ticks, all 32 shapes (continue/attack/alternate/
+  hold), selected when R8-R10 bit 4 is set;
+- mixer rule `out = (toneOut | !toneEnable) & (noiseOut | !noiseEnable)` per
+  channel, summed and clamped to `Int16`, centred (no DC offset);
+- volume table `2^((v-15)/4)` as in openMSX, `v = 0` silent;
+- register read masks R1 `0x0F`, R6 `0x1F`, R13 `0x0F`, out-of-range registers
+  read `0xFF` and ignore writes, `0xA0`/`0xA1` read as `0xFF`.
+
+`psg_render(psg, out, nSamples, nMasterClocks)` carries the leftover master
+clocks in `clock_rem`, so a non-integer number of ticks per sample does not
+drift, and clamps `nMasterClocks` to `0xFFFF` per call (the app never passes
+more than one video frame).
+
+#### Wiring
+
+- `src/core/msx.c`: `0xA0` latches the register, `0xA1` writes it, `0xA2` reads
+  it; `0xFF` on the A0/A1 *read* path (both are write-only). The PSG is created
+  in `msx_create()`, destroyed in `msx_destroy()`, and exposed through
+  `msx_psg_render()`. Counters `g_psg_writes`, `g_psg_last_reg`,
+  `g_psg_last_val` are for the log only.
+- `include/msx.h`: `MSX_PSG_MASTER_CLOCK`, `MSX_PSG_CLOCKS_PER_FRAME` (59659),
+  `msx_psg_render()` and the counters.
+- `src/app/sound.{h,cpp}`: `CMsxSound` wraps `CHDMISoundBaseDevice` in DMA
+  mode, 48000 Hz, `CHUNK_SIZE = 384 * 10`, `SoundFormatSigned16`/2 channels,
+  `MSX_SOUND_QUEUE_MSECS = 100`. One emulated video frame is exactly
+  `48000 / 60 = 800` stereo frames. `Start()` fills the **whole** queue with
+  silence in video-frame sized chunks before starting the DMA engine, so the
+  emulator warm-up cannot underrun it. `PushFrame()` renders mono, duplicates
+  it to both channels and writes it without ever blocking: a short write is
+  counted as dropped frames.
+- PSG time follows the real frame duration: `CTimer::GetClockTicks()` (1 MHz)
+  delta between pushes is converted to master clocks, falling back to
+  `MSX_PSG_CLOCKS_PER_FRAME` when the gap is `< 4 ms` or `> 100 ms` (boot,
+  reset, returning from the menu). `R800` has no cycle counter, so wall-clock
+  time is the only timing source available.
+- `src/app/kernel.cpp`: `m_pSound` is created and started in stage 7b, and
+  `PushSound()` is called from the task loop after `msx_step_frame()`.
+- `src/app/Makefile`: `sound.o` and `psg.o`; the link now needs
+  `$(CIRCLEHOME)/lib/sound/libsound.a` for `CHDMISoundBaseDevice` and
+  `CSoundBaseDevice::AllocateQueue()/SetWriteFormat()`.
+- Serial log: `Stage 7b: sound device started (sndhdmi, 48000 Hz)` and, once
+  per 100 frames, `PSG: writes=... ui_events=... peak=... dropped=...`.
+
+#### Host verification
+
+- `host-test/psg_test.c` — **52 checks, all passing**: tone frequency
+  (3496 measured rising edges vs 3496 expected for period 16), period-0
+  clamping, the full volume table (15 = 32767, 11 = 16384, 8 = 9742), the
+  mixer rule, noise amplitude and the exact LFSR recurrence, envelope decay /
+  attack / R8-bit-4 gating, register read masks, I/O port direction (R14/R15
+  read the pulled-up pins `0xFF` while R7 says input, echo the latch when
+  output — the Knightmare joystick fix, see below), clock-remainder carry,
+  int16 saturation and reset.
+- `host-test/io_decode_test.c` — extended with the PSG port protocol through
+  the real Z80 bus callbacks, including the A8-A15 alias forms (`0x12A0`,
+  `0x12A1`) and a mixer round trip that must render full-scale samples.
+- `host-test/harness.c` — `argv[6]=1` renders 800 PSG samples per frame and
+  reports `[PSG]`/`[PSG-summary]` lines. Run over 4000 frames of the real
+  C-BIOS + Knightmare boot (exit 0):
+
+      [PSG-summary] frames_with_audio(peak>64)=378/4000  writes=77540
+      [PSG-summary] max volume A/B/C = 11/0/12 (15 = full)
+      [PSG-summary] final mixer R7=B8  volumes R8/R9/R10=00/00/00
+      R7 histogram: B8 = 3858 frames, 98 = 128 frames, 00 = 14 frames
+
+  This proves the port decode, the core and the renderer work end to end
+  against a real ROM: the ROM writes the PSG ~20 times per frame. It also
+  explains why a hardware test may be quiet: for 3858 of 4000 frames the ROM
+  holds R7 = `0xB8`, i.e. **all three tone channels disabled** with the PSG I/O
+  port A switched to input, and R8/R9/R10 = 0. With a tone channel disabled the
+  AY forces that channel's output to 1, so the mix bit stays 1 and the channel
+  emits a constant DC level instead of a tone - exactly what real hardware
+  would do, and it is why the 378 "loud" frames are mostly DC bursts rather
+  than audible music. Whether the ROM reaches its music routine at all is
+  entangled with the still-open "solid blue screen" boot issue.
+
+#### Open items
+
+- Analogue (3.5 mm) output: not implemented; needs a PWM or external-I2S-DAC
+  decision.
+- `PushFrame()` is only called for emulated frames, so the queue drains to
+  silence while the overlay menu is open or a single step is executed.
+- No hardware run yet: expect to hear nothing until the boot issue is fixed or
+  a ROM/game that actually plays sound is booted.
+
+### 3. Overlay ROM selector — implemented
+
+Controls: `ALT+F11` opens/closes the menu, `UP`/`DOWN` move the cursor,
+`ENTER` boots the highlighted cartridge, `ESC` closes, `ALT+F12` reboots. The
+emulator is frozen while the menu is open, so the guest never sees the
+navigation keys and the menu can never race a frame.
+
+Files:
+
+- `src/app/overlay.{h,cpp}` — pure drawing, no state: `Overlay_Init()` caches
+  the framebuffer geometry, `Overlay_Draw(nSelected)` paints the box, and
+  `Overlay_CartName()` supplies the labels. It scales the MSX 8x8 font by
+  `height / 300` (min 1x), works for 16-bit RGB565 and 32-bit XRGB8888
+  targets, and clips everything to the target. The box is centred and its
+  height is `9 + OVERLAY_CART_COUNT` glyph cells.
+- `src/app/ui_queue.h` — single-producer/single-consumer byte ring (USB IRQ
+  produces, MSX task consumes), header-only so it is host testable, like
+  `frame_pacer.h`. A full queue drops the event.
+- `src/app/vdpblit.{h,cpp}` — new `VDPBlit_GetTarget()` (hands the overlay the
+  cached framebuffer geometry) and `VDPBlit_Redraw()` (re-blits the last
+  rendered MSX frame after the menu has drawn over it).
+- `src/app/kernel.{h,cpp}` — `enum TCartId`, `enum TUiKey`, `PushUiKey()` /
+  `PopUiKey()`, overlay open/selection state, and the cart loader.
+- `src/app/msx_task.cpp` — `ServiceUiQueue()` drains the queue in task context
+  and is what actually reboots or draws; the task loop skips emulation while
+  the menu is open.
+
+`CKernel::KeyStatusHandlerRaw()` (USB IRQ) recognises `ALT+F11` / `ALT+F12`
+(HID usages `0x44` / `0x45`, `ALT` = `1 << 2`) before the MSX mapping and
+pushes them to the queue; while the menu is open it also captures
+`UP`/`DOWN`/`ENTER`/`ESC` and swallows them so they never reach the PPI
+matrix. Nothing in that path touches the screen, the scheduler or ROM state.
+
+### HID keyboard state: usage-based diff (hardware bug, fixed)
+
+The first hardware test of the overlay exposed a real input bug: **key presses
+were often ignored** in a game (hold left, press right, the character stalled).
+Cause: the handler diffed the HID report **per slot** (`RawKeys[i] !=
+PrevKeys[i]`), but a USB keyboard repacks its six-slot key array in scan order,
+so slot indices are not stable. Hold left, press right, and the array goes
+`{LEFT}` -> `{RIGHT, LEFT}`: slot 0 changed, so the handler released LEFT (which
+was still held) and pressed RIGHT; when right was released the array went back
+to `{LEFT}` and LEFT was released again. The guest saw left/right chatter and
+lost the real press.
+
+Fix: `src/app/hid_keydiff.h` diffs two reports **by usage code**, so array order
+is irrelevant, and reports only changes (at most 12 per report, so the IRQ
+handler stays short). `m_aKeyGuest[256]` records what is currently asserted in
+the PPI matrix; releases are emitted before presses so a chord swap cannot leave
+a key stuck.
+
+Two related fixes in the same handler:
+
+- **Auto-repeat filter** for the six UI keys (`UI_REPEAT_HOLD_US` /
+  `UI_REPEAT_GAP_US` in `kernel.cpp`): a press that arrives within 60 ms of
+  releasing a key that had been held for more than 400 ms is the keyboard
+  repeating itself. Without it, a self-repeating keyboard toggles the menu once
+  per repeat (flicker). A fast human re-press still gets through.
+- **Menu key steal**: while the menu is open, a navigation key the guest already
+  held is released, so it cannot stay stuck for as long as it is held.
+
+Host test: `host-test/hid_keydiff_test.c` (27 checks) reproduces the exact
+re-pack sequences, including the reported left/right case, slot swaps of held
+keys, rotating permutations of three held keys, a full six-key array, sparse
+reports and a duplicated usage.
+
+Cartridge switching (the chosen design — reload, no hot swap):
+`msx_load_cart(machine, nCart)` picks `msxdiag_rom` or `knightmare_rom`,
+clears slot 1 subslot 0 and copies the 32K image into `0x4000` and `0x8000`.
+`CKernel::m_nCurrentCart` remembers the selection; `DoReset()` recreates the
+machine and calls `msx_load_cbios()` + `msx_load_cart()`. `ENTER` sets the
+cart and calls `RequestReset()`, so booting a new ROM and rebooting the
+current one share one path. `DoReset()` now also re-arms the `diag_log`
+bridge, which the old reset path silently dropped.
+
+`src/app/Makefile` now links `knightmare_roms.o` (previously only the harness
+linked it) and `overlay.o`.
+
+Host tests (all passing):
+
+```sh
+cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
+# overlay menu drawing (28 checks), links overlay.cpp against stub framebuffer
+# accessors so no hardware is needed:
+g++ -O1 -Wall -Wextra -I../../BlueberryMSX/circle/include -I../src/app \
+    -I../src/chips/vdp -o overlay_test overlay_test.cpp ../src/app/overlay.cpp
+./overlay_test
+# IRQ-safe key queue (20 checks):
+gcc -O1 -Wall -Wextra -I../src/app -o ui_queue_test ui_queue_test.c
+./ui_queue_test
+# HID key diff (27 checks):
+gcc -O1 -Wall -Wextra -I../src/app -o hid_keydiff_test hid_keydiff_test.c
+./hid_keydiff_test
+```
+
+Not yet verified: real hardware behaviour of the hotkeys, the menu's
+appearance at the Pi's actual resolution, and booting Knightmare. The serial
+log has not been re-read since the overlay landed.
 
 ### USB host: the two hangs, and why NO_BUSY_WAIT is the wrong fix
 
@@ -78,11 +390,105 @@ lazily in `Initialize` after the timer is up). `src/app/Makefile` links
 - `msx_ppi_set_ec()` is implemented in `src/core/msx.c`; `keyState` is
   active-low (`0` = pressed).
 
+### Knightmare keyboard regression: PSG R14 joystick read (fixed)
+
+Report: keyboard works in MSX Diag but not in Knightmare "anymore" — the
+regression arrived with the PSG session. Root cause, from Knightmare's own
+input routine (`host-test/km.asm`, `sub_44DF`):
+
+```text
+44DF: LD E,8Fh / LD A,0Fh / CALL 00093h   ; WRTPSG(15, 8Fh)
+44E6: LD A,0Eh / DI / CALL 00096h / EI     ; RDPSG(14) = joystick port 1
+44ED: CPL / AND 3Fh / PUSH AF              ; 6 input bits, active low
+      ... rows 7/8 keyboard via SNSMAT ...
+4515: POP BC / OR B / RET                  ; joystick OR keyboard
+```
+
+Before the PSG existed, `IN A2` was undecoded and returned `0xFF` → `CPL` →
+`00` = no joystick input. After the PSG landed, `psg_read()` returned the
+register latch: nobody ever writes R14, so it stayed at its power-on `0x00`
+→ `CPL` → `3F` = **up+down+left+right+trigger A+trigger B permanently
+pressed**, OR'd into the input word every frame. The keyboard could not
+change a word that was already all-ones, so keys did nothing.
+
+Fix (`src/chips/sound/psg.c`, `psg_read`): R14/R15 are I/O ports. While the
+R7 direction bit says input (bit6 port A, bit7 port B — C-BIOS and the game
+both program R7=`B8`, port A = input), the read returns the external pins,
+pulled up to `0xFF` with nothing attached (same as openMSX's
+`periphery.readA()`). With the direction bit set the latch reads back, like
+the real chip.
+
+Verification (host-side, all exit 0):
+
+- `psg_test` 45 → **52 checks PASS**, including the exact Knightmare
+  sequence (R7=`B8`, write R15=`8F`, read R14 → must be `FF`).
+- New **argv[7] input-injection mode** in `host-test/harness.c`
+  (`in_phases[]` + `in_report()`): presses RETURN, SPACE, UP, DOWN, LEFT,
+  RIGHT, A, ESC, F1 one at a time and reports at each phase end:
+  - guest-visible matrix probed through the real bus: `row7=7F` (RETURN),
+    `row8=FE/DF/BF/EF/7F` (SPACE/UP/DOWN/LEFT/RIGHT), `row7=FB` (ESC);
+  - `PSG R14=FF R15=8F R7=B8` in every phase;
+  - trace now prints read values: `[IO-R] port=A2 val=FF` (was `00`);
+  - the game reacts — `E052` (its decoded input word) becomes
+    `01/02/04/08/10` for UP/DOWN/LEFT/RIGHT/SPACE, the name-table hash
+    changes on RETURN/SPACE (title → game), cooldown returns to idle.
+- Full ten-test regression + 4000-frame harness (plain and audio mode) all
+  exit 0. Current `msx.img` = 538,680 bytes, md5
+  `fe7c933808fcc02caa208f76e306e121`, deployed to
+  `/data/Projects/MSX/BlueberryMSX/msx.img`.
+
+### Overlay flicker and sluggish menu keys: UART flooding + blind repaints
+
+Hardware report (image 521,800, md5 `79d7d84a...`): gameplay keys fine, but the
+menu "flickers" and arrows/ENTER need several presses. Evidence gathered from
+`/home/opencode/MSX/serial-out/msx-boot.log`:
+
+- The log is **character-shredded** (`00:00:01.37 Apsx: UI: overlay App: Stage 8:
+  msx_create startage 9: msx_creat...`). Two tasks were writing the same UART
+  concurrently.
+- 97,645 `USB poll` lines across the concatenated log (~160/s): the primary task
+  logged two lines every 30 scheduler yields.
+- The menu session shows exactly **one** `overlay opened` and 50 `overlay held`
+  lines spanning ~67 s, so there was no open/close toggle storm.
+- `frames=1034` never moved while the menu was open, proving the emulator freeze
+  works and the emulator is **not** overdrawing the menu.
+- Only one `booting selected cart` line, i.e. ENTER did eventually get through.
+
+Root causes and the fixes now in the tree:
+
+1. **Non-task-safe logging starved the MSX task.** `CLogger`/`CSerialDevice` are
+   not reentrant and `CSerialDevice::Write` busy-waits on the shared TX FIFO, so
+   two writers make each wait for the other's bytes. `CKernel::LogLine` and the
+   new `CKernel::WriteLog (prefix, fmt, ...)` (`kernel.cpp`) take a task-level
+   spin lock that yields while held; all 26 `m_Logger.Write ("App", ...)` calls
+   now go through `WriteLog`.
+2. **USB plug-and-play logged far too much.** The idle-loop pass is now rate
+   limited to every 250 ms via `CTimer::GetClockTicks ()` (documented 1 MHz) and
+   logs nothing (`USB_POLL_INTERVAL_US` in `kernel.h`). `strings msx.img | grep
+   "USB poll"` returns nothing.
+3. **The menu was repainted ~47 times per second.** While the menu is open the
+   emulator is frozen, so the pixels underneath are static. `msx_task.cpp` keeps
+   `nDrawnSel` and calls `Overlay_Draw` only when the selection changes, when the
+   menu (re)opens (`nDrawnSel = OVERLAY_NOT_DRAWN`), and after a reset, because
+   `DoReset` repaints the whole screen.
+4. **`FillRect` in `overlay.cpp` now fills rows with runs of stores** instead of
+   one bounds-checked `PutPixel` call per pixel (~65k calls per repaint before).
+5. Diagnostics: `UI: overlay held, frames=N, ui_events=M, sel=S` once per second,
+   with `CKernel::GetUiEvents ()` counting events drained by the task. If keys
+   still need multiple presses, compare `ui_events` growth against presses made.
+
+Image built and copied to `/data/Projects/MSX/BlueberryMSX/msx.img`: 521,848
+bytes, md5 `3c92e935db298bca8ffebec4027caee0`. Host regressions all pass:
+`render_sprite_test` (40), `overlay_test` (28), `ui_queue_test` (20),
+`hid_keydiff_test` (27), `render_g2_test`, `io_decode_test`,
+`framebuffer_blit_test`, `frame_pacer_test`, and the 4000-frame harness.
+
 ### Known open issues
 
-- **Hardware verification pending.** The pre-task scan plus the raw HID handler
-  has not yet been run on the Pi; expect `USB scan 1 start/done`,
-  `usbdev` lines, `USB keyboard ready`, and key presses landing in BASIC.
+- ~~Hardware verification of the pre-task image pending.~~ Resolved: the log
+  session compiled `Oct  6 2026 04:07:06` reaches `Stage 15: Entering scheduler
+  loop`, registers the keyboard (`USB keyboard ready`) and boots gameplay. USB
+  keyboard input into the MSX PPI is hardware-confirmed working.
 - A scan that runs later from the idle loop still busy-waits and can stall the
   emulator for up to ~2 s when a device actually changes (hot-plug). Tolerable
   for now.
@@ -451,12 +857,31 @@ repeating 8-byte period), openMSX's indexing is confirmed.
 cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
 gcc -O0 -g -std=gnu11 \
     -I../include -I../src -I../src/core -I../src/chips \
-    -I../src/chips/z80 -I../src/chips/vdp -I../src/app \
+    -I../src/chips/z80 -I../src/chips/vdp -I../src/chips/sound -I../src/app \
     -x c -o harness harness.c \
     ../src/core/msx.c ../src/chips/vdp/tms9918.c ../src/chips/z80/R800.c \
+    ../src/chips/sound/psg.c \
     ../src/app/cbios_roms.cpp ../src/app/knightmare_roms.cpp -lm
-./harness 4000 0
+./harness 4000 0            # no audio
+./harness 4000 0 -1 100 0 1 # argv[6]=1: also render/report PSG audio
 ```
+
+The PSG and bus-decode host tests:
+
+```sh
+cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
+gcc -O1 -std=c11 -I../include -I../src/chips -I../src/chips/sound \
+    -o psg_test psg_test.c ../src/chips/sound/psg.c
+./psg_test                                            # 52 checks, RESULT: PASS
+gcc -O1 -I../include -I../src/include -I../src/chips \
+    -I../src/chips/z80 -I../src/chips/vdp -I../src/chips/sound \
+    -o io_decode_test io_decode_test.c ../src/core/msx.c \
+    ../src/chips/z80/R800.c ../src/chips/vdp/tms9918.c ../src/chips/sound/psg.c
+./io_decode_test    # OTIR + VDP/PPI aliases + PSG port decode
+```
+
+Note: `framebuffer_blit.h` and `frame_pacer.h` are header-only, so their tests
+compile the `.c` alone with `-I../src/app` (no extra source file).
 
 Firmware build (only after the fix is verified in the harness):
 
@@ -477,7 +902,22 @@ forced-sync cleanup is required before the final firmware build.
 | `src/core/msx.c` | Machine core, `msx_step_frame` IRQ delivery |
 | `src/chips/z80/R800.c` | Z80, INT vectoring |
 | `src/app/kernel.cpp` | Bare-metal main loop |
-| `host-test/harness.c` | Diagnostic harness: VRAM scan, Z80 dump, IO trace, register dump |
+| `host-test/harness.c` | Diagnostic harness: VRAM scan, Z80 dump, IO trace (reads print `val=`), register dump, argv[6] PSG audio, argv[7] key-injection test |
+| `host-test/render_sprite_test.c` | Sprite mode 1 regression test (40 checks) |
+| `src/app/overlay.cpp` | ROM selection menu drawing (framebuffer + MSX font) |
+| `src/app/ui_queue.h` | IRQ-safe single-producer key queue for UI hotkeys |
+| `host-test/overlay_test.cpp` | Overlay drawing test (28 checks), stub framebuffer |
+| `host-test/ui_queue_test.c` | Key queue test (20 checks) |
+| `src/app/hid_keydiff.h` | Usage-based USB HID report diff (slot order independent) |
+| `host-test/hid_keydiff_test.c` | HID key diff test (27 checks), includes the hardware bug |
+| `src/chips/sound/psg.{h,c}` | AY-3-8910 PSG core (3 tone, noise LFSR, 32-step envelope, mixer) |
+| `src/app/sound.{h,cpp}` | `CMsxSound`: `CHDMISoundBaseDevice` DMA queue, 48 kHz, 800 frames/video frame |
+| `host-test/psg_test.c` | PSG core test (52 checks): pitch, volume table, mixer, noise, envelope, I/O port direction |
+| `msx2pp/openMSX/src/sound/AY8910.cc` | PSG reference: tick rate, tone/noise periods, envelope, mixer rule |
+| `/home/opencode/MSX/openMSX/src/video/SpriteChecker.cc` | Sprite list, 4-per-line limit, 5S/collision status (`calculatePatternNP`, `checkSprites1`) |
+| `/home/opencode/MSX/openMSX/src/video/SpriteConverter.hh` | `drawMode1` overdraw order, pattern bit order (bit 31 = leftmost) |
+| `/home/opencode/MSX/openMSX/src/video/DisplayMode.hh` | `getSpriteMode()`, mode constants |
+| `/home/opencode/MSX/BlueberryMSX/BlueberryMSX-2.0plus/Src/VideoChips/SpriteLine.h` | BlueberryMSX reference: early clock, Y=208 terminator, 4-sprite MSX1 limit |
 | `Docs/cbios-0.29a/roms/` | C-BIOS ROMs used by the harness |
 | `msx2pp/openMSX/src/video/DisplayMode.hh` | Mode decode (line 65), mode constants (line 27) |
 | `msx2pp/openMSX/src/video/VDP.cc` | `updateNameBase` 1460, `updateColorBase` 1488, `updatePatternBase` 1515, display-enable 524 |

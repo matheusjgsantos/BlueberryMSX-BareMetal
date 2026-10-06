@@ -51,6 +51,32 @@ void VDPBlit_SetDumpHook (VDPBlitDumpFunc pFunc, void *pUser)
 	s_pDumpUser = pUser;
 }
 
+boolean VDPBlit_GetTarget (VDPBlitTarget *pTarget)
+{
+	if (s_pFrameBuffer == 0)
+	{
+		return FALSE;
+	}
+
+	pTarget->pBuffer = s_pFrameBuffer;
+	pTarget->nPitch = s_nPitchBytes;
+	pTarget->nWidth = s_nWidth;
+	pTarget->nHeight = s_nHeight;
+	pTarget->nDepth = s_nDepth;
+	return TRUE;
+}
+
+void VDPBlit_Redraw (void)
+{
+	if (s_pFrameBuffer == 0)
+	{
+		return;
+	}
+
+	msx_blit_frame (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
+			s_nDepth, s_TempFrame);
+}
+
 void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize)
 {
 	unsigned nDifferent = 0;
@@ -76,7 +102,7 @@ extern "C" void msx_frame_render (void *pVdp)
 		return;
 	}
 
-	tms9918_render ((const TMS9918 *) pVdp, s_TempFrame, MSX_WIDTH * 4);
+	tms9918_render ((TMS9918 *) pVdp, s_TempFrame, MSX_WIDTH * 4);
 
 	s_nFrame++;
 

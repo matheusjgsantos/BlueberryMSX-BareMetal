@@ -42,6 +42,8 @@ TMS9918* tms9918_create(void) {
     vdp->pending = 0;
     vdp->key = 0;
     vdp->irq = 0;
+    vdp->status = 0;
+    vdp->fifth_sprite = -1;
 
     return vdp;
 }
@@ -63,9 +65,12 @@ UInt8 tms9918_read_reg(TMS9918 *vdp, UInt16 port) {
             }
             return 0;
         case 0x99: {
-            /* Status register: bit 7 = sync flag. Reading clears it. */
-            UInt8 s = vdp->irq ? 0x80u : 0x00u;
+            /* Status register S#0. Reading clears the sync flag (bit 7), the
+             * 5S flag (bit 6) and the collision flag (bit 5) but keeps bits
+             * 4-0 (openMSX SpriteChecker::resetStatus -> statusReg0 & 0x1F). */
+            UInt8 s = (UInt8)((vdp->irq ? 0x80u : 0x00u) | (vdp->status & 0x7Fu));
             vdp->irq = 0;
+            vdp->status &= 0x1Fu;
             return s;
         }
         default:
@@ -118,6 +123,14 @@ void tms9918_write_reg(TMS9918 *vdp, UInt16 port, UInt8 val) {
                 if (!(val & 0x40)) {
                     if (val & 0x80) {
                         vdp->reg[val & 0x0F] = vdp->pending;
+                        /* Writing R0 clears the sync flag, the 5S/collision
+                         * status bits and the vertical interrupt latch
+                         * (openMSX VDP::writeRegister case 0 ->
+                         * SpriteChecker::resetStatus()). */
+                        if ((val & 0x0F) == 0) {
+                            vdp->status &= 0x1Fu;
+                            vdp->irq = 0;
+                        }
                         if (g_tms_trace)
                             printf("    [TMS-99] REG R%d = %02X (B1=%02X B2=%02X)\n",
                                    val & 0x0F, vdp->pending, vdp->pending, val);
@@ -297,7 +310,161 @@ static void render_multicolor(const TMS9918 *vdp, uint32_t *out, int pitch,
     }
 }
 
-void tms9918_render(const TMS9918 *vdp, uint32_t *out, int pitch) {
+/* ------------------------------------------------------------------ */
+/* Sprites, sprite mode 1.                                             */
+/* ------------------------------------------------------------------ */
+
+/* openMSX DisplayMode: the display mode byte is YAE YJK M5..M1, assembled as
+ *   ((R0 & 0x0E) << 1) | ((R1 & 0x08) >> 2) | ((R1 & 0x10) >> 4)
+ * of which only M5..M1 (the low five bits) select the base mode.
+ * DisplayMode::getSpriteMode() returns 0 (no sprite engine) for TEXT1 (0x01),
+ * TEXT1Q (0x05), TEXT2 (0x09), the unnamed base 0x03 (MSX1 SCREEN 3) and every
+ * V9938 bitmap base, and 1 for GRAPHIC1 (0x00), MULTICOLOR (0x02), GRAPHIC2
+ * (0x04) and MULTIQ (0x06). A TMS9918 has no R0 bits 1-3, so only the bases
+ * 0..3 are reachable in practice. */
+static int sprite_mode1(const TMS9918 *vdp) {
+    int base = ((vdp->reg[0] & 0x0E) << 1)
+             | ((vdp->reg[1] & 0x08) >> 2)
+             | ((vdp->reg[1] & 0x10) >> 4);
+    switch (base) {
+        case 0x00:   /* GRAPHIC1   */
+        case 0x02:   /* MULTICOLOR */
+        case 0x04:   /* GRAPHIC2   */
+        case 0x06:   /* MULTIQ     */
+            return 1;
+        default:     /* TEXT1, TEXT1Q, TEXT2, 0x03 and all bitmap modes */
+            return 0;
+    }
+}
+
+static void render_sprites(TMS9918 *vdp, uint32_t *out, int pitch_px) {
+    /* openMSX VDP::spritesEnabled(): the display mode must support sprites,
+     * blanking (R1.6) must be off, and the VDP-level sprite enable (R8.1)
+     * must be set. R8 does not exist on a TMS9918, so reg[8] stays 0. */
+    if (((vdp->reg[1] & 0x40) == 0) || (vdp->reg[8] & 0x02) ||
+        !sprite_mode1(vdp))
+        return;
+
+    const UInt16 mask = vdp->vram_size - 1;
+    const int size     = (vdp->reg[1] & 0x02) ? 16 : 8;  /* R1.1: 16x16 */
+    const int scale    = (vdp->reg[1] & 0x01) ?  2 : 1;  /* R1.0: magnified */
+    const int width    = size * scale;                    /* pixels per row */
+    const int pat_mask = (size == 16) ? 0xFC : 0xFF;
+    /* Windowed base addresses: base = (reg << shift) | ~(~0 << shift), then
+     * & indexMask, so the register's low bits fall into the index and only
+     * bits 7-12 (attribute) resp. 11-13 (pattern) survive. R11 does not exist
+     * on a TMS9918, so the attribute base is (R5 & 0x7F) << 7. */
+    const UInt16 attr_ba = (UInt16)((vdp->reg[5] & 0x7F) << 7);
+    const UInt16 pat_ba  = (UInt16)((vdp->reg[6] & 0x07) << 11);
+
+    /* The sprite list ends at Y = 208 (0xD0). Its length is what ends up in
+     * S#0 bits 0-4 when no 5th sprite condition occurred. */
+    int n_sprites = 0;
+    while (n_sprites < 32 &&
+           vdp->vram[(attr_ba + n_sprites * 4) & mask] != 208)
+        n_sprites++;
+
+    vdp->fifth_sprite = -1;
+    int collision = 0;
+
+    for (int line = 0; line < 192; line++) {
+        uint32_t *dst = out + line * pitch_px;
+        /* Pixels already taken by a sprite on this line, for the collision
+         * flag. openMSX compares every sprite pair and ignores off-screen
+         * pixels, which is what the clipping below does. */
+        UInt64 occ[4] = { 0, 0, 0, 0 };
+        /* Visible sprites of this line, at most 4. */
+        const UInt8 *draw[4];
+        int rows[4];
+        int visible = 0;
+
+        for (int s = 0; s < n_sprites; s++) {
+            const UInt8 *a = vdp->vram + ((attr_ba + s * 4) & mask);
+            /* The VDP evaluates sprites one line before they appear, so the
+             * attribute Y is one less than the first screen line of the
+             * sprite (openMSX SpriteChecker::checkSprites1: "This is the line
+             * sprites are checked at; the line they are displayed at is one
+             * lower"). */
+            int row = (line - 1 - a[0]) & 0xFF;
+            if (row >= width) continue;          /* not on this line */
+
+            if (visible == 4) {
+                /* Fifth sprite on one line. Only the earliest such line counts,
+                 * and only while neither F (bit 7) nor 5S (bit 6) is set. */
+                if (vdp->fifth_sprite < 0 &&
+                    ((vdp->status & 0x40u) | (vdp->irq ? 0x80u : 0u)) == 0)
+                    vdp->fifth_sprite = s;
+                break;                            /* max 4 sprites per line */
+            }
+            draw[visible] = a;
+            rows[visible] = row;
+            visible++;
+        }
+
+        /* Draw the highest sprite index first so that the lowest index ends up
+         * on top (BlueberryMSX SpriteLine.h: `while (visibleCnt--)`; openMSX
+         * drawMode1 walks the visible span backwards). */
+        while (visible--) {
+            const UInt8 *a = draw[visible];
+            int row = rows[visible];
+            int pattern = a[2] & pat_mask;
+            int pat_row = row / scale;            /* magnified: rows doubled */
+            /* One scanline of the sprite as `size` bits, bit (size-1) being
+             * the leftmost pixel. A 16x16 sprite takes its left 8 columns from
+             * pattern n and its right 8 columns from pattern n+2, i.e. 16
+             * bytes further in the pattern generator (openMSX
+             * SpriteChecker::calculatePatternNP puts the left byte at bit 24
+             * and the right byte at bit 16 of a 32-bit pattern whose bit 31 is
+             * the leftmost pixel; SpriteConverter::drawMode1 walks it with
+             * `pattern & 0x8000'0000`). */
+            UInt16 bits;
+            if (size == 16) {
+                bits = (UInt16)(vdp->vram[(pat_ba + pattern * 8 +
+                                          pat_row) & mask] << 8);
+                bits |= vdp->vram[(pat_ba + pattern * 8 + pat_row + 16) & mask];
+            } else {
+                bits = vdp->vram[(pat_ba + pattern * 8 + pat_row) & mask];
+            }
+
+            /* Expand to `width` pixels, doubling each source pixel when
+             * magnified (openMSX SpriteChecker::doublePattern). */
+            UInt32 pat = 0;
+            UInt32 block = (UInt32)(1u << scale) - 1;
+            for (int i = 0; i < size; i++)
+                if (bits & (1u << (size - 1 - i)))
+                    pat |= block << (width - scale - i * scale);
+
+            /* Attribute bit 7 = early clock, i.e. shifted 32 pixels left. */
+            int x = a[1] - ((a[3] & 0x80) ? 32 : 0);
+            int color = a[3] & 0x0F;
+
+            for (int i = 0; i < width; i++) {
+                if (!(pat & (1u << (width - 1 - i)))) continue;
+                int px = x + i;
+                if (px < 0 || px > 255) continue;
+                if (occ[px >> 6] & ((UInt64)1 << (px & 63))) collision = 1;
+                occ[px >> 6] |= (UInt64)1 << (px & 63);
+                /* Color 0 is transparent in sprite mode 1, but on MSX1 it
+                 * still takes part in collision detection
+                 * (openMSX VDP::canSpriteColor0Collide: isMSX1VDP() true). */
+                if (color) dst[px] = k_msx_palette[color];
+            }
+        }
+    }
+
+    /* S#0 sprite bits, following the tail of openMSX SpriteChecker::
+     * checkSprites1. The 5S and collision bits are sticky: they survive until
+     * the CPU reads the status register or writes R0. */
+    UInt8 status = vdp->status & 0x7Fu;
+    if (vdp->fifth_sprite >= 0 && !(status & 0x40u) && !vdp->irq)
+        status = (UInt8)(0x40 | (status & 0x20) | vdp->fifth_sprite);
+    if (!(status & 0x40))
+        status = (UInt8)((status & 0x20) | (n_sprites > 31 ? 31 : n_sprites));
+    if (collision) status |= 0x20;
+    vdp->status = status;
+}
+
+void tms9918_render(TMS9918 *vdp, uint32_t *out, int pitch) {
     int pitch_px = pitch / 4;
     if (pitch_px < 256) return;
 
@@ -340,4 +507,7 @@ void tms9918_render(const TMS9918 *vdp, uint32_t *out, int pitch) {
     } else {
         render_graphics1(vdp, out, pitch_px, name_ba, pat_ba, col_ba, bg);
     }
+
+    /* Sprites are drawn on top of the background. */
+    render_sprites(vdp, out, pitch_px);
 }

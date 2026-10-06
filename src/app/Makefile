@@ -18,19 +18,24 @@ EXTRAINCLUDE	+= -I../../include \
 			-I../core \
 			-I../chips \
 			-I../chips/z80 \
-			-I../chips/vdp
+			-I../chips/vdp \
+	-I../chips/sound
 
 OBJS = main.o \
 	kernel.o \
 	msx_task.o \
 	vdpblit.o \
+	overlay.o \
+	sound.o \
 	apilog.o \
 	syscalls.o \
 	cbios_roms.o \
 	msxdiag_roms.o \
+	knightmare_roms.o \
 	msx_core.o \
 	r800.o \
-	tms9918.o
+	tms9918.o \
+	psg.o
 
 LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
 	$(CIRCLEHOME)/lib/usb/libusb.a \
@@ -38,6 +43,7 @@ LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
 	$(CIRCLEHOME)/lib/fs/fat/libfatfs.a \
 	$(CIRCLEHOME)/lib/fs/libfs.a \
 	$(CIRCLEHOME)/lib/sched/libsched.a \
+	$(CIRCLEHOME)/lib/sound/libsound.a \
 	$(CIRCLEHOME)/lib/libcircle.a
 
 # toolchain newlib (printf, malloc via _sbrk, ...) - recipe-only, like LIBGCC.
@@ -57,5 +63,9 @@ r800.o: ../chips/z80/R800.c
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
 tms9918.o: ../chips/vdp/tms9918.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+psg.o: ../chips/sound/psg.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<

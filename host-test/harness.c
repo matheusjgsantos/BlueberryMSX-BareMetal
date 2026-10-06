@@ -23,11 +23,21 @@
 
 #include "R800.h"
 #include "tms9918.h"
+#include "psg.h"
 #include "cbios_roms.h"
 #include "knightmare_roms.h"
 
 /* msx.c exposes this for the host (promoted from static). */
 extern int g_trace_io;
+
+/* Audio: render PSG samples each frame when a third argument is given, so the
+ * harness can prove the running ROM drives the AY-3-8910. */
+static int render_audio = 0;
+
+/* Audio aggregate, printed once at the end of the run. */
+static int g_audio_loud_frames;
+static int g_audio_vol_max[3];
+static unsigned g_audio_r7[256];
 extern int g_tms_trace;
 extern unsigned g_trace_count;
 extern unsigned g_trace_cap;
@@ -123,7 +133,7 @@ static void scan_vram(const TMS9918 *v, int frame)
     hexdump("col  table @ col_ba ", vr + (col_ba  & mask), 24);
 }
 
-static void dump_vdp(const TMS9918 *v, int frame)
+static void dump_vdp(TMS9918 *v, int frame)
 {
     printf("\n=== VDP @ frame %d ===\n", frame);
     printf("  regs: R0=%02X R1=%02X R2=%02X R3=%02X R4=%02X R5=%02X R6=%02X R7=%02X\n",
@@ -204,6 +214,72 @@ static void dump_z80(const R800 *z, int frame)
            (int)z->cpuMode);
 }
 
+/* argv[7] input-injection test: press one key at a time while Knightmare
+ * runs and report, at the end of each press window, what the GUEST sees
+ * (keyboard rows probed through the real bus decode, PSG joystick
+ * registers, game RAM state, name-table hash).  A phase that changes
+ * namehash/PC/state proves the key reached the game. */
+struct InPhase { int start, end; int ec; const char *name; };
+static const struct InPhase in_phases[] = {
+    {    0,  999, 0,             "baseline" },
+    { 1000, 1059, MSX_EC_RETURN, "RETURN" },
+    { 1060, 1119, MSX_EC_SPACE,  "SPACE"  },
+    { 1120, 1179, MSX_EC_UP,     "UP"     },
+    { 1180, 1239, MSX_EC_DOWN,   "DOWN"   },
+    { 1240, 1299, MSX_EC_LEFT,   "LEFT"   },
+    { 1300, 1359, MSX_EC_RIGHT,  "RIGHT"  },
+    { 1360, 1419, MSX_EC_A,      "A"      },
+    { 1420, 1479, MSX_EC_ESC,    "ESC"    },
+    { 1480, 1539, MSX_EC_F1,     "F1"     },
+    { 1540, 1599, 0,             "cooldown" },
+};
+#define IN_NPHASES ((int)(sizeof in_phases / sizeof in_phases[0]))
+
+static void in_report(MSX_Machine *m, int frame, const char *name)
+{
+    printf("[IN] phase=%s end frame=%d\n", name, frame);
+
+    /* Guest-visible matrix: select the row latch, then read A9, exactly
+     * what SNSMAT does (the guest re-selects the row before its own
+     * reads, so this probe cannot confuse it).  Rows 6/7/8 are the input
+     * rows; anything with a clear bit means a key the guest can see. */
+    for (int row = 0; row < 12; row++) {
+        m->bus.write_io(m->bus.ref, 0xAA, (UInt8)(0xF0 | row));
+        printf("  row%d=%02X\n", row, m->bus.read_io(m->bus.ref, 0xA9));
+    }
+
+    /* Joystick path Knightmare reads every frame: RDPSG(14) with the
+     * R14 latch.  Must read 0xFF (pins pulled up) while R7 port A is an
+     * input; a 0x00 here is the "all directions pressed" regression. */
+    m->bus.write_io(m->bus.ref, 0xA0, 0x0E);
+    UInt8 r14 = m->bus.read_io(m->bus.ref, 0xA2);
+    m->bus.write_io(m->bus.ref, 0xA0, 0x0F);
+    UInt8 r15 = m->bus.read_io(m->bus.ref, 0xA2);
+    PSG *pg = (PSG *)m->sound;
+    printf("  PSG R14=%02X R15=%02X R7=%02X\n", r14, r15, pg->reg[7]);
+
+    TMS9918 *v = (TMS9918 *)m->vdp;
+    unsigned nb = (unsigned)(v->reg[2] & 15) << 10;
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 768; i++)
+        h = (h ^ v->vram[(nb + i) & (v->vram_size - 1)]) * 16777619u;
+    R800 *z = (R800 *)m->z80;
+    printf("  PC=%04X namehash=%08X\n", z->regs.PC.W, h);
+    printf("  E000: %02X %02X %02X %02X %02X %02X %02X %02X  "
+           "E600=%02X E03A=%02X E052=%02X\n",
+           m->bus.read_mem(m->bus.ref, 0xE000),
+           m->bus.read_mem(m->bus.ref, 0xE001),
+           m->bus.read_mem(m->bus.ref, 0xE002),
+           m->bus.read_mem(m->bus.ref, 0xE003),
+           m->bus.read_mem(m->bus.ref, 0xE004),
+           m->bus.read_mem(m->bus.ref, 0xE005),
+           m->bus.read_mem(m->bus.ref, 0xE006),
+           m->bus.read_mem(m->bus.ref, 0xE007),
+           m->bus.read_mem(m->bus.ref, 0xE600),
+           m->bus.read_mem(m->bus.ref, 0xE03A),
+           m->bus.read_mem(m->bus.ref, 0xE052));
+}
+
 int main(int argc, char **argv)
 {
     int stop = (argc > 1) ? atoi(argv[1]) : DIAG_FRAME_4;
@@ -214,6 +290,11 @@ int main(int argc, char **argv)
     int tws = (argc > 3) ? atoi(argv[3]) : -1;
     int twl = (argc > 4) ? atoi(argv[4]) : 100;
     if (argc > 5) g_trace_cap = (unsigned)atoi(argv[5]);
+    /* argv[6]: render PSG audio each frame and report writes/level (1=on). */
+    render_audio = (argc > 6) ? atoi(argv[6]) : 0;
+    /* argv[7]: key-injection test (1=on); presses one key per phase and
+     * reports what the guest reads at the end of each press window. */
+    int input_test = (argc > 7) ? atoi(argv[7]) : 0;
 
     MSX_Machine *m = msx_create();
     if (!m) { fprintf(stderr, "msx_create failed\n"); return 1; }
@@ -247,6 +328,7 @@ int main(int argc, char **argv)
     }
 
     int first_nonzero_seen = 0;
+    int lastPhase = -1;
     for (int f = 1; f <= stop; f++)
     {
         /* Enable windowed trace before the frame so frame tws is captured. */
@@ -258,6 +340,76 @@ int main(int argc, char **argv)
         }
 
         msx_step_frame(m, VDP_FRAME_INSTR);
+
+        /* Key-injection phases: press the phase key after the frame, so
+         * the guest first sees it at frame start+1, and report at the
+         * end of the press window (the key is still held). */
+        if (input_test) {
+            int ph = -1;
+            for (int i = 0; i < IN_NPHASES; i++)
+                if (f >= in_phases[i].start && f <= in_phases[i].end) ph = i;
+            if (ph != lastPhase) {
+                if (lastPhase >= 0 && in_phases[lastPhase].ec)
+                    msx_ppi_set_ec(m, in_phases[lastPhase].ec, 0);
+                if (ph >= 0) {
+                    if (in_phases[ph].ec)
+                        msx_ppi_set_ec(m, in_phases[ph].ec, 1);
+                    printf("\n[IN] frame=%d phase=%s%s\n", f, in_phases[ph].name,
+                           in_phases[ph].ec ? " (press)" : "");
+                }
+                lastPhase = ph;
+            }
+            if (ph >= 0 && f == in_phases[ph].end)
+                in_report(m, f, in_phases[ph].name);
+        }
+
+        /* Render one video frame of PSG audio so the harness shows whether the
+         * running ROM actually programs the sound chip (this is what decides
+         * whether hardware will produce sound at all). */
+        if (render_audio) {
+            static Int16 pcm[800];
+            msx_psg_render(m, pcm, 800, MSX_PSG_CLOCKS_PER_FRAME);
+            long long sum = 0; int peak = 0;
+            for (int q = 0; q < 800; q++) {
+                sum += pcm[q];
+                int a = pcm[q] < 0 ? -pcm[q] : pcm[q];
+                if (a > peak) peak = a;
+            }
+            static long long nSumAcc = 0; static int nPeakAcc = 0;
+            nSumAcc += sum; if (peak > nPeakAcc) nPeakAcc = peak;
+            /* Aggregate: how much of the run actually makes sound, and how the
+             * mixer/volume registers were used over time. */
+            static int nLoudFrames = 0, nVolMax[3] = {0,0,0};
+            static unsigned nR7Seen[256]; static int bInit = 0;
+            PSG *ap = (PSG *)m->sound;
+            if (!bInit) { bInit = 1; }
+            if (peak > 64) nLoudFrames++;
+            for (int c = 0; c < 3; c++) {
+                int v = ap->reg[8 + c] & 0x0F;
+                if (v > nVolMax[c]) nVolMax[c] = v;
+            }
+            nR7Seen[ap->reg[7]]++;
+            g_audio_loud_frames = nLoudFrames;
+            g_audio_vol_max[0] = nVolMax[0];
+            g_audio_vol_max[1] = nVolMax[1];
+            g_audio_vol_max[2] = nVolMax[2];
+            memcpy(g_audio_r7, nR7Seen, sizeof(nR7Seen));
+            if (f % 100 == 0 && f > 0) {
+                PSG *dp = (PSG *)m->sound;
+                printf("[PSG] frame=%d writes=%u last=R%u val=%02X "
+                       "sum/frame=%lld peak_max=%d | R5=%02X R6=%02X R7=%02X "
+                       "R8=%02X R9=%02X R10=%02X R11=%02X R12=%02X R13=%02X "
+                       "| tA=%04X tB=%04X tC=%04X\n",
+                       f, g_psg_writes, g_psg_last_reg, g_psg_last_val,
+                       nSumAcc / f, nPeakAcc,
+                       dp->reg[5], dp->reg[6], dp->reg[7], dp->reg[8],
+                       dp->reg[9], dp->reg[10], dp->reg[11], dp->reg[12],
+                       dp->reg[13],
+                       dp->tone_period[0], dp->tone_period[1],
+                       dp->tone_period[2]);
+                nSumAcc = 0; nPeakAcc = 0;
+            }
+        }
 
         /* Checkpoint VRAM-population probes at 10, 20, 50, 100, 200, 500,
          * 1000, 2000, 4000 (covers C-BIOS fill, Knightmare entry, steady). */
@@ -468,6 +620,27 @@ int main(int argc, char **argv)
             fprintf(stderr, "%s\n", line);
           }
         }
+    }
+
+    if (render_audio) {
+        PSG *ap = (PSG *)m->sound;
+        printf("\n[PSG-summary] frames_with_audio(peak>64)=%d/%d  "
+               "writes=%u\n", g_audio_loud_frames, stop, g_psg_writes);
+        printf("[PSG-summary] max volume A/B/C = %d/%d/%d "
+               "(15 = full)\n", g_audio_vol_max[0], g_audio_vol_max[1],
+               g_audio_vol_max[2]);
+        printf("[PSG-summary] final mixer R7=%02X  volumes R8/R9/R10=%02X/%02X/%02X\n",
+               ap->reg[7], ap->reg[8], ap->reg[9], ap->reg[10]);
+        printf("[PSG-summary] R7 value histogram (frames each value held):\n");
+        for (int v = 0; v < 256; v++)
+            if (g_audio_r7[v]) printf("   R7=%02X: %u\n", v, g_audio_r7[v]);
+        /* Per-register write counts from the shadow of the last values is not
+         * enough, so report the registers the ROM actually touched via the
+         * global write counter and the PSG state instead. */
+        printf("[PSG-summary] tone periods A/B/C = %04X/%04X/%04X  "
+               "noise R6=%02X  env R11/R12/R13=%02X/%02X/%02X\n",
+               ap->tone_period[0], ap->tone_period[1], ap->tone_period[2],
+               ap->reg[6], ap->reg[11], ap->reg[12], ap->reg[13]);
     }
 
     msx_destroy(m);
