@@ -37,6 +37,48 @@ found. Stage numbering in the current source: 1 hardware, 2 interrupts, 3 timer,
 7 VDP blit, 8/9 `msx_create`, 10 C-BIOS, 11 MSX Diag, 12 USB scan, 13 MSX
 task creation, 14 MSX task created, 15 scheduler loop.
 
+## Boot-delay instrumentation (2026-10-06)
+
+Latest image: `msx.img` 538,744 bytes, md5 `9e9ecfc9cdc2ad01bc0e467cefc709be`,
+deployed (same file as `/data/Projects/MSX/BlueberryMSX/msx.img`). It forces
+GPIO14/15 to ALT0 in `diag_uart_init` (circle/lib/startup.S) so early probes
+reach the wire, and timestamps every stage with `<ch> <10-digit µs from BCM
+CLO>`:
+
+- startup.S: `A` (entry), `B` (after stacks), blink(1/2) around them.
+- sysinit.cpp: `C` → blink(3) → `c` → IRQs/cache/vfp → `k` → BSS/TBSS memset
+  → `m` → `CMemorySystem` → `D` → blink(4) → `E` → … → `G`.
+- kernel.cpp/main.cpp: `0` (main entry), `1`/`2` around `m_Screen.Initialize()`.
+
+Hardware result (corrected 2026-10-07): the earlier "22.4 s banner, delay is
+intermittent" claim was **wrong** — the Oct 6 and Oct 7 captures of image
+`9e9ecfc9` are microsecond-identical, so the delay was deterministic:
+bootcode → first VRAM = **219.6 s**, of which **207 s are the three
+`diag_blink` loops with caches/MMU off** (`A→B = 59.0 s`, `B→C = 69.4 s`,
+`C→c = 79.2 s`; the `0x10000000` pause dominates each loop at ~185 ns per
+uncached iteration). Everything after probe `c` was already fast (`c→D` =
+18 ms, `D→0` = 3.6 s, `1→first VRAM` ≈ 5.7 s).
+
+**Fix, verified on hardware 2026-10-07** — image md5
+`1faf7018491344c7c048e67f1a652b4c` (538,744 bytes): blink constants in
+`circle/lib/startup.S` reduced from `0x01000000/0x02000000/0x10000000` to
+`0x00010000/0x00020000/0x00100000`, plain `diag_uart` kept. Measured:
+`B→C = 186 ms`, `C→c = 212 ms`, bootcode → banner = **3.1 s**, bootcode →
+first VRAM = **8.47 s** (26× faster).
+
+**Landmine — do not re-add UART TX polls.** Two `startup.S` variants that
+polled `PL011_FR.TXFF` before every DR store (push/`bl` helper md5
+`5f5c9beb…`, stackless md5 `fc6cb86c…`, backup
+`MSX/host-test/startup.S.poll-variant`) produced **zero kernel bytes on every
+boot**, although objdump showed instruction-correct code and the mechanism
+was never explained; both plain-`diag_uart` images boot every time. Related
+UART facts: probe `A` is written while the firmware's last line still drains
+the 16-byte PL011 FIFO, so `A` is normally dropped, and any dropped bytes
+shred probe lines (`k 02m 0219312461`) — `MSX/host-test/parse_msx_boot.py`
+tolerates both. The one-time "boot #15 jumped from firmware with zero kernel
+output" event is the same artifact class; three more were seen with the poll
+builds.
+
 ## Feature work (2026-10-06)
 
 Three features were requested on top of the verified USB/C-BIOS baseline:
