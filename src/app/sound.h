@@ -29,8 +29,9 @@ class CVCHIQDevice;
 #define MSX_SOUND_SAMPLE_RATE		48000
 
 // Output destinations. Values match TVCHIQSoundDestination (Auto, Headphones,
-// HDMI) so they can be passed to SetOutput() unchanged. The app never selects
-// AUTO: the firmware then drives BOTH paths from one stream, which we avoid.
+// HDMI) so they can be passed to SetOutput() unchanged. AUTO is the boot
+// default: the firmware then drives BOTH the 3.5mm jack and HDMI from one
+// stream (shown as "HDMI+JACK" in the menu).
 enum
 {
 	MSX_OUTPUT_AUTO = 0,
@@ -38,19 +39,23 @@ enum
 	MSX_OUTPUT_HDMI = 2
 };
 
-// Queue depth in milliseconds. Twice the prefill (see below), so the queue
-// has room to absorb the firmware's bursty ~42 ms pulls and both directions
-// of frame jitter without ever hitting full or empty.
-#define MSX_SOUND_QUEUE_MSECS		100
+// Queue depth in milliseconds. The firmware drains it in bursty ~42 ms
+// pulls, which sawtooths the level down by that much each pull cycle; the
+// prefill below must sit well above one burst so the floor never approaches
+// an empty queue (an empty queue = firmware silence padding = audible rasp).
+// 200 ms also gives the level servo (PushFrame) room to absorb the ppm
+// drift between the wall clock (production) and the audio crystal
+// (consumption) in both directions over a long session.
+#define MSX_SOUND_QUEUE_MSECS		200
 
 // Prefill level and clamp batch, in milliseconds: half the queue. The queue
-// must never sit pinned at full: the firmware pulls ~2000 frames at a time,
-// and from a full queue every pull leaves the stream one push away from an
-// overflow drop - each dropped batch is a gap in the waveform (the audible
-// "rasp"/crackle). Sitting at half depth gives the burst timing room (drops
-// go to zero) and also halves output latency. The clamp equals the prefill,
-// so a stall (which drains the queue) is refilled exactly back to prefill.
-#define MSX_SOUND_PREFILL_MSECS		50
+// must never sit pinned at full: from a full queue every pull leaves the
+// stream one push away from an overflow drop - each dropped batch is a gap
+// in the waveform (the audible "rasp"/crackle). Sitting at half depth gives
+// the burst timing room (drops go to zero) and keeps latency reasonable.
+// The clamp equals the prefill, so a stall (which drains the queue) is
+// refilled exactly back to prefill (MSX_SOUND_MAX_MSECS).
+#define MSX_SOUND_PREFILL_MSECS		100
 
 // Longest interval a single PushFrame() renders, in milliseconds. A long
 // stall (boot, menu, reset) is clamped to this so one call can never
@@ -72,7 +77,8 @@ public:
 
 	boolean IsActive (void) const;
 
-	// Switch the firmware destination (MSX_OUTPUT_JACK <-> MSX_OUTPUT_HDMI).
+	// Switch the firmware destination (MSX_OUTPUT_AUTO "HDMI+JACK",
+	// MSX_OUTPUT_JACK, MSX_OUTPUT_HDMI; cycles in that ring).
 	// Blocks on a VCHIQ completion event, so it MUST run on core 0; the core 1
 	// frame loop arms it through the kernel and the core 0 loop applies it.
 	// Returns FALSE on the direct-HDMI fallback device (fixed destination).
@@ -99,6 +105,14 @@ public:
 
 	// Frames currently waiting in the device queue (0 if not started).
 	unsigned GetQueueFrames (void) const;
+
+	// Delivery health for the AUD/SB beacons: lowest queue level ever
+	// sampled at push time (an empty queue there means the device padded
+	// with silence), pushes that saw an empty queue, and the smoothed
+	// level the rate servo steers (target = 40% of the queue).
+	unsigned GetQueueMinFrames (void) const	{ return m_nQueueMinFrames; }
+	unsigned GetUnderrunPushes (void) const	{ return m_nUnderruns; }
+	int GetLevelEma (void) const		{ return m_nLevelEma; }
 
 	// Worst PushFrame() duration seen since boot, in microseconds. The
 	// synthesis budget check: if this ever reaches the millisecond range
@@ -139,6 +153,17 @@ private:
 	int m_nLastSample;
 	unsigned long long m_nClockTotal;
 	unsigned m_nPushUsMax;
+
+	// Queue-level servo state and delivery health (see PushFrame).
+	Int32 m_nLevelEma;		// smoothed queue level, frames
+	unsigned m_nQueueMinFrames;	// lowest level ever seen at push time
+	unsigned m_nUnderruns;		// pushes that found an empty queue
+
+	// blueMSX R3 1-pole output low-pass state (see PushFrame).
+	Int32 m_nOutLp;
+
+	// openMSX DC-removal filter state, t0 (see PushFrame).
+	Int32 m_nDcT;
 
 	// Active output destination (MSX_OUTPUT_*), updated by SetOutput().
 	int m_nOutput;

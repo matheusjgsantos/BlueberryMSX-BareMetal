@@ -221,6 +221,13 @@ public:
 	unsigned GetSoundPushedFrames (void) const;
 	unsigned GetSoundPushUsMax (void) const;
 
+	// Delivery health: lowest queue level ever seen at push time, pushes
+	// that found an empty queue (firmware padded silence), and the level
+	// servo's smoothed queue level (target = 40% of the queue).
+	unsigned GetSoundQueueMin (void) const;
+	unsigned GetSoundUnderruns (void) const;
+	int GetSoundLevelEma (void) const;
+
 	// Push one emulated frame of PSG audio. Called from the MSX task once per
 	// emulated frame; never blocks, drops samples if the queue is full.
 	void PushSound (MSX_Machine *machine);

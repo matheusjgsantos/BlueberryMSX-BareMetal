@@ -168,6 +168,32 @@ int g_trace_io = 0;   /* promoted to non-static so host harness can enable */
 unsigned g_psg_writes = 0;
 unsigned g_psg_last_reg = 0;
 unsigned g_psg_last_val = 0;
+
+/* Sub-frame PSG register write log: blueMSX R3 syncs every AY write into the
+ * audio stream at its exact output sample (AY8910.c updateRegister ->
+ * mixerSync), and openMSX timestamps writes against the CPU clock. The R800
+ * core has no cycle counter, so each write records the fraction of the
+ * frame's instruction budget executed so far (msx_step_frame), and
+ * msx_psg_render() replays the batch by restoring the state saved at the
+ * frame's first write and re-applying the writes at those positions.
+ * Without this, every write retroactively shaped the WHOLE video frame
+ * (~16.6 ms), which audibly roughens fast passages vs. the references. */
+typedef struct { UInt16 frac16; UInt8 reg; UInt8 val; } PsgWriteLogEntry;
+#define PSG_WRITE_LOG_MAX 256
+static PsgWriteLogEntry s_psgLog[PSG_WRITE_LOG_MAX];
+static unsigned s_psgLogCount;
+static int s_psgLogOverflow;
+static PSG s_psgStart;
+static const void *s_psgStartOwner;
+static unsigned s_instrDone;
+static unsigned s_instrTotal;
+
+static void psg_log_clear(void) {
+    s_psgLogCount = 0;
+    s_psgLogOverflow = 0;
+    s_psgStartOwner = 0;
+}
+
 int g_tms_trace = 0;  /* VDP-level trace (tms9918.c) */
 unsigned g_trace_count = 0;   /* promoted to non-static so harness can reset */
 unsigned g_trace_cap = 500;   /* promoted to non-static so harness can raise cap */
@@ -246,6 +272,22 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
         if (port == 0xA0) {
             psg_set_reg_latch(psg, val);
         } else {
+            /* Record the write's in-frame position first (the live apply
+             * below keeps 0xA2 read-back correct during the frame; the
+             * batch render replays from the saved start state). */
+            if (s_psgLogCount == 0) {
+                s_psgStart = *psg;
+                s_psgStartOwner = machine->sound;
+            }
+            if (s_psgLogCount < PSG_WRITE_LOG_MAX && s_instrTotal > 0) {
+                PsgWriteLogEntry *e = &s_psgLog[s_psgLogCount++];
+                e->frac16 = (UInt16) ((unsigned long long) s_instrDone
+                                      * 65536u / s_instrTotal);
+                e->reg = psg_get_reg_latch(psg);
+                e->val = val;
+            } else {
+                s_psgLogOverflow = 1;
+            }
             psg_write(psg, psg_get_reg_latch(psg), val);
         }
         g_psg_writes++;
@@ -344,11 +386,13 @@ MSX_Machine* msx_create() {
     msx_ppi_init(machine);
 
     printf("MSX Machine created with Z80 and TMS9918\n");
+    psg_log_clear();
     return machine;
 }
 
 void msx_destroy(MSX_Machine *machine) {
     if (!machine) return;
+    psg_log_clear();
     if (machine->z80) r800Destroy((R800*)machine->z80);
     if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
     if (machine->sound) psg_destroy((PSG*)machine->sound);
@@ -420,7 +464,9 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
     R800    *z80 = (R800 *)machine->z80;
     TMS9918 *vdp = (TMS9918 *)machine->vdp;
 
+    s_instrTotal = (unsigned) vdp_frame_instr;
     for (int i = 0; i < vdp_frame_instr; i++) {
+        s_instrDone = (unsigned) i;
         r800ExecuteInstruction(z80);
     }
 
@@ -443,11 +489,54 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
 
 /* Render the PSG into nSamples mono samples covering nMasterCycles master
  * clocks (3579545 Hz). Call once per emulated frame from the host loop: the
- * core has no cycle counter, so the host passes the time it actually spent. */
+ * core has no cycle counter, so the host passes the time it actually spent.
+ * If the frame logged sub-frame register writes, the batch is rendered in
+ * segments with the writes applied at their recorded positions (see the log
+ * comment above); otherwise it renders in one psg_render call. */
 unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
                         unsigned nMasterCycles)
 {
     if (!machine || !machine->sound || !out || nSamples == 0) return 0;
 
-    return psg_render((PSG*)machine->sound, out, nSamples, (UInt32)nMasterCycles);
+    PSG *psg = (PSG*)machine->sound;
+
+    if (s_psgStartOwner != machine->sound) {
+        /* Rebuilt machine: the saved start state no longer exists. */
+        psg_log_clear();
+        s_psgStartOwner = machine->sound;
+    }
+
+    if (s_psgLogCount == 0 || s_psgLogOverflow) {
+        /* No in-frame writes, or the log overflowed: fall back to the old
+         * whole-frame behaviour rather than replaying a partial order. */
+        psg_log_clear();
+        return psg_render(psg, out, nSamples, (UInt32)nMasterCycles);
+    }
+
+    /* Replay from the state saved at the frame's first write. The live chip
+     * keeps its end-of-frame state (already correct for the next frame's
+     * reads); only the 0xA0 latch must survive the struct restore, since
+     * psg_write never touches it. */
+    UInt8 latch = psg->reg_latch;
+    *psg = s_psgStart;
+    psg->reg_latch = latch;
+
+    unsigned n = s_psgLogCount;
+    unsigned sDone = 0;
+    unsigned cDone = 0;
+    for (unsigned k = 0; k < n; k++) {
+        unsigned long long f = s_psgLog[k].frac16;
+        unsigned s1 = (unsigned) ((unsigned long long) nSamples * f >> 16);
+        unsigned c1 = (unsigned) ((unsigned long long) nMasterCycles * f >> 16);
+        if (s1 > sDone) {
+            psg_render(psg, out + sDone, s1 - sDone, (UInt32) (c1 - cDone));
+            sDone = s1;
+            cDone = c1;
+        }
+        psg_write(psg, s_psgLog[k].reg, s_psgLog[k].val);
+    }
+    psg_render(psg, out + sDone, nSamples - sDone,
+               (UInt32) (nMasterCycles - cDone));
+    psg_log_clear();
+    return nSamples;
 }

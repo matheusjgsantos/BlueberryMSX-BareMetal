@@ -93,15 +93,21 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				int nSel = pKernel->GetOverlaySelection ();
 				if (nSel >= TCartIdCount)
 				{
-					// Audio output row: jack <-> HDMI. The menu
-					// stays open; core 0 applies the switch and
-					// logs it. AUTO is never selected (dual-drive).
-					int nNext = (pKernel->GetAudioDest () == MSX_OUTPUT_HDMI)
-						    ? MSX_OUTPUT_JACK : MSX_OUTPUT_HDMI;
-					pKernel->SetAudioDest (nNext);
-					pKernel->LogLine (nNext == MSX_OUTPUT_HDMI
-							  ? "UI: audio output -> HDMI"
-							  : "UI: audio output -> jack");
+				// Audio output row: HDMI+JACK -> jack -> HDMI ->
+				// HDMI+JACK. The menu stays open; core 0 applies
+				// the switch and logs it.
+				int nCur = pKernel->GetAudioDest ();
+				int nNext = (nCur == MSX_OUTPUT_AUTO)
+						  ? MSX_OUTPUT_JACK
+						  : (nCur == MSX_OUTPUT_JACK)
+							 ? MSX_OUTPUT_HDMI
+							 : MSX_OUTPUT_AUTO;
+				pKernel->SetAudioDest (nNext);
+				pKernel->LogLine (nNext == MSX_OUTPUT_AUTO
+							  ? "UI: audio output -> HDMI+jack"
+							  : nNext == MSX_OUTPUT_HDMI
+									 ? "UI: audio output -> HDMI"
+									 : "UI: audio output -> jack");
 					bChanged = TRUE;
 					break;
 				}
@@ -301,12 +307,15 @@ void CMsxTask::Run (void)
 			m_pKernel->GetSoundStats (0, 0, &nDr);
 			char aBuf[192];
 			snprintf (aBuf, sizeof (aBuf),
-				"AUD: t=%u f=%llu psh=%u drop=%u q=%u ck=%llu",
+				"AUD: t=%u f=%llu psh=%u drop=%u q=%u ck=%llu qmin=%u ema=%d uns=%u",
 				CTimer::GetClockTicks (),
 				(unsigned long long) m_pKernel->GetFrames (),
 				m_pKernel->GetSoundPushedFrames (), nDr,
 				m_pKernel->GetSoundQueueFrames (),
-				m_pKernel->GetSoundClockTotal ());
+				m_pKernel->GetSoundClockTotal (),
+				m_pKernel->GetSoundQueueMin (),
+				m_pKernel->GetSoundLevelEma (),
+				m_pKernel->GetSoundUnderruns ());
 			m_pKernel->LogLine (aBuf);
 		}
 
@@ -428,7 +437,7 @@ void CMsxTask::Run (void)
 				nLastBeacon = nNow;
 				char bBuf[208];
 				snprintf (bBuf, sizeof (bBuf),
-					"SB: t=%u fps100=%u work=%u wmax=%u wmaxc=%u psh=%u drop=%u q=%u ck=%llu sndus=%u",
+					"SB: t=%u fps100=%u work=%u wmax=%u wmaxc=%u psh=%u drop=%u q=%u ck=%llu sndus=%u qmin=%u uns=%u",
 					nNow, nFPS100,
 					(unsigned) (nWorkTotal / nWindowFrames),
 					nWorkMax, nWorkMaxCum,
@@ -436,7 +445,9 @@ void CMsxTask::Run (void)
 					nPsgDropped,
 					m_pKernel->GetSoundQueueFrames (),
 					m_pKernel->GetSoundClockTotal (),
-					m_pKernel->GetSoundPushUsMax ());
+					m_pKernel->GetSoundPushUsMax (),
+					m_pKernel->GetSoundQueueMin (),
+					m_pKernel->GetSoundUnderruns ());
 				m_pKernel->SetSerialEnabled (TRUE);
 				m_pKernel->LogLine (bBuf);
 				m_pKernel->SetSerialEnabled (FALSE);

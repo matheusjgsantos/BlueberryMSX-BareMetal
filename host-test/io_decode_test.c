@@ -55,16 +55,17 @@ int main(void)
     assert(m->bus.read_io(m, 0xA1) == 0xFF);
 
     /* Mixing: with tone and noise both off in R7 the output must be the full
-     * channel volume, which proves the registers reached the mixer. */
+     * per-channel volume (10922: the table is scaled 1/3 so three loud
+     * channels fit Int16), which proves the registers reached the mixer. */
     m->bus.write_io(m, 0xA0, 0x07);
     m->bus.write_io(m, 0xA1, 0x3F);
     m->bus.write_io(m, 0xA0, 0x08);
     m->bus.write_io(m, 0xA1, 0x0F);
     Int16 samples[8];
     assert(msx_psg_render(m, samples, 8, 8 * 16) == 8);
-    assert(samples[0] == 32767);
+    assert(samples[0] == 10922);
     assert(msx_psg_render(m, samples, 8, 8 * 16) == 8);
-    assert(samples[7] == 32767);
+    assert(samples[7] == 10922);
 
     msx_destroy(m);
     puts("PASS: Z80 OTIR, VDP/PPI high-byte port aliases, PSG port decode");

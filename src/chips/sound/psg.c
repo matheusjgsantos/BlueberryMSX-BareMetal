@@ -9,22 +9,20 @@
 /* One emulation tick = 16 master clocks (openMSX NATIVE_FREQ = master/16). */
 #define PSG_TICKS_PER_CLOCK 16
 
-/* Sub-steps per output sample. A bare stepped square quantises its edges to
- * sample boundaries and folds everything above Nyquist back into the audio
- * (the "raspy" timbre). blueMSX R3 averages 16 sub-samples through a 1-pole
- * low-pass; 8x is equivalent in practice at 48 kHz and twice as cheap. */
-#define PSG_OVERSAMPLE 8
-
-/* Volume table: 2^((v-15)/4) of full scale, v=0 is silent. openMSX derives
- * this from its logarithmic YM2149 table as volumeTab[v] = YM[2*v+1].
+/* Volume table: 3 dB per step (AY-3-8910 amplitude law), v=0 silent.
+ * openMSX derives it as volumeTab[v] = YM2149EnvelopeTab[2*v+1] from its
+ * 1.5 dB ladder (AY8910.cc:67 "3dB per step"), i.e. 2^((v-15)/2) of full
+ * scale; blueMSX R3 (0.707945784 factor) and FluBBa's AY38910 (0x5555
+ * attenuation ladder) match the same curve.  The previous 1.5 dB/step
+ * table (2^((v-15)/4)) made mid-level voices up to 10 dB too loud,
+ * giving dense/blaring mixes.
  * Scaled to 1/3 here: the three channels are summed in psg_advance, so at
  * full scale per channel three loud channels would clip (the serial log
  * showed peak=32768 constantly). 1/3 keeps the sum of any channel
- * combination within Int16 (max 10922*3 = 32766) and matches blueMSX R3's
- * gain staging (per-channel max ~9805). */
+ * combination within Int16 (max 10922*3 = 32766). */
 static const Int16 s_aPsgVolume[16] = {
-    0, 965, 1148, 1365, 1624, 1931, 2296, 2731,
-    3247, 3862, 4591, 5461, 6495, 7723, 9182, 10922
+    0, 85, 121, 171, 241, 341, 483, 683,
+    965, 1365, 1931, 2731, 3862, 5461, 7723, 10922
 };
 
 /* AY8910 register read masks (openMSX AY8910::readRegister). */
@@ -312,23 +310,37 @@ static Int16 psg_advance(PSG *psg, UInt32 nTicks)
     return (Int16) mix;
 }
 
-/* Advance the generators over nTicks in PSG_OVERSAMPLE steps and average the
- * results, then run the average through the 1-pole low-pass (blueMSX R3's
- * filter: lp += (in - lp) * 2 / 3). Tick totals stay exact: the sub-steps
- * sum to nTicks. nTicks == 0 is legal and just re-evaluates the mix. */
+/* Average the mix over the integer ticks an output sample covers. The AY
+ * output can only change at tick boundaries (tick = 16 master clocks =
+ * 4.47 us), so the equal-weight average of the n consecutive tick states IS
+ * the exact boxcar the real DAC + RC output filter sees; blueMSX R3 reaches
+ * the same result with 16x fractional-phase oversampling because its phase
+ * accumulator can step below a tick. The old implementation split nTicks
+ * into fixed sub-steps and re-evaluated unchanged states, which biased the
+ * average towards the last state whenever nTicks was below the sub-step
+ * count - always true at 48 kHz (4.66 ticks per sample). nTicks == 0 just
+ * re-evaluates the mix. blueMSX's 1-pole low-pass (AY8910.c) is applied by
+ * the host output stage, not here: the core stays bit-exact (asserted by
+ * the host tests' one-tick-per-sample contract). */
 static Int16 psg_advance_avg(PSG *psg, UInt32 nTicks)
 {
-    UInt32 sub = nTicks / PSG_OVERSAMPLE;
-    UInt32 rem = nTicks % PSG_OVERSAMPLE;
-    Int32 acc = 0;
+    Int32 acc;
 
-    for (unsigned s = 0; s < PSG_OVERSAMPLE; s++)
+    if (nTicks == 0)
     {
-        acc += psg_advance(psg, sub + ((s < rem) ? 1 : 0));
+        acc = psg_advance(psg, 0);
+    }
+    else
+    {
+        acc = 0;
+        for (UInt32 j = 0; j < nTicks; j++)
+        {
+            acc += psg_advance(psg, 1);
+        }
+        acc /= (Int32) nTicks;
     }
 
-    psg->lp += (acc - psg->lp) * 2 / 3;
-    return (Int16) (psg->lp / PSG_OVERSAMPLE);
+    return (Int16) acc;
 }
 
 unsigned psg_render(PSG *psg, Int16 *out, unsigned nSamples, UInt32 nMasterCycles)
@@ -352,14 +364,26 @@ unsigned psg_render(PSG *psg, Int16 *out, unsigned nSamples, UInt32 nMasterCycle
     UInt32 ticks = psg->clock_rem / PSG_TICKS_PER_CLOCK;
     psg->clock_rem &= (PSG_TICKS_PER_CLOCK - 1);
 
-    /* Spread the ticks evenly over the samples; the extra ones go to the first
-     * samples so the total stays exact. */
-    UInt32 per_sample = ticks / nSamples;
-    UInt32 extra = ticks % nSamples;
-
+    /* Spread the ticks uniformly over the samples (Bresenham). The old
+     * code gave every remainder tick to the FIRST samples of the batch:
+     * a 60 Hz push of ~800 samples got ~3728 ticks, so samples 0..527
+     * ran 5 ticks (+7%) and the rest 4 ticks (-14%) - a 60 Hz square-wave
+     * time warp of the whole chip. Tone, noise and envelope all stayed in
+     * average sync, so pitch, envelope and spectrum tests all passed, but
+     * the waveform carried +-10% instantaneous frequency modulation at
+     * 60 Hz (host chipcmp: instant-freq modulation power 43 dB above
+     * blueMSX, which advances continuously). That FM is the rasp/crackle
+     * that amplitude-domain forensics cannot see: no 60 Hz envelope comb,
+     * no impulse excess, no HF shelf from it. Distributing the extras
+     * evenly makes chip time advance uniformly within +-1 tick (4.5 us);
+     * the residual sample-rate jitter sits at ~24 kHz, far above the
+     * 9.4 kHz output low-pass. */
+    UInt32 acc = 0;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        UInt32 n = per_sample + ((i < extra) ? 1 : 0);
+        acc += ticks;
+        UInt32 n = acc / nSamples;
+        acc -= n * nSamples;
         out[i] = psg_advance_avg(psg, n);
     }
 

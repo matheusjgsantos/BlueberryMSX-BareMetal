@@ -191,8 +191,12 @@ A complete AY-3-8910/YM2149 model, semantics copied from
   `EFINE + 256 * ECOARSE` ticks, all 32 shapes (continue/attack/alternate/
   hold), selected when R8-R10 bit 4 is set;
 - mixer rule `out = (toneOut | !toneEnable) & (noiseOut | !noiseEnable)` per
-  channel, summed and clamped to `Int16`, centred (no DC offset);
-- volume table `2^((v-15)/4)` as in openMSX, `v = 0` silent;
+  channel, summed and clamped to `Int16`, centred (`±volume` per voice, so a
+  50 %-duty tone averages 0 — but an R7-held voice sits at `+volume`, see the
+  DC blocker below);
+- volume table `2^((v-15)/2)` (3 dB per step — the law openMSX, blueMSX and
+  FluBBa all implement), scaled to 1/3 so three channels fit `Int16`:
+  peak = 10922, `v = 0` silent;
 - register read masks R1 `0x0F`, R6 `0x1F`, R13 `0x0F`, out-of-range registers
   read `0xFF` and ignore writes, `0xA0`/`0xA1` read as `0xFF`.
 
@@ -215,7 +219,11 @@ more than one video frame).
   `MSX_SOUND_QUEUE_MSECS = 100`. One emulated video frame is exactly
   `48000 / 60 = 800` stereo frames. `Start()` fills the **whole** queue with
   silence in video-frame sized chunks before starting the DMA engine, so the
-  emulator warm-up cannot underrun it. `PushFrame()` renders mono, duplicates
+  emulator warm-up cannot underrun it. `PushFrame()` renders mono, then runs
+  the output conditioning chain — the openMSX DC-removal filter
+  (`y = x - x[-1] + R*y[-1]`, R = 511/512 ≈ 14 Hz; needed because R7-held
+  voices output pure DC, verified by `host-test/dc_test.c`) followed by
+  blueMSX R3's 1-pole LPF (fc ≈ 8.4 kHz) — then duplicates
   it to both channels and writes it without ever blocking: a short write is
   counted as dropped frames.
 - PSG time follows the real frame duration: `CTimer::GetClockTicks()` (1 MHz)
@@ -233,9 +241,10 @@ more than one video frame).
 
 #### Host verification
 
-- `host-test/psg_test.c` — **52 checks, all passing**: tone frequency
+- `host-test/psg_test.c` — **53 checks, all passing**: tone frequency
   (3496 measured rising edges vs 3496 expected for period 16), period-0
-  clamping, the full volume table (15 = 32767, 11 = 16384, 8 = 9742), the
+  clamping, the full volume table (15 = 10922, 13 = 5461 = half,
+  11 = 2731 = quarter, 8 = 965 — 3 dB/step), the
   mixer rule, noise amplitude and the exact LFSR recurrence, envelope decay /
   attack / R8-bit-4 gating, register read masks, I/O port direction (R14/R15
   read the pulled-up pins `0xFF` while R7 says input, echo the latch when
@@ -462,7 +471,7 @@ the real chip.
 
 Verification (host-side, all exit 0):
 
-- `psg_test` 45 → **52 checks PASS**, including the exact Knightmare
+- `psg_test` 45 → **53 checks PASS**, including the exact Knightmare
   sequence (R7=`B8`, write R15=`8F`, read R14 → must be `FF`).
 - New **argv[7] input-injection mode** in `host-test/harness.c`
   (`in_phases[]` + `in_report()`): presses RETURN, SPACE, UP, DOWN, LEFT,
@@ -914,7 +923,10 @@ The PSG and bus-decode host tests:
 cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
 gcc -O1 -std=c11 -I../include -I../src/chips -I../src/chips/sound \
     -o psg_test psg_test.c ../src/chips/sound/psg.c
-./psg_test                                            # 52 checks, RESULT: PASS
+./psg_test                                            # 53 checks, RESULT: PASS
+gcc -O1 -std=c11 -I../include -I../src/chips -I../src/chips/sound \
+    -o dc_test dc_test.c ../src/chips/sound/psg.c -lm
+./dc_test                                             # DC means + blocker effect
 gcc -O1 -I../include -I../src/include -I../src/chips \
     -I../src/chips/z80 -I../src/chips/vdp -I../src/chips/sound \
     -o io_decode_test io_decode_test.c ../src/core/msx.c \
@@ -954,7 +966,8 @@ forced-sync cleanup is required before the final firmware build.
 | `host-test/hid_keydiff_test.c` | HID key diff test (27 checks), includes the hardware bug |
 | `src/chips/sound/psg.{h,c}` | AY-3-8910 PSG core (3 tone, noise LFSR, 32-step envelope, mixer) |
 | `src/app/sound.{h,cpp}` | `CMsxSound`: `CHDMISoundBaseDevice` DMA queue, 48 kHz, 800 frames/video frame |
-| `host-test/psg_test.c` | PSG core test (52 checks): pitch, volume table, mixer, noise, envelope, I/O port direction |
+| `host-test/psg_test.c` | PSG core test (53 checks): pitch, volume table, mixer, noise, envelope, I/O port direction |
+| `host-test/dc_test.c` | DC-offset probe: per-scenario output means (held voice = 100 % DC) and the openMSX-form DC blocker from `sound.cpp` applied to them |
 | `msx2pp/openMSX/src/sound/AY8910.cc` | PSG reference: tick rate, tone/noise periods, envelope, mixer rule |
 | `/home/opencode/MSX/openMSX/src/video/SpriteChecker.cc` | Sprite list, 4-per-line limit, 5S/collision status (`calculatePatternNP`, `checkSprites1`) |
 | `/home/opencode/MSX/openMSX/src/video/SpriteConverter.hh` | `drawMode1` overdraw order, pattern bit order (bit 31 = leftmost) |

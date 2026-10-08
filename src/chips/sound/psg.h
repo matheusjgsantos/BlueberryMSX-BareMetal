@@ -56,10 +56,6 @@ typedef struct {
 
     /* Master clock remainder from the previous render call. */
     UInt32 clock_rem;
-
-    /* One-pole low-pass state over the oversampled mix (blueMSX R3 runs the
-     * same filter), smoothing square-wave edges so they do not sound raspy. */
-    Int32 lp;
 } PSG;
 
 PSG* psg_create(void);
@@ -74,10 +70,9 @@ void psg_write(PSG *psg, UInt8 reg, UInt8 value);
 UInt8 psg_read(const PSG *psg, UInt8 reg);
 
 /* Render nSamples mono samples covering nMasterCycles master clocks.
- * Generators advance in sub-sample steps inside each output sample (8x
- * oversampling, see psg_render), so a register write takes effect within
- * the current output sample. Returns the number of samples written
- * (nSamples, or 0 on error). */
+ * Each output sample is the exact time-weighted average of the integer tick
+ * states it covers (see psg_advance_avg). Returns the number of samples
+ * written (nSamples, or 0). */
 unsigned psg_render(PSG *psg, Int16 *out, unsigned nSamples, UInt32 nMasterCycles);
 
 /* Diagnostic: current envelope step / attack pair (for the serial log). */

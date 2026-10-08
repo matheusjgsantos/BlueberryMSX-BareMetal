@@ -7,7 +7,8 @@
  *   - noise period    = 2*max(1, R6 & 0x1F) ticks
  *   - envelope step   = EFINE + 256*ECOARSE ticks
  *   - output bit      = (toneOn | toneDisabled) & (noiseOn | noiseDisabled)
- *   - volume          = 2^((v-15)/4), v=0 silent
+ *   - volume          = 2^((v-15)/2) (3 dB per step, openMSX/blueMSX/FluBBa),
+ *                     v=0 silent
  *   - 17 bit noise LFSR, Galois form: r = (r>>1) ^ ((r&1)<<13) ^ ((r&1)<<16)
  */
 #include <stdio.h>
@@ -143,25 +144,34 @@ static void test_volume_table (void)
 	if (!psg) { check (0, "psg_create"); return; }
 
 	/* Tone and noise both disabled in R7 -> the mix bit is always 1, so the
-	 * output is a constant +volume. */
+	 * output is a constant +volume. The table is scaled to 1/3 of full scale
+	 * (psg.c): three centred channels must sum within Int16 without ever
+	 * hitting the clamp (the old unscaled table showed peak=32768
+	 * constantly). Per-channel peak = 10922. */
 	psg_write (psg, 7, 0x3F);
 	psg_write (psg, 8, 15);
 	render_ticks (psg, buf, 8);
-	check (buf[0] == 32767 && buf[7] == 32767, "volume 15 = full scale when tone+noise off");
+	check (buf[0] == 10922 && buf[7] == 10922, "volume 15 = full scale when tone+noise off");
 
 	psg_write (psg, 8, 0);
 	render_ticks (psg, buf, 8);
 	check (buf[0] == 0, "volume 0 = silence");
 
-	/* Volume 8 is 2^((8-15)/4) = 0.2973 of full scale -> about 9742. */
+	/* Volume 8 is 2^((8-15)/2) = 0.0884 of the peak (3 dB/step law)
+	 * -> 0.0884*10922 = 965. */
 	psg_write (psg, 8, 8);
 	render_ticks (psg, buf, 8);
-	check (buf[0] == 9742, "volume 8 = 2^((8-15)/4) of full scale");
+	check (buf[0] == 965, "volume 8 = 2^((8-15)/2) of full scale");
 
-	/* Logarithmic: volume 11 is exactly half of full scale. */
+	/* Logarithmic 3 dB steps: volume 13 is exactly half of the peak,
+	 * volume 11 is a quarter. */
+	psg_write (psg, 8, 13);
+	render_ticks (psg, buf, 8);
+	check (buf[0] == 5461, "volume 13 = half of full scale");
+
 	psg_write (psg, 8, 11);
 	render_ticks (psg, buf, 8);
-	check (buf[0] == 16384, "volume 11 = half of full scale");
+	check (buf[0] == 2731, "volume 11 = quarter of full scale");
 
 	psg_destroy (psg);
 }
@@ -173,7 +183,7 @@ static void test_mixer_rule (void)
 
 	if (!psg) { check (0, "psg_create"); return; }
 
-	/* Channel A only: volume 4 (4871).
+	/* Channel A only: volume 4 (241 after the 1/3 table scaling).
 	 * R7 bit 0 = 1 (tone A off), bits 3-5 = 0 (noise on), so the mix bit is
 	 * noiseOut & 1 -> alternating at the noise rate. */
 	psg_write (psg, 8, 4);
@@ -191,8 +201,8 @@ static void test_mixer_rule (void)
 	}
 	check (nPos > 0 && nNeg > 0, "mixer: noise-only output is both polarities");
 	check (nFlips > 4, "mixer: noise-only output changes at the noise rate");
-	check ((buf[0] == 4871 || buf[0] == -4871) &&
-	       (buf[1] == 4871 || buf[1] == -4871),
+	check ((buf[0] == 241 || buf[0] == -241) &&
+	       (buf[1] == 241 || buf[1] == -241),
 	       "mixer: noise-only amplitude = channel volume");
 
 	/* Tone enabled and noise enabled -> mix bit = tone & noise. */
@@ -262,7 +272,7 @@ static void test_envelope_decay (void)
 	int nMonotonic = 1;
 	for (int i = 1; i < 40; i++)
 		if (buf[i] > buf[i - 1]) { nMonotonic = 0; break; }
-	check (buf[0] == 32767, "envelope: shape 0 starts at full volume");
+	check (buf[0] == 10922, "envelope: shape 0 starts at full volume");
 	check (nMonotonic, "envelope: shape 0 decays monotonically");
 	check (buf[39] == 0, "envelope: shape 0 ends at silence and holds");
 
@@ -418,22 +428,25 @@ static void test_render_api (void)
 	 * clocks, i.e. 3728 ticks + 11 leftover master clocks. */
 	check (psg->clock_rem == 59659 % CLOCKS_PER_TICK, "master clock remainder is carried over");
 
-	/* Clamping: three channels at full volume, all mix bits on. */
+	/* Headroom: three centred channels of +-10922 sum to +-32766, so the
+	 * peak lands exactly one LSB below the clamp - loud trios never clip
+	 * (the old unscaled table constantly saturated: peak=32768). */
 	psg_write (psg, 7, 0x3F);
 	psg_write (psg, 8, 15);
 	psg_write (psg, 9, 15);
 	psg_write (psg, 10, 15);
 	psg_render (psg, buf, 4, 4 * CLOCKS_PER_TICK);
-	check (buf[0] == 32767, "three full channels clamp to +32767");
+	check (buf[0] == 32766, "three full channels fill to 32766 without clipping");
 
-	/* And the negative side. */
+	/* And the negative side: with tone+noise all on the sum still must stay
+	 * inside Int16 - never wrap (values are bounded by +-32766). */
 	psg_write (psg, 7, 0x00);
 	psg_write (psg, 6, 0);
 	psg_render (psg, buf, 64, 64 * CLOCKS_PER_TICK);
-	int nSaturated = 0;
+	int nInRange = 1;
 	for (int i = 0; i < 64; i++)
-		if (buf[i] == -32768 || buf[i] == 32767) nSaturated++;
-	check (nSaturated > 0, "output stays inside int16 (saturates, never wraps)");
+		if (buf[i] < -32766 || buf[i] > 32766) nInRange = 0;
+	check (nInRange, "output stays inside int16 (never wraps)");
 
 	/* A huge cycle count must be clamped, not overflow the accumulator. */
 	check (psg_render (psg, buf, 10, 0xFFFFFFFFu) == 10, "render survives an absurd clock count");

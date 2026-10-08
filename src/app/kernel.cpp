@@ -238,7 +238,7 @@ CKernel::CKernel (void):
 	, m_bOverlayOpen (FALSE)
 	, m_nOverlaySel (0)
 	, m_nCurrentCart (CartMsxDiag)
-	, m_nAudioDest (MSX_OUTPUT_JACK)
+	, m_nAudioDest (MSX_OUTPUT_AUTO)
 	, m_nAudioDestReq (-1)
 	, m_pSound (0)
 #ifdef ARM_ALLOW_MULTI_CORE
@@ -546,7 +546,9 @@ TShutdownMode CKernel::Run (void)
 			if (m_pSound != 0 && m_pSound->SetOutput (nAudioOutput))
 			{
 				WriteLog ("App", "Audio output -> %s",
-					  nAudioOutput == MSX_OUTPUT_HDMI ? "HDMI" : "jack");
+					  nAudioOutput == MSX_OUTPUT_JACK ? "jack"
+					  : nAudioOutput == MSX_OUTPUT_HDMI ? "HDMI"
+										  : "HDMI+jack");
 			}
 			else
 			{
@@ -908,6 +910,21 @@ unsigned CKernel::GetSoundPushUsMax (void) const
 	return m_pSound != 0 ? m_pSound->GetPushUsMax () : 0;
 }
 
+unsigned CKernel::GetSoundQueueMin (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetQueueMinFrames () : 0;
+}
+
+unsigned CKernel::GetSoundUnderruns (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetUnderrunPushes () : 0;
+}
+
+int CKernel::GetSoundLevelEma (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetLevelEma () : 0;
+}
+
 void CKernel::PushSound (MSX_Machine *machine)
 {
 	if (m_pSound == 0)
@@ -963,7 +980,12 @@ boolean CKernel::ClaimCore0Reset (void)
 
 const char *CKernel::GetAudioDestLabel (void) const
 {
-	return m_nAudioDest == MSX_OUTPUT_HDMI ? "HDMI" : "JACK";
+	switch (m_nAudioDest)
+	{
+	case MSX_OUTPUT_JACK:	return "JACK";
+	case MSX_OUTPUT_HDMI:	return "HDMI";
+	default:		return "HDMI+JACK";	// MSX_OUTPUT_AUTO: both sinks
+	}
 }
 
 // Core 1 -> core 0 handoff: publish the destination for the menu label,
