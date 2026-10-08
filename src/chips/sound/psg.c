@@ -9,11 +9,22 @@
 /* One emulation tick = 16 master clocks (openMSX NATIVE_FREQ = master/16). */
 #define PSG_TICKS_PER_CLOCK 16
 
+/* Sub-steps per output sample. A bare stepped square quantises its edges to
+ * sample boundaries and folds everything above Nyquist back into the audio
+ * (the "raspy" timbre). blueMSX R3 averages 16 sub-samples through a 1-pole
+ * low-pass; 8x is equivalent in practice at 48 kHz and twice as cheap. */
+#define PSG_OVERSAMPLE 8
+
 /* Volume table: 2^((v-15)/4) of full scale, v=0 is silent. openMSX derives
- * this from its logarithmic YM2149 table as volumeTab[v] = YM[2*v+1]. */
+ * this from its logarithmic YM2149 table as volumeTab[v] = YM[2*v+1].
+ * Scaled to 1/3 here: the three channels are summed in psg_advance, so at
+ * full scale per channel three loud channels would clip (the serial log
+ * showed peak=32768 constantly). 1/3 keeps the sum of any channel
+ * combination within Int16 (max 10922*3 = 32766) and matches blueMSX R3's
+ * gain staging (per-channel max ~9805). */
 static const Int16 s_aPsgVolume[16] = {
-    0, 2896, 3443, 4096, 4871, 5792, 6887, 8192,
-    9742, 11585, 13774, 16384, 19484, 23170, 27547, 32767
+    0, 965, 1148, 1365, 1624, 1931, 2296, 2731,
+    3247, 3862, 4591, 5461, 6495, 7723, 9182, 10922
 };
 
 /* AY8910 register read masks (openMSX AY8910::readRegister). */
@@ -301,17 +312,39 @@ static Int16 psg_advance(PSG *psg, UInt32 nTicks)
     return (Int16) mix;
 }
 
+/* Advance the generators over nTicks in PSG_OVERSAMPLE steps and average the
+ * results, then run the average through the 1-pole low-pass (blueMSX R3's
+ * filter: lp += (in - lp) * 2 / 3). Tick totals stay exact: the sub-steps
+ * sum to nTicks. nTicks == 0 is legal and just re-evaluates the mix. */
+static Int16 psg_advance_avg(PSG *psg, UInt32 nTicks)
+{
+    UInt32 sub = nTicks / PSG_OVERSAMPLE;
+    UInt32 rem = nTicks % PSG_OVERSAMPLE;
+    Int32 acc = 0;
+
+    for (unsigned s = 0; s < PSG_OVERSAMPLE; s++)
+    {
+        acc += psg_advance(psg, sub + ((s < rem) ? 1 : 0));
+    }
+
+    psg->lp += (acc - psg->lp) * 2 / 3;
+    return (Int16) (psg->lp / PSG_OVERSAMPLE);
+}
+
 unsigned psg_render(PSG *psg, Int16 *out, unsigned nSamples, UInt32 nMasterCycles)
 {
     if (!psg || !out || nSamples == 0) return 0;
 
     /* Accumulate the master clock remainder so the PSG clock stays exact over
-     * many frames (a frame is not a whole number of 16 clock ticks). One MSX
-     * frame is about 59659 master clocks, so 16 bits already covers any
-     * sane caller and keeps the accumulator from overflowing after a stall. */
-    if (nMasterCycles > 0xFFFFu)
+     * many frames (a frame is not a whole number of 16 clock ticks). clock_rem
+     * only ever holds a remainder < PSG_TICKS_PER_CLOCK between calls, so any
+     * bound well below 2^32 is safe against overflow. The host clamps its
+     * batches to one long stall (100 ms) already; this bound only catches
+     * garbage callers, and unlike the old 0xFFFF cap it does not destroy the
+     * pitch of batches longer than ~18 ms. */
+    if (nMasterCycles > 3579545u * 10u)
     {
-        nMasterCycles = 0xFFFFu;
+        nMasterCycles = 3579545u * 10u;
     }
 
     psg->clock_rem += nMasterCycles;
@@ -327,7 +360,7 @@ unsigned psg_render(PSG *psg, Int16 *out, unsigned nSamples, UInt32 nMasterCycle
     for (unsigned i = 0; i < nSamples; i++)
     {
         UInt32 n = per_sample + ((i < extra) ? 1 : 0);
-        out[i] = psg_advance(psg, n);
+        out[i] = psg_advance_avg(psg, n);
     }
 
     return nSamples;

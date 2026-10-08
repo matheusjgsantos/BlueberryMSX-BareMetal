@@ -208,9 +208,20 @@ extern "C" void msx_diag_cb (const char *line, void *opaque)
 }
 
 CKernel::CKernel (void):
-	m_Screen (m_Options.GetWidth (), m_Options.GetHeight ()),
+	// Framebuffer size: pin 800x480 (DSI native) unless options.txt says
+	// otherwise. With width=0 Circle asks the firmware for the CONNECTED
+	// display's preferred mode: the DSI panel reports 800x480 and runs at
+	// full speed, but an external HDMI monitor reports its native mode
+	// (e.g. 1920x1080) and msx_blit_frame then scales 256x192 up to the
+	// full framebuffer every frame - ~5x the pixel work, which is what
+	// made everything slow on HDMI while DSI was perfect. The firmware
+	// picks a supported timing for sinks that cannot do 800x480 exactly;
+	// VDPBlit_Init clamps the target to the granted pitch.
+	m_Screen (m_Options.GetWidth () ? m_Options.GetWidth () : MSX_FB_WIDTH,
+		  m_Options.GetHeight () ? m_Options.GetHeight () : MSX_FB_HEIGHT),
 	m_TeeLog (&m_Serial),
 	m_Timer (&m_Interrupt),
+	m_VCHIQ (CMemorySystem::Get (), &m_Interrupt),
 	m_pUSBController (nullptr),
 	m_pKeyboard (nullptr),
 	m_Logger (m_Options.GetLogLevel (), &m_Timer),
@@ -222,13 +233,24 @@ CKernel::CKernel (void):
 	, m_bResetRequest (FALSE)
 	, m_bStepRequest (FALSE)
 	, m_nFrames (0)
-	, m_bLogLocked (FALSE)
+	, m_bSerialEnabled (TRUE)
 	, m_nUiEvents (0)
 	, m_bOverlayOpen (FALSE)
 	, m_nOverlaySel (0)
 	, m_nCurrentCart (CartMsxDiag)
+	, m_nAudioDest (MSX_OUTPUT_JACK)
+	, m_nAudioDestReq (-1)
 	, m_pSound (0)
+#ifdef ARM_ALLOW_MULTI_CORE
+	, m_MultiCore (this)
+#endif
+	, m_pMsxTask (0)
+	, m_bMsxGo (FALSE)
+	, m_bResetArmed (FALSE)
+	, m_bResetDone (FALSE)
 {
+	diag_uart ('9');	// all member ctors (incl. m_VCHIQ) completed
+
 	UiQueue_Init (&m_UiQueue);
 
 	// Key tracking tables: no key is held at boot.
@@ -236,6 +258,8 @@ CKernel::CKernel (void):
 	memset (m_aKeyGuest, 0, sizeof (m_aKeyGuest));
 	memset (m_aUiDownUs, 0, sizeof (m_aUiDownUs));
 	memset (m_aUiUpUs, 0, sizeof (m_aUiUpUs));
+
+	diag_uart ('8');	// ctor body completed, about to return
 }
 
 CKernel::~CKernel (void)
@@ -290,6 +314,21 @@ boolean CKernel::Initialize (void)
 		WriteLog ("App", "Stage 3: Timer Initialized");
 	}
 
+	// VCHIQ: firmware mailbox interface for the audio (and video) service.
+	// Required by CVCHIQSoundBaseDevice (sound path to headphone jack + HDMI).
+	// A failure is not fatal: sound then falls back to the direct HDMI path.
+	if (bOK)
+	{
+		if (m_VCHIQ.Initialize ())
+		{
+			WriteLog ("App", "Stage 3b: VCHIQ initialized");
+		}
+		else
+		{
+			LogLine ("VCHIQ: init failed, sound falls back to direct HDMI");
+		}
+	}
+
 	// USB host controller - lazy init after timer/interrupt ready
 	if (bOK)
 	{
@@ -341,6 +380,20 @@ boolean CKernel::Initialize (void)
 		}
 	}
 
+	// Multi-core support has to be initialized last (doc/multicore.txt):
+	// the secondary cores start here, run CMultiCoreSupport::Run(nCore)
+	// and immediately spin on IsMsxGo() until Run() has built the machine.
+#ifdef ARM_ALLOW_MULTI_CORE
+	if (bOK)
+	{
+		bOK = m_MultiCore.Initialize ();
+		if (bOK)
+		{
+			WriteLog ("App", "Stage 5b: secondary cores started (ARM_ALLOW_MULTI_CORE)");
+		}
+	}
+#endif
+
 	return bOK;
 }
 
@@ -361,10 +414,12 @@ TShutdownMode CKernel::Run (void)
 
 	WriteLog ("App", "Stage 7: VDP blit initialized");
 
-	// PSG sound: CHDMISoundBaseDevice is the only Raspberry Pi 3 sound path
-	// that reaches the TV (I2S needs an external DAC and never drives HDMI).
-	// If this fails the emulator keeps running, just silently.
-	m_pSound = new CMsxSound (&m_Interrupt);
+	// PSG sound: CVCHIQSoundBaseDevice routes through the firmware audio
+	// service to whichever output is connected (headphone jack or HDMI);
+	// it falls back to the direct CHDMISoundBaseDevice (HDMI only) if the
+	// VCHIQ path cannot start. If both fail the emulator keeps running,
+	// just silently.
+	m_pSound = new CMsxSound (&m_VCHIQ, &m_Interrupt);
 	if (m_pSound != 0 && m_pSound->Start ())
 	{
 		WriteLog ("App", "Stage 7b: sound device started (%s, %u Hz)",
@@ -455,8 +510,14 @@ TShutdownMode CKernel::Run (void)
 	LogLine (m_pKeyboard != 0 ? "USB keyboard ready" : "USB keyboard not found");
 
 	WriteLog ("App", "Stage 13: Creating MSX task");
-	new CMsxTask (this);
+	m_pMsxTask = new CMsxTask (this);
 	WriteLog ("App", "Stage 14: MSX task created");
+
+	// Release core 1 into the frame loop: it has been spinning on this
+	// flag since CMultiCoreSupport::Initialize(). The barrier publishes
+	// m_pMsxTask and everything built above before the flag is visible.
+	DataMemBarrier ();
+	m_bMsxGo = TRUE;
 
 	WriteLog ("App", "Stage 15: Entering scheduler loop");
 
@@ -466,6 +527,34 @@ TShutdownMode CKernel::Run (void)
 	unsigned nLastUSBPoll = 0;
 	for (;;)
 	{
+		// Resets run on core 0: msx_destroy/msx_create use the newlib
+		// heap (syscalls.cpp _sbrk), and the frame loop on core 1 never
+		// allocates, so the newlib heap stays single-core by design.
+		if (ClaimCore0Reset ())
+		{
+			DoReset ();
+			FinishCore0Reset ();
+		}
+
+		// Audio output switch armed from the overlay menu (core 1).
+		// SetOutput() blocks on the VCHIQ completion event, which needs
+		// the scheduler to run the ka thread - only valid here, on the
+		// core 0 task.
+		int nAudioOutput = TakeAudioDestRequest ();
+		if (nAudioOutput >= 0)
+		{
+			if (m_pSound != 0 && m_pSound->SetOutput (nAudioOutput))
+			{
+				WriteLog ("App", "Audio output -> %s",
+					  nAudioOutput == MSX_OUTPUT_HDMI ? "HDMI" : "jack");
+			}
+			else
+			{
+				WriteLog ("App", "Audio output switch not supported (device=%s)",
+					  m_pSound != 0 ? m_pSound->GetDeviceName () : "none");
+			}
+		}
+
 		unsigned nNow = CTimer::GetClockTicks (); // 1 MHz, may wrap
 		if (m_pUSBController != nullptr &&
 		    nNow - nLastUSBPoll >= USB_POLL_INTERVAL_US)
@@ -799,6 +888,26 @@ void CKernel::GetSoundStats (unsigned *pWrites, unsigned *pPeak,
 	if (pDropped) *pDropped = m_pSound != 0 ? m_pSound->GetDroppedFrames () : 0;
 }
 
+unsigned long long CKernel::GetSoundClockTotal (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetClockTotal () : 0;
+}
+
+unsigned CKernel::GetSoundQueueFrames (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetQueueFrames () : 0;
+}
+
+unsigned CKernel::GetSoundPushedFrames (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetPushedFrames () : 0;
+}
+
+unsigned CKernel::GetSoundPushUsMax (void) const
+{
+	return m_pSound != 0 ? m_pSound->GetPushUsMax () : 0;
+}
+
 void CKernel::PushSound (MSX_Machine *machine)
 {
 	if (m_pSound == 0)
@@ -819,21 +928,96 @@ void CKernel::WriteLog (const char *pPrefix, const char *pFmt, ...)
 	va_list var;
 	char sBuf[256];
 
+	// Serial kill switch (set once the boot diagnostics and AUD lines
+	// are out). Checked before the format work so a silenced call costs
+	// one branch, not a vsnprintf plus a UART drain.
+	if (!m_bSerialEnabled)
+	{
+		return;
+	}
+
 	va_start (var, pFmt);
 	vsnprintf (sBuf, sizeof (sBuf), pFmt, var);
 	va_end (var);
 
-	// The MSX task and this task share one UART and one logger. Taking the
-	// lock here is what keeps lines intact; skipping it is what made the
-	// console unreadable and the MSX task miss key events.
-	while (m_bLogLocked)
-	{
-		m_Scheduler.Yield ();
-	}
-	m_bLogLocked = TRUE;
+	// Writers are now on three contexts - core 0 task, core 1 frame loop,
+	// IRQ handlers - so the yield-based flag lock is replaced by a real
+	// SMP spinlock (enabled by CMultiCoreSupport::Initialize()). It also
+	// serializes the CString heap use inside CLogger::WriteV.
+	m_LogLock.Acquire ();
 	m_Logger.Write (pPrefix, LogNotice, "%s", sBuf);
-	m_bLogLocked = FALSE;
+	m_LogLock.Release ();
 }
+
+boolean CKernel::ClaimCore0Reset (void)
+{
+	if (!m_bResetArmed)
+	{
+		return FALSE;
+	}
+
+	m_bResetArmed = FALSE;
+	DataMemBarrier ();
+	return TRUE;
+}
+
+const char *CKernel::GetAudioDestLabel (void) const
+{
+	return m_nAudioDest == MSX_OUTPUT_HDMI ? "HDMI" : "JACK";
+}
+
+// Core 1 -> core 0 handoff: publish the destination for the menu label,
+// then arm the request the Run() loop consumes. The barrier between the
+// two writes keeps the label visible before the request can fire.
+void CKernel::SetAudioDest (int nOutput)
+{
+	m_nAudioDest = nOutput;
+	DataMemBarrier ();
+	m_nAudioDestReq = nOutput;
+}
+
+int CKernel::TakeAudioDestRequest (void)
+{
+	DataMemBarrier ();
+	int nOutput = m_nAudioDestReq;
+	if (nOutput < 0)
+	{
+		return -1;
+	}
+	m_nAudioDestReq = -1;
+	return nOutput;
+}
+
+#ifdef ARM_ALLOW_MULTI_CORE
+// Core 1 entry of the multi-core partition: spin until Run() has created
+// the machine and the frame-loop object, then run the emulator loop
+// (never returns). Cores 2 and 3 are unused; EntrySecondary halts them
+// after Run() returns.
+void CMSXMultiCore::Run (unsigned nCore)
+{
+	if (nCore != 1)
+	{
+		return;
+	}
+
+	// The emulator core never takes interrupts: pacing polls the CLO,
+	// reset/audio handshakes are polled flags, and the sound queue write
+	// is a spinlock ring push. Circle enables IRQs on secondaries
+	// (EntrySecondary), but the Pi's legacy interrupt controller presents
+	// the GPU IRQ sources to every core - a VCHIQ/USB interrupt landing
+	// here steals time straight from the frame loop (HDMI audio raises
+	// that rate). Core 0 services all of them; mask them here.
+	DisableIRQs ();
+
+	while (!m_pKernel->IsMsxGo ())
+	{
+		// spin: core 0 is still building the machine
+	}
+	DataMemBarrier ();
+
+	m_pKernel->GetMsxTask ()->Run ();
+}
+#endif
 
 void CKernel::DiagLog (const char *pText)
 {

@@ -43,6 +43,16 @@ void VDPBlit_Init (CScreenDevice *pScreen)
 	s_nPitchBytes = pFb->GetPitch ();
 	s_nWidth = pFb->GetWidth ();
 	s_nHeight = pFb->GetHeight ();
+
+	// The firmware may grant a different mode than requested (nearest
+	// supported HDMI timing, alignment padding). Never blit wider than
+	// the granted pitch: shrink the target instead so a mismatch
+	// letterboxes the image instead of running rows into each other.
+	int nMaxWidth = s_nPitchBytes / (s_nDepth / 8);
+	if (nMaxWidth > 0 && s_nWidth > nMaxWidth)
+	{
+		s_nWidth = nMaxWidth;
+	}
 }
 
 void VDPBlit_SetDumpHook (VDPBlitDumpFunc pFunc, void *pUser)

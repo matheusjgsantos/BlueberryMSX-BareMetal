@@ -19,8 +19,13 @@
 #include <circle/usb/usbkeyboard.h>
 #include <circle/sched/scheduler.h>
 #include <circle/fs/fat/fatfs.h>
+#include <circle/memory.h>
+#include <circle/multicore.h>
+#include <circle/spinlock.h>
+#include <circle/synchronize.h>
 #include <SDCard/emmc.h>
 #include <circle/types.h>
+#include <vc4/vchiq/vchiqdevice.h>
 
 extern "C"
 {
@@ -38,6 +43,14 @@ enum TShutdownMode
 	ShutdownHalt,
 	ShutdownReboot
 };
+
+// Framebuffer geometry requested from the firmware (kernel.cpp ctor).
+// The DSI panel's native mode; pinned so the per-frame blit cost never
+// scales with whatever resolution the connected display reports as its
+// preferred mode (an external HDMI monitor would otherwise hand us
+// 1920x1080 and the emulator crawls - see the ctor comment).
+#define MSX_FB_WIDTH	800
+#define MSX_FB_HEIGHT	480
 
 // Cartridges the overlay menu can boot.
 enum TCartId
@@ -67,6 +80,34 @@ enum TUiKey
 // plug and cheap enough to leave the console and the MSX task alone.
 #define USB_POLL_INTERVAL_US 250000
 
+class CKernel;
+class CMsxTask;
+
+// Multi-core partition (Circle has no scheduler-SMP: the cooperative
+// scheduler and ALL peripheral IRQs - VCHIQ doorbell, USB, mailbox - are
+// architecturally pinned to core 0). Therefore the heavy side moves to
+// core 1: the emulator frame loop plus PSG synthesis run in Run(1),
+// while core 0 keeps the Circle scheduler (VCHIQ service threads), the
+// IRQs, USB plug-and-play and the newlib heap. This is what isolates
+// the HDMI audio path: its VCHIQ/IRQ servicing no longer lands inside
+// emulator frame windows.
+#ifdef ARM_ALLOW_MULTI_CORE
+class CMSXMultiCore : public CMultiCoreSupport
+{
+public:
+	CMSXMultiCore (CKernel *pKernel)
+	:	CMultiCoreSupport (CMemorySystem::Get ()),
+		m_pKernel (pKernel)
+	{
+	}
+
+	void Run (unsigned nCore);
+
+private:
+	CKernel *m_pKernel;
+};
+#endif
+
 class CKernel
 {
 public:
@@ -94,14 +135,41 @@ public:
 	unsigned long long GetFrames (void) const { return m_nFrames; }
 
 	// Recreate and re-initialize the MSX machine with the current cartridge.
-	// Must only be called from the MSX task context.
+	// Runs on core 0 now (the frame loop on core 1 hands resets over via
+	// ArmCore0Reset/ClaimCore0Reset) because msx_destroy/msx_create use
+	// the newlib heap, which only core 0 may touch.
 	void DoReset (void);
+
+	// Core 1 -> core 0 reset handoff. Core 1 arms it at the top of the
+	// frame loop and spins on IsCore0ResetDone() until core 0 has
+	// rebuilt the machine; each flag has a single writer per phase.
+	void ArmCore0Reset (void)         { m_bResetArmed = TRUE; }
+	boolean ClaimCore0Reset (void);
+	void FinishCore0Reset (void)      { m_bResetDone = TRUE; }
+	boolean IsCore0ResetDone (void) const { return m_bResetDone; }
+	void ClearCore0ResetDone (void)   { m_bResetDone = FALSE; }
+
+	// Core 1 release: set TRUE by Run() once the machine and the frame
+	// loop object exist; CMSXMultiCore::Run(1) spins on it from the end
+	// of Initialize() onward.
+	boolean IsMsxGo (void) const      { return m_bMsxGo; }
+	CMsxTask *GetMsxTask (void) const { return m_pMsxTask; }
 
 	// Cartridge selection. SetCurrentCart() takes effect on the next
 	// DoReset(), which is what booting a menu entry triggers.
 	int  GetCurrentCart (void) const  { return m_nCurrentCart; }
 	void SetCurrentCart (int nCart);
 	const char *GetCartName (int nCart) const;
+
+	// Audio output destination (MSX_OUTPUT_*). The menu (core 1) sets it
+	// optimistically for the on-screen label and arms a request; the core 0
+	// loop consumes it via TakeAudioDestRequest() and calls SetOutput(),
+	// because the firmware control message blocks on VCHIQ completion -
+	// something core 1 (no scheduler) must never wait on.
+	int  GetAudioDest (void) const        { return m_nAudioDest; }
+	const char *GetAudioDestLabel (void) const;
+	void SetAudioDest (int nOutput);
+	int  TakeAudioDestRequest (void);
 
 	// UI event queue: pushed from the USB IRQ, popped from task context.
 	void PushUiKey (unsigned nKey);
@@ -120,11 +188,20 @@ public:
 	// Write a preformatted line to the logger (UART + log ring buffer).
 	void LogLine (const char *pText);
 
-	// printf-style logging with the task lock held. CLogger/CSerialDevice are
-	// NOT task safe: two tasks writing at once shred each other's lines and,
-	// because CSerialDevice::Write busy-waits on the shared TX FIFO, each
-	// writer ends up waiting for the other's bytes. That starves the MSX task
-	// badly enough to drop UI key events.
+	// One-way serial kill switch: boot diagnostics and the AUD snapshots
+	// are emitted first, then the MSX task turns this off for good so the
+	// UART and logger cost nothing during play (user request: serial off
+	// to save resources).
+	void SetSerialEnabled (boolean bEnabled)	{ m_bSerialEnabled = bEnabled; }
+	boolean IsSerialEnabled (void) const		{ return m_bSerialEnabled; }
+
+	// printf-style logging with a cross-core spinlock held. CLogger/
+	// CSerialDevice are NOT task safe: two writers shred each other's
+	// lines and, because CSerialDevice::Write busy-waits on the shared
+	// TX FIFO, each writer waits for the other's bytes. The old
+	// yield-based lock would also be wrong on core 1 (no scheduler
+	// there) and from IRQ context (cannot yield); a CSpinLock covers
+	// both, plus serializes the CString heap use inside CLogger.
 	void WriteLog (const char *pPrefix, const char *pFmt, ...);
 
 	// Public entry point for C callbacks (e.g. msx_diag_cb in the core).
@@ -136,6 +213,13 @@ public:
 	// PSG activity since boot, for the serial log (writes, peak sample of the
 	// last rendered frame, and frames dropped because the queue was full).
 	void GetSoundStats (unsigned *pWrites, unsigned *pPeak, unsigned *pDropped) const;
+
+	// AUD telemetry: total PSG clocks rendered and current device queue
+	// level, for the one-shot AUD lines emitted before serial is disabled.
+	unsigned long long GetSoundClockTotal (void) const;
+	unsigned GetSoundQueueFrames (void) const;
+	unsigned GetSoundPushedFrames (void) const;
+	unsigned GetSoundPushUsMax (void) const;
 
 	// Push one emulated frame of PSG audio. Called from the MSX task once per
 	// emulated frame; never blocks, drops samples if the queue is full.
@@ -162,6 +246,7 @@ private:
 	CExceptionHandler	m_ExceptionHandler;
 	CInterruptSystem	m_Interrupt;
 	CTimer		m_Timer;
+	CVCHIQDevice	m_VCHIQ;
 	CUSBHCIDevice	*m_pUSBController;
 	CUSBKeyboardDevice * volatile m_pKeyboard;
 	CLogger		m_Logger;
@@ -178,8 +263,8 @@ private:
 	volatile boolean m_bStepRequest;
 	unsigned long long m_nFrames;
 
-	// Task-level log lock and counters (diagnostics).
-	volatile boolean m_bLogLocked;
+	// Task-level counters (diagnostics).
+	volatile boolean m_bSerialEnabled;
 	unsigned m_nUiEvents;
 
 	// UI hotkeys: filled by the USB IRQ (producer), drained by the MSX task.
@@ -187,6 +272,8 @@ private:
 	volatile boolean m_bOverlayOpen;
 	int m_nOverlaySel;
 	int m_nCurrentCart;
+	volatile int m_nAudioDest;	// destination shown in the menu
+	volatile int m_nAudioDestReq;	// pending request for the core 0 loop
 
 	// USB HID key tracking: usage-based report diff, see hid_keydiff.h.
 	CHidKeyDiff m_HidDiff;
@@ -201,9 +288,22 @@ private:
 	unsigned m_aUiDownUs [UI_KEY_COUNT];
 	unsigned m_aUiUpUs [UI_KEY_COUNT];
 
-	// AY-3-8910 output (CHDMISoundBaseDevice). NULL when the sound device
-	// could not be created or started; the emulator then runs silently.
+	// AY-3-8910 output (CVCHIQSoundBaseDevice with CHDMISoundBaseDevice
+	// fallback). NULL when the sound device could not be created or
+	// started; the emulator then runs silently.
 	CMsxSound *m_pSound;
+
+	// Multi-core partition (see CMSXMultiCore above). m_MultiCore must
+	// be constructed last of the non-trivial members: CMultiCoreSupport
+	// publishes the singleton used by the secondary cores.
+#ifdef ARM_ALLOW_MULTI_CORE
+	CMSXMultiCore	m_MultiCore;
+#endif
+	CMsxTask *m_pMsxTask;
+	volatile boolean m_bMsxGo;
+	volatile boolean m_bResetArmed;
+	volatile boolean m_bResetDone;
+	CSpinLock m_LogLock;
 };
 
 #endif

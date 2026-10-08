@@ -10,7 +10,6 @@
 #include "overlay.h"
 #include "frame_pacer.h"
 
-#include <circle/sched/scheduler.h>
 #include <circle/timer.h>
 #include <string.h>
 #include <stdio.h>
@@ -25,6 +24,18 @@ extern "C"
 #define VDP_FRAME_INSTR	12000
 #define HEARTBEAT_FRAMES	120
 #define OVERLAY_REDRAW_MS	16
+
+// Core 1 has no Circle scheduler (it is core0-only), so the frame loop
+// paces itself by polling the free-running 1 MHz system timer. Signed
+// difference keeps this wrap-safe (the clock wraps every ~71 minutes).
+static inline void msx_spin_us (unsigned nUs)
+{
+	unsigned nEnd = CTimer::GetClockTicks () + nUs;
+	while ((int) (CTimer::GetClockTicks () - nEnd) < 0)
+	{
+		// busy-wait: nothing else runs on this core
+	}
+}
 
 // Selection currently painted on screen while the menu is open; -1 means
 // "nothing drawn yet", which forces a full repaint.
@@ -69,7 +80,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				int nSel = pKernel->GetOverlaySelection ();
 				nSel += (nKey == UiKeyDown) ? 1 : -1;
 				if (nSel < 0) nSel = 0;
-				if (nSel >= TCartIdCount) nSel = TCartIdCount - 1;
+				// Rows: 0..TCartIdCount-1 cartridges, TCartIdCount audio.
+				if (nSel > TCartIdCount) nSel = TCartIdCount;
 				pKernel->SetOverlaySelection (nSel);
 				bChanged = TRUE;
 			}
@@ -79,6 +91,20 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			if (pKernel->IsOverlayOpen ())
 			{
 				int nSel = pKernel->GetOverlaySelection ();
+				if (nSel >= TCartIdCount)
+				{
+					// Audio output row: jack <-> HDMI. The menu
+					// stays open; core 0 applies the switch and
+					// logs it. AUTO is never selected (dual-drive).
+					int nNext = (pKernel->GetAudioDest () == MSX_OUTPUT_HDMI)
+						    ? MSX_OUTPUT_JACK : MSX_OUTPUT_HDMI;
+					pKernel->SetAudioDest (nNext);
+					pKernel->LogLine (nNext == MSX_OUTPUT_HDMI
+							  ? "UI: audio output -> HDMI"
+							  : "UI: audio output -> jack");
+					bChanged = TRUE;
+					break;
+				}
 				if (nSel != pKernel->GetCurrentCart ())
 				{
 					pKernel->SetCurrentCart (nSel);
@@ -128,21 +154,37 @@ void CMsxTask::Run (void)
 	unsigned nPsgWrites = 0, nPsgPeak = 0, nPsgDropped = 0;
 	u64 nWorkTotal = 0;
 
+	// One-shot audio telemetry and the serial kill switch (see below).
+	bool bAud600 = false, bAud720 = false, bSerialOff = false;
+	unsigned nWorkMaxCum = 0, nLastBeacon = 0;
+
 	// Selection last painted into the framebuffer. The menu is only redrawn
 	// when it actually changes: the emulator is frozen while the menu is up,
 	// so the pixels underneath are static and repainting the box every 16 ms
 	// just burned CPU (and could be caught mid-sweep by the HDMI scanout).
+	// nDrawnAudio tracks the audio destination label so a switch repaints
+	// even when the selection itself did not move.
 	int nDrawnSel = OVERLAY_NOT_DRAWN;
+	int nDrawnAudio = -1;
 	for (;;)
 	{
 		if (m_pKernel->TakeResetRequest ())
 		{
-			m_pKernel->DoReset ();
+			// msx_destroy/msx_create need the newlib heap, which only
+			// core 0 may use (the loop itself never allocates), so the
+			// reset is handed over and core 1 waits for the rebuild.
+			m_pKernel->ArmCore0Reset ();
+			while (!m_pKernel->IsCore0ResetDone ())
+			{
+				// spin: core 0 is destroying/re-creating the machine
+			}
+			m_pKernel->ClearCore0ResetDone ();
 			bPacingActive = false;
 
 			// DoReset repaints the whole screen, so the menu has to be
 			// painted again even if the selection did not move.
 			nDrawnSel = OVERLAY_NOT_DRAWN;
+			continue;
 		}
 
 		// UI hotkeys first: they are queued by the USB IRQ and must be
@@ -170,12 +212,17 @@ void CMsxTask::Run (void)
 			}
 
 			int nSel = m_pKernel->GetOverlaySelection ();
-			if (nSel != nDrawnSel)
+			int nAudio = m_pKernel->GetAudioDest ();
+			if (nSel != nDrawnSel || nAudio != nDrawnAudio)
 			{
 				nDrawnSel = nSel;
-				Overlay_Draw (nSel);
+				nDrawnAudio = nAudio;
+				char sAudio[40];
+				snprintf (sAudio, sizeof (sAudio), "AUDIO OUT: %s",
+					  m_pKernel->GetAudioDestLabel ());
+				Overlay_Draw (nSel, sAudio);
 			}
-			CScheduler::Get ()->MsSleep (OVERLAY_REDRAW_MS);
+			msx_spin_us (OVERLAY_REDRAW_MS * 1000);
 			continue;
 		}
 
@@ -187,7 +234,7 @@ void CMsxTask::Run (void)
 		if (machine == 0)
 		{
 			bPacingActive = false;
-			CScheduler::Get ()->MsSleep (10);
+			msx_spin_us (10000);
 			continue;
 		}
 
@@ -199,7 +246,7 @@ void CMsxTask::Run (void)
 				msx_step_frame (machine, VDP_FRAME_INSTR);
 				m_pKernel->IncFrames ();
 			}
-			CScheduler::Get ()->MsSleep (5);
+			msx_spin_us (5000);
 			continue;
 		}
 
@@ -226,13 +273,59 @@ void CMsxTask::Run (void)
 		m_pKernel->SetInStep (FALSE);
 		m_pKernel->IncFrames ();
 
-		// One frame of PSG audio per emulated frame. The sound device times
-		// the PSG from the wall clock, so this also keeps the pitch right.
+		// One batch of PSG audio per emulated frame, sized from the real
+		// wall-clock interval: feed rate and pitch stay exact even when
+		// the emulator misses the 60 Hz deadline.
 		m_pKernel->PushSound (machine);
 
 		if (m_pKernel->GetFrames () == 1)
 		{
 			m_pKernel->LogLine ("BOOT: MSX task produced first frame");
+		}
+
+		// One-shot AUD snapshots at frames 600 and 720: totals of pushed
+		// / dropped / queued frames and PSG clocks over a known wall-clock
+		// span. Offline: production = dPsh/dt, consumption =
+		// (dPsh - dQueue)/dt (both expect 48000), clocks per sample =
+		// dClock*1000/dPsh (expects 74574). psh is real pushed frames,
+		// not the PSG register-write counter.
+		if ((!bAud600 && m_pKernel->GetFrames () >= 600) ||
+		    (!bAud720 && m_pKernel->GetFrames () >= 720))
+		{
+			if (!bAud600 && m_pKernel->GetFrames () >= 600)
+				bAud600 = true;
+			else
+				bAud720 = true;
+
+			unsigned nDr = 0;
+			m_pKernel->GetSoundStats (0, 0, &nDr);
+			char aBuf[192];
+			snprintf (aBuf, sizeof (aBuf),
+				"AUD: t=%u f=%llu psh=%u drop=%u q=%u ck=%llu",
+				CTimer::GetClockTicks (),
+				(unsigned long long) m_pKernel->GetFrames (),
+				m_pKernel->GetSoundPushedFrames (), nDr,
+				m_pKernel->GetSoundQueueFrames (),
+				m_pKernel->GetSoundClockTotal ());
+			m_pKernel->LogLine (aBuf);
+		}
+
+		// Serial off for good once boot diagnostics and both AUD lines
+		// are out: the UART TX busy-wait, the logger and the per-line
+		// formatting cost about 0.4 ms per frame, which is exactly the
+		// margin the 60 Hz pacer was missing (work_avg 17.1 ms vs the
+		// 16.7 ms budget). The core's IRQ diagnostics are cut at the
+		// source too, so a later machine reset cannot re-arm them.
+		if (!bSerialOff && m_pKernel->GetFrames () >= 900)
+		{
+			bSerialOff = true;
+			char sBuf[96];
+			snprintf (sBuf, sizeof (sBuf),
+				"SER: serial log disabled at frame=%llu",
+				(unsigned long long) m_pKernel->GetFrames ());
+			m_pKernel->LogLine (sBuf);
+			machine->diag_log = 0;
+			m_pKernel->SetSerialEnabled (FALSE);
 		}
 
 		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
@@ -286,9 +379,9 @@ void CMsxTask::Run (void)
 		if (nWork > nWorkMax) nWorkMax = nWork;
 		unsigned nSleep = frame_pacer_finish (&Pacer, nNow);
 		if (nSleep != 0)
-			CScheduler::Get ()->usSleep (nSleep);
-		else
-			CScheduler::Get ()->Yield ();
+		{
+			msx_spin_us (nSleep);
+		}
 
 		if (++nWindowFrames == HEARTBEAT_FRAMES)
 		{
@@ -314,6 +407,42 @@ void CMsxTask::Run (void)
 			m_pKernel->LogLine (sBuf);
 			nLastLate = Pacer.late;
 			nLastResync = Pacer.resync;
+
+			// Remember the worst frame of every window even after
+			// the serial kill switch, so a beacon can surface stalls
+			// the quiet PACE lines never showed.
+			if (nWorkMax > nWorkMaxCum) nWorkMaxCum = nWorkMax;
+
+			// SB beacon: one compact line every ~30 s after the
+			// serial kill switch (~140 chars / 30 s = 0.007 ms per
+			// frame, vs 0.4 ms/frame for the old per-window logs).
+			// fps vs work_avg splits wait-bound stalls (HDMI
+			// firmware backpressure: fps low, work normal) from
+			// CPU overload (work_avg high); wmaxc catches one-off
+			// stalls up to 30 s old; sndus is the worst ever
+			// PushFrame duration - stays in the hundreds of
+			// microseconds means the PSG synthesis is innocent.
+			if (!m_pKernel->IsSerialEnabled () &&
+			    nNow - nLastBeacon >= 30000000)
+			{
+				nLastBeacon = nNow;
+				char bBuf[208];
+				snprintf (bBuf, sizeof (bBuf),
+					"SB: t=%u fps100=%u work=%u wmax=%u wmaxc=%u psh=%u drop=%u q=%u ck=%llu sndus=%u",
+					nNow, nFPS100,
+					(unsigned) (nWorkTotal / nWindowFrames),
+					nWorkMax, nWorkMaxCum,
+					m_pKernel->GetSoundPushedFrames (),
+					nPsgDropped,
+					m_pKernel->GetSoundQueueFrames (),
+					m_pKernel->GetSoundClockTotal (),
+					m_pKernel->GetSoundPushUsMax ());
+				m_pKernel->SetSerialEnabled (TRUE);
+				m_pKernel->LogLine (bBuf);
+				m_pKernel->SetSerialEnabled (FALSE);
+				nWorkMaxCum = 0;
+			}
+
 			nWindowStart = nNow;
 			nWindowFrames = nWorkMax = 0;
 			nWorkTotal = 0;

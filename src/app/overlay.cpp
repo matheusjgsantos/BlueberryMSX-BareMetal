@@ -26,7 +26,7 @@ static const char *s_apCartNames[OVERLAY_CART_COUNT] = {
 };
 
 static const char *s_apTitle = "SELECT MSX ROM";
-static const char *s_apHint = "UP/DOWN SELECT   ENTER BOOT   ESC CLOSE";
+static const char *s_apHint = "UP/DOWN SELECT   ENTER BOOT/SET   ESC CLOSE";
 
 static void *s_pBuffer = 0;
 static int s_nPitch = 0;
@@ -185,20 +185,28 @@ static int TextWidth (const char *pText, int nScale)
 	return nLen * 8 * nScale;
 }
 
-void Overlay_Draw (int nSelected)
+void Overlay_Draw (int nSelected, const char *pAudioLabel)
 {
 	if (!Overlay_IsReady ())
 	{
 		return;
 	}
 
+	if (pAudioLabel == 0)
+	{
+		pAudioLabel = "";
+	}
+
+	// Rows: 0..OVERLAY_CART_COUNT-1 cartridges, then the audio row.
+	int nRows = OVERLAY_CART_COUNT + 1;
+
 	if (nSelected < 0)
 	{
 		nSelected = 0;
 	}
-	if (nSelected >= OVERLAY_CART_COUNT)
+	if (nSelected >= nRows)
 	{
-		nSelected = OVERLAY_CART_COUNT - 1;
+		nSelected = nRows - 1;
 	}
 
 	// Keep the whole menu on screen: at least 1x, grow while it fits.
@@ -212,9 +220,11 @@ void Overlay_Draw (int nSelected)
 	int nTitleW = TextWidth (s_apTitle, nScale);
 	int nHintW = TextWidth (s_apHint, nScale);
 	int nItemW = 0;
-	for (int i = 0; i < OVERLAY_CART_COUNT; i++)
+	for (int i = 0; i < nRows; i++)
 	{
-		int w = TextWidth (s_apCartNames[i], nScale);
+		const char *pRow = i < OVERLAY_CART_COUNT ? s_apCartNames[i]
+							 : pAudioLabel;
+		int w = TextWidth (pRow, nScale);
 		if (w > nItemW) nItemW = w;
 	}
 	// +2 cells for the "> " cursor column.
@@ -224,8 +234,8 @@ void Overlay_Draw (int nSelected)
 
 	int nBoxW = nTextW + 4 * nCell;
 	// Rows: outer border, gap, dim line (3) + title (1) + one per cartridge
-	// + gap (1) + hint (1) + dim line, gap, outer border (3).
-	int nBoxH = (OVERLAY_CART_COUNT + 9) * nCell;
+	// + audio row + gap (1) + hint (1) + dim line, gap, outer border (3).
+	int nBoxH = (OVERLAY_CART_COUNT + 10) * nCell;
 	if (nBoxW > s_nWidth) nBoxW = s_nWidth;
 	if (nBoxH > s_nHeight) nBoxH = s_nHeight;
 
@@ -259,8 +269,10 @@ void Overlay_Draw (int nSelected)
 	DrawText (nBoxX + (nBoxW - nTitleW) / 2, nY, s_apTitle, OV_TEXT, OV_BACKDROP, nScale);
 	nY += nCell;
 
-	for (int i = 0; i < OVERLAY_CART_COUNT; i++)
+	for (int i = 0; i < nRows; i++)
 	{
+		const char *pRow = i < OVERLAY_CART_COUNT ? s_apCartNames[i]
+							 : pAudioLabel;
 		int nRowW = nTextW - nCell;
 		int nRowX = nTextX + nCell / 2;
 		bool bSelected = (i == nSelected);
@@ -272,7 +284,7 @@ void Overlay_Draw (int nSelected)
 		{
 			DrawText (nRowX, nY, ">", OV_SELECT_FG, OV_SELECT_BG, nScale);
 		}
-		DrawText (nRowX + 2 * nCell, nY, s_apCartNames[i],
+		DrawText (nRowX + 2 * nCell, nY, pRow,
 			  bSelected ? OV_SELECT_FG : OV_TEXT,
 			  bSelected ? OV_SELECT_BG : OV_BACKDROP, nScale);
 		nY += nCell;

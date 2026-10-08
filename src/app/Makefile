@@ -37,7 +37,10 @@ OBJS = main.o \
 	tms9918.o \
 	psg.o
 
-LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+LIBS = $(CIRCLEHOME)/addon/vc4/sound/libvchiqsound.a \
+	$(CIRCLEHOME)/addon/vc4/vchiq/libvchiq.a \
+	$(CIRCLEHOME)/addon/linux/liblinuxemu.a \
+	$(CIRCLEHOME)/addon/SDCard/libsdcard.a \
 	$(CIRCLEHOME)/lib/usb/libusb.a \
 	$(CIRCLEHOME)/lib/input/libinput.a \
 	$(CIRCLEHOME)/lib/fs/fat/libfatfs.a \
@@ -50,7 +53,13 @@ LIBS = $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
 # Must select the hard-float multilib to match our objects (-mfloat-abi=hard).
 EXTRALIBS += "$(shell $(CC) -mcpu=cortex-a53 -mfloat-abi=hard -mfpu=neon-fp-armv8 -print-file-name=libc.a)"
 
+# Header dependency tracking (-MMD): editing kernel.h must rebuild every TU
+# that includes it; without this, stale objects with old CKernel layouts link.
+CFLAGS += -MMD -MP
+
 include $(CIRCLEHOME)/sample/Rules.mk
+
+-include $(OBJS:.o=.d)
 
 # Compile the MSX core C sources with Circle's ARM toolchain into local
 # objects (the .o files in the source tree are host-build artifacts).

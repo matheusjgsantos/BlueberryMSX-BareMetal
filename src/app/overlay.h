@@ -22,8 +22,10 @@ boolean Overlay_Init (void);
 // True when the menu can be drawn (i.e. Overlay_Init succeeded).
 boolean Overlay_IsReady (void);
 
-// Draw the menu with nSelected highlighted. No-op when not ready.
-void Overlay_Draw (int nSelected);
+// Draw the menu with nSelected highlighted. pAudioLabel names the current
+// audio output (e.g. "AUDIO OUT: JACK") on the bottom row; NULL draws it
+// empty. No-op when not ready.
+void Overlay_Draw (int nSelected, const char *pAudioLabel);
 
 // Menu entry labels, indexed like CKernel::GetCartName().
 const char *Overlay_CartName (int nIndex);
