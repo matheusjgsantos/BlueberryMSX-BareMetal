@@ -36,6 +36,7 @@ extern "C"
 #include "ui_queue.h"
 #include "hid_keydiff.h"
 #include "sound.h"
+#include "msxconfig.h"
 
 enum TShutdownMode
 {
@@ -188,6 +189,11 @@ public:
 	// Write a preformatted line to the logger (UART + log ring buffer).
 	void LogLine (const char *pText);
 
+	// TRUE once the RPMC GPIO bus has been taken over. Disables the
+	// serial beacon trick: GPIO 14/15 are IORQ/MREQ on the bus, so
+	// nobody may touch the UART after MsxBus_Init().
+	boolean IsMsxbusActive (void) const { return m_bMsxbusActive; }
+
 	// One-way serial kill switch: boot diagnostics and the AUD snapshots
 	// are emitted first, then the MSX task turns this off for good so the
 	// UART and logger cost nothing during play (user request: serial off
@@ -206,6 +212,12 @@ public:
 
 	// Public entry point for C callbacks (e.g. msx_diag_cb in the core).
 	void DiagLog (const char *pText);
+
+	// Boot-time msx.ini handling: load the config, apply the log-mode and
+	// (optional) cartridge-dump test. See msxconfig.h.
+	void LoadMsxConfig (void);
+	void FlushFileLog (void);
+	void DumpCartridges (void);
 
 	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
@@ -272,6 +284,14 @@ private:
 
 	// Task-level counters (diagnostics).
 	volatile boolean m_bSerialEnabled;
+
+	// msx.ini settings and the log-mode plumbing they drive.
+	MSXConfig m_Config;
+	volatile boolean m_bFileLog;		// log=file|net: keep a FAT copy
+	volatile boolean m_bMsxbusActive;	// GPIO 14/15 are IORQ/MREQ now
+	char m_aLogFile [16384];		// captured WriteLog lines (file mode)
+	unsigned m_nLogFileLen;
+
 	unsigned m_nUiEvents;
 
 	// UI hotkeys: filled by the USB IRQ (producer), drained by the MSX task.

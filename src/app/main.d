@@ -111,7 +111,8 @@ main.o: main.cpp kernel.h \
  ../../include/msx_types.h ../../include/bus.h teelog.h apilog.h \
  ui_queue.h hid_keydiff.h sound.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h \
- ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h
+ ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h \
+ msxconfig.h
 kernel.h:
 ../../../BlueberryMSX/circle/include/circle/koptions.h:
 ../../../BlueberryMSX/circle/include/circle/bcmpropertytags.h:
@@ -232,3 +233,4 @@ hid_keydiff.h:
 sound.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h:
+msxconfig.h:

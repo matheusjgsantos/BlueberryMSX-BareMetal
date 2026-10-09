@@ -448,9 +448,19 @@ void CMsxTask::Run (void)
 					m_pKernel->GetSoundPushUsMax (),
 					m_pKernel->GetSoundQueueMin (),
 					m_pKernel->GetSoundUnderruns ());
-				m_pKernel->SetSerialEnabled (TRUE);
-				m_pKernel->LogLine (bBuf);
-				m_pKernel->SetSerialEnabled (FALSE);
+				if (!m_pKernel->IsMsxbusActive ())
+				{
+					m_pKernel->SetSerialEnabled (TRUE);
+					m_pKernel->LogLine (bBuf);
+					m_pKernel->SetSerialEnabled (FALSE);
+				}
+				else
+				{
+					// GPIO 14/15 are IORQ/MREQ while the
+					// bus is active: the line only lands in
+					// the file log, never on the UART.
+					m_pKernel->LogLine (bBuf);
+				}
 				nWorkMaxCum = 0;
 			}
 

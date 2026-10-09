@@ -112,8 +112,9 @@ kernel.o: kernel.cpp kernel.h \
  ui_queue.h hid_keydiff.h sound.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h \
- msx_task.h vdpblit.h cbios_roms.h msxdiag_roms.h knightmare_roms.h \
- overlay.h
+ msxconfig.h msx_task.h vdpblit.h cbios_roms.h msxdiag_roms.h \
+ knightmare_roms.h overlay.h msxbus.h \
+ ../../../BlueberryMSX/circle/include/circle/gpioclock.h
 kernel.h:
 ../../../BlueberryMSX/circle/include/circle/koptions.h:
 ../../../BlueberryMSX/circle/include/circle/bcmpropertytags.h:
@@ -234,9 +235,12 @@ hid_keydiff.h:
 sound.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h:
+msxconfig.h:
 msx_task.h:
 vdpblit.h:
 cbios_roms.h:
 msxdiag_roms.h:
 knightmare_roms.h:
 overlay.h:
+msxbus.h:
+../../../BlueberryMSX/circle/include/circle/gpioclock.h:

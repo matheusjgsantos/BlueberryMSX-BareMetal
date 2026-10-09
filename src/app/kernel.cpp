@@ -12,12 +12,17 @@
 #include "knightmare_roms.h"
 #include "overlay.h"
 #include "hid_keydiff.h"
+#include "msxconfig.h"
+#include "msxbus.h"
 
 #include <circle/string.h>
 #include <circle/usb/usbhid.h>
+#include <circle/machineinfo.h>
+#include <circle/gpioclock.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <math.h>
 
 static const char *FromKernel = "kernel";
 
@@ -234,6 +239,9 @@ CKernel::CKernel (void):
 	, m_bStepRequest (FALSE)
 	, m_nFrames (0)
 	, m_bSerialEnabled (TRUE)
+	, m_bFileLog (FALSE)
+	, m_bMsxbusActive (FALSE)
+	, m_nLogFileLen (0)
 	, m_nUiEvents (0)
 	, m_bOverlayOpen (FALSE)
 	, m_nOverlaySel (0)
@@ -258,6 +266,7 @@ CKernel::CKernel (void):
 	memset (m_aKeyGuest, 0, sizeof (m_aKeyGuest));
 	memset (m_aUiDownUs, 0, sizeof (m_aUiDownUs));
 	memset (m_aUiUpUs, 0, sizeof (m_aUiUpUs));
+	memset (m_aLogFile, 0, sizeof (m_aLogFile));
 
 	diag_uart ('8');	// ctor body completed, about to return
 }
@@ -362,21 +371,25 @@ boolean CKernel::Initialize (void)
 
 	WriteLog ("App", "Stage 5: Network not present in this build");
 
-	// SD card (boot partition) for frame dumps - non-fatal if unavailable.
+	// SD card DATA partition (2nd VFAT, "emmc1-2") for msx.ini,
+	// boot.log, CART*.ROM and frame dumps - non-fatal if unavailable.
+	// This MUST NOT be the boot partition (emmc1-1): writing there
+	// corrupts the boot files, so the data partition is the only
+	// filesystem this build ever opens.
 	{
 		CDevice *pPartition = m_EMMC.Initialize ()
-			? m_DeviceNameService.GetDevice ("emmc1-1", TRUE)
+			? m_DeviceNameService.GetDevice ("emmc1-2", TRUE)
 			: 0;
 
 		if (   pPartition != 0
 		    && (m_FileSystem.Mount (pPartition) != 0))
 		{
 			m_bFsMounted = TRUE;
-			m_Logger.Write (FromKernel, LogNotice, "SD card mounted: emmc1-1");
+			m_Logger.Write (FromKernel, LogNotice, "SD data partition mounted: emmc1-2");
 		}
 		else
 		{
-			m_Logger.Write (FromKernel, LogNotice, "SD card not available - no frame dumps");
+			m_Logger.Write (FromKernel, LogNotice, "SD data partition not available - no file log/dumps");
 		}
 	}
 
@@ -399,8 +412,19 @@ boolean CKernel::Initialize (void)
 
 TShutdownMode CKernel::Run (void)
 {
-	m_Logger.Write (FromKernel, LogNotice,
-		    "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
+	// msx.ini must be applied before anything else logs or touches the
+	// RPMC bus: on a msxbus machine the UART shares GPIO 14/15 with
+	// IORQ/MREQ, so logging mode and the bus are the same decision.
+	LoadMsxConfig ();
+
+	// Optional boot cartridge-dump test (Milestone A). Bus assumed after
+	// this point until the machine is torn down for reboot.
+	if (m_Config.bMsxbusEnable || m_Config.bMsxbusDump)
+	{
+		DumpCartridges ();
+	}
+
+	WriteLog (FromKernel, "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
 
 	WriteLog ("App", "Stage 6: Run started");
 
@@ -945,14 +969,6 @@ void CKernel::WriteLog (const char *pPrefix, const char *pFmt, ...)
 	va_list var;
 	char sBuf[256];
 
-	// Serial kill switch (set once the boot diagnostics and AUD lines
-	// are out). Checked before the format work so a silenced call costs
-	// one branch, not a vsnprintf plus a UART drain.
-	if (!m_bSerialEnabled)
-	{
-		return;
-	}
-
 	va_start (var, pFmt);
 	vsnprintf (sBuf, sizeof (sBuf), pFmt, var);
 	va_end (var);
@@ -962,8 +978,179 @@ void CKernel::WriteLog (const char *pPrefix, const char *pFmt, ...)
 	// SMP spinlock (enabled by CMultiCoreSupport::Initialize()). It also
 	// serializes the CString heap use inside CLogger::WriteV.
 	m_LogLock.Acquire ();
-	m_Logger.Write (pPrefix, LogNotice, "%s", sBuf);
+
+	// "file" (and "net") logging: keep a bounded copy on the RAM buffer,
+	// flushed to boot.log on the FAT partition at checkpoints. This is
+	// what carries the msxbus dump results when the UART is off.
+	if (m_bFileLog)
+	{
+		unsigned nLen = (unsigned) strlen (sBuf);
+		if (m_nLogFileLen + nLen + 1 <= sizeof (m_aLogFile))
+		{
+			memcpy (m_aLogFile + m_nLogFileLen, sBuf, nLen);
+			m_nLogFileLen += nLen;
+			m_aLogFile[m_nLogFileLen++] = '\n';
+		}
+	}
+
+	// Serial kill switch (set from msx.ini once the boot diagnostics and
+	// AUD lines are out; locked forever when the msxbus owns GPIO 14/15).
+	if (m_bSerialEnabled)
+	{
+		m_Logger.Write (pPrefix, LogNotice, "%s", sBuf);
+	}
+
 	m_LogLock.Release ();
+}
+
+// Load msx.ini and apply the logging decision. Serial must be off before
+// the msxbus takes over GPIO 14/15, and the file-log buffer is the only
+// output left then, so a bus machine always keeps a recording copy.
+void CKernel::LoadMsxConfig (void)
+{
+	m_Config = MSXConfig ();
+
+	bool bRead = false;
+	if (m_bFsMounted)
+	{
+		bRead = MsxConfig_Load (&m_Config, &m_FileSystem);
+	}
+
+	bool bBus = m_Config.bMsxbusEnable || m_Config.bMsxbusDump;
+	if (bBus)
+	{
+		m_bSerialEnabled = FALSE;	// GPIO 14/15 become IORQ/MREQ
+	}
+
+	switch (m_Config.nLogMode)
+	{
+	case MsxLogOff:
+		m_bSerialEnabled = FALSE;
+		m_bFileLog = FALSE;
+		break;
+
+	case MsxLogFile:
+	case MsxLogNet:
+		m_bSerialEnabled = FALSE;
+		m_bFileLog = TRUE;
+		break;
+
+	default:	// MsxLogUart
+		m_bFileLog = bBus ? TRUE : FALSE;
+		break;
+	}
+
+	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s mode=%d size=%u",
+		  bRead ? 1 : 0, MsxLogModeName (m_Config.nLogMode),
+		  bBus ? " (UART locked off)" : "",
+		  m_Config.bMsxbusEnable ? "on" : "off",
+		  m_Config.bMsxbusDump ? "on" : "off",
+		  m_Config.nMsxbusMode, m_Config.nDumpBytes);
+}
+
+// Flush the captured log to boot.log on the FAT partition (best effort).
+void CKernel::FlushFileLog (void)
+{
+	m_LogLock.Acquire ();
+	if (m_bFsMounted && m_nLogFileLen > 0)
+	{
+		unsigned hFile = m_FileSystem.FileCreate ("boot.log");
+		if (hFile != 0)
+		{
+			m_FileSystem.FileWrite (hFile, m_aLogFile, m_nLogFileLen);
+			m_FileSystem.FileClose (hFile);
+		}
+		m_nLogFileLen = 0;
+	}
+	m_LogLock.Release ();
+}
+
+// Milestone A test: bring the RPMC bus up and dump both cartridge slots to
+// CART1.ROM / CART3.ROM, so a cartridge can be verified on the PC (the
+// expected "AB" header at 0x4000 and the md5 against the known ROM).
+void CKernel::DumpCartridges (void)
+{
+	// Divisor for ~3,579,545 Hz from the runtime oscillator: 19.2 MHz on
+	// Pi 3/Zero 2, 54 MHz on Pi 4/400. MASH=1 dithering covers the fraction.
+	unsigned nSource = CMachineInfo::Get ()->GetGPIOClockSourceRate (GPIOClockSourceOscillator);
+	double dDiv = (double) nSource / 3579545.0;
+	unsigned nDivi = (unsigned) dDiv;
+	unsigned nDivF = (unsigned) ((dDiv - nDivi) * 4096.0 + 0.5);
+
+	MsxBus_Init (nDivi, nDivF);
+	m_bMsxbusActive = TRUE;
+	DataMemBarrier ();
+
+	MsxBus_Leds (0x80);	// PWR
+
+	char sBuf[160];
+	snprintf (sBuf, sizeof (sBuf),
+		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s",
+		nDivi, nDivF, nSource, MsxBus_PackPresent () ? "pressed" : "open");
+	WriteLog ("msxbus", "%s", sBuf);
+
+	if (!m_Config.bMsxbusDump)
+	{
+		return;
+	}
+
+	static const char *s_aNames[MsxBusSlotCount] = { "CART1.ROM", "CART3.ROM" };
+	static const unsigned char s_aSlotLed[MsxBusSlotCount] = { 0x20, 0x40 };
+
+	for (int nSlot = 0; nSlot < MsxBusSlotCount; nSlot++)
+	{
+		unsigned nBytes = m_Config.nDumpBytes;
+		unsigned char *pBuf = new unsigned char[nBytes];
+		if (pBuf == 0)
+		{
+			WriteLog ("msxbus", "dump %s: out of memory", s_aNames[nSlot]);
+			continue;
+		}
+
+		MsxBus_Leds (0x80 | s_aSlotLed[nSlot]);
+		for (unsigned i = 0; i < nBytes; i++)
+		{
+			pBuf[i] = MsxBus_Read (nSlot, (uint16_t) (0x4000u + i));
+		}
+
+		snprintf (sBuf, sizeof (sBuf),
+			"MSXBUS: %s %u bytes [%02X %02X %02X %02X %02X %02X %02X %02X ...]",
+			s_aNames[nSlot], nBytes,
+			pBuf[0], pBuf[1], pBuf[2], pBuf[3],
+			pBuf[4], pBuf[5], pBuf[6], pBuf[7]);
+		WriteLog ("msxbus", "%s", sBuf);
+
+		if (m_bFsMounted)
+		{
+			unsigned hFile = m_FileSystem.FileCreate (s_aNames[nSlot]);
+			if (hFile != 0)
+			{
+				unsigned nWritten = m_FileSystem.FileWrite (hFile, pBuf, nBytes);
+				m_FileSystem.FileClose (hFile);
+				WriteLog ("msxbus", "%s: wrote %u bytes to FAT", s_aNames[nSlot], nWritten);
+			}
+			else
+			{
+				WriteLog ("msxbus", "%s: FileCreate failed", s_aNames[nSlot]);
+			}
+		}
+		else
+		{
+			WriteLog ("msxbus", "%s: SD not mounted, dump kept in RAM only", s_aNames[nSlot]);
+		}
+
+		delete[] pBuf;
+	}
+
+	MsxBus_Leds (0x80);
+
+	MsxBusStats Stats;
+	MsxBus_GetStats (&Stats);
+	snprintf (sBuf, sizeof (sBuf),
+		"MSXBUS: slot1 reads=%lu slot3 reads=%lu WAIT iters=%lu timeouts=%lu slow=%lu",
+		Stats.nMemReads[MsxBusSlot1], Stats.nMemReads[MsxBusSlot3],
+		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps);
+	WriteLog ("msxbus", "%s", sBuf);
 }
 
 boolean CKernel::ClaimCore0Reset (void)

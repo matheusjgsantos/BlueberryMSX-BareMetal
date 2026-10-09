@@ -35,7 +35,9 @@ OBJS = main.o \
 	msx_core.o \
 	r800.o \
 	tms9918.o \
-	psg.o
+	psg.o \
+	msxbus.o \
+	msxconfig.o
 
 LIBS = $(CIRCLEHOME)/addon/vc4/sound/libvchiqsound.a \
 	$(CIRCLEHOME)/addon/vc4/vchiq/libvchiq.a \

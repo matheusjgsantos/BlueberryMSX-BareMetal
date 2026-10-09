@@ -112,7 +112,7 @@ msx_task.o: msx_task.cpp msx_task.h kernel.h \
  ui_queue.h hid_keydiff.h sound.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h \
- vdpblit.h overlay.h frame_pacer.h ../chips/z80/R800.h \
+ msxconfig.h vdpblit.h overlay.h frame_pacer.h ../chips/z80/R800.h \
  ../../include/msx_types.h ../chips/vdp/tms9918.h
 msx_task.h:
 kernel.h:
@@ -235,6 +235,7 @@ hid_keydiff.h:
 sound.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h:
 ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h:
+msxconfig.h:
 vdpblit.h:
 overlay.h:
 frame_pacer.h:
