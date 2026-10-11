@@ -13,6 +13,11 @@ typedef struct {
     uint8_t data[0x10000]; // 64KB per slot/subslot
     uint8_t rom[0x10000];  // read-only mask: 1 = ROM byte (writes ignored)
     int size;
+    // Live-bus backing: -1 = emulated buffer (data[]), else a physical RPMC
+    // board connector (0 = connector 1, 1 = connector 3). When >= 0 every
+    // memory read/write in this (slot, subslot) is served by the bus
+    // callbacks below instead of data[].
+    int busSlot;
 } MSX_SubSlot;
 
 typedef struct {
@@ -28,6 +33,17 @@ typedef struct {
     MSX_Slot slots[NUM_SLOTS];
     UInt8 slotReg;        // Current slot selection (from port 0xA8)
     int activeSlot[4];    // Active slot+subslot for each 16KB region
+
+    /* Live RPMC cartridge bus. Set by the app when msxbus is enabled: a
+     * subslot whose busSlot >= 0 routes its memory accesses here. The
+     * function pointers keep the core host-testable (no link dependency on
+     * the bare-metal GPIO driver): when NULL, bus-backed subslots read 0xFF
+     * and ignore writes. */
+    void *bus_ref;
+    UInt8 (*bus_read)(void *ref, int nBusSlot, UInt16 addr);
+    void (*bus_write)(void *ref, int nBusSlot, UInt16 addr, UInt8 val);
+    UInt8 (*bus_read_io)(void *ref, UInt16 port);
+    void (*bus_write_io)(void *ref, UInt16 port, UInt8 val);
 
     /* Optional diagnostic line logger. When non-NULL, core emits
      * CHKRAM-related messages through this hook (which on the app side is
@@ -162,6 +178,12 @@ extern unsigned g_psg_last_val;
 int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address);
 void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int size);
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size);
+
+/* Route a whole (slot, subslot) to a physical RPMC board connector:
+ * nBusSlot 0 = connector 1, 1 = connector 3; -1 restores the emulated buffer.
+ * All four 16KB regions of that subslot then live on the bus, so the caller
+ * must not have loaded ROM/RAM into it. */
+void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot);
 
 /* Emit one diagnostic line through diag_log (when set). Respects the budget. */
 void msx_diag(MSX_Machine *machine, const char *fmt, ...);

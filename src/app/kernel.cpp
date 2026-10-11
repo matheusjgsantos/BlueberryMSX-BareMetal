@@ -421,6 +421,10 @@ TShutdownMode CKernel::Run (void)
 	// this point until the machine is torn down for reboot.
 	if (m_Config.bMsxbusEnable || m_Config.bMsxbusDump)
 	{
+		MsxbusBringUp ();
+	}
+	if (m_Config.bMsxbusDump)
+	{
 		DumpCartridges ();
 	}
 
@@ -486,6 +490,13 @@ TShutdownMode CKernel::Run (void)
 	WriteLog ("App", "Stage 10: C-BIOS loaded");
 	LogLine ("C-BIOS loaded successfully");
 
+	if (m_Config.bMsxbusEnable)
+	{
+		// Live mode: the cartridges are the real ones on the RPMC board.
+		AttachMsxbus (m_pMachine);
+		LogLine ("MSXBUS: live cartridges attached (no embedded cart)");
+	}
+	else
 	{
 		msx_load_cart (m_pMachine, m_nCurrentCart);
 		char sBuf[96];
@@ -855,7 +866,14 @@ void CKernel::DoReset (void)
 	m_pMachine->diag_log_budget = 200;
 
 	msx_load_cbios (m_pMachine);
-	msx_load_cart (m_pMachine, m_nCurrentCart);
+	if (m_Config.bMsxbusEnable)
+	{
+		AttachMsxbus (m_pMachine);
+	}
+	else
+	{
+		msx_load_cart (m_pMachine, m_nCurrentCart);
+	}
 	m_nFrames = 0;
 
 	char sBuf[96];
@@ -1065,11 +1083,71 @@ void CKernel::FlushFileLog (void)
 	m_LogLock.Release ();
 }
 
-// Milestone A test: bring the RPMC bus up and dump both cartridge slots to
-// CART1.ROM / CART3.ROM, so a cartridge can be verified on the PC (the
-// expected "AB" header at 0x4000 and the md5 against the known ROM).
-void CKernel::DumpCartridges (void)
+// Core <-> GPIO bus bridges. The MSX core calls these through function
+// pointers (see MSX_Machine in msx.h), so the core keeps no link dependency
+// on the bare-metal driver and stays host-testable.
+static UInt8 MsxbusCoreRead (void *pRef, int nSlot, UInt16 nAddr)
 {
+	(void) pRef;
+	return (UInt8) MsxBus_Read (nSlot, (uint16_t) nAddr);
+}
+
+static void MsxbusCoreWrite (void *pRef, int nSlot, UInt16 nAddr, UInt8 nVal)
+{
+	(void) pRef;
+	MsxBus_Write (nSlot, (uint16_t) nAddr, (uint8_t) nVal);
+}
+
+static UInt8 MsxbusCoreReadIo (void *pRef, UInt16 nPort)
+{
+	(void) pRef;
+	return (UInt8) MsxBus_ReadIo ((uint16_t) nPort);
+}
+
+static void MsxbusCoreWriteIo (void *pRef, UInt16 nPort, UInt8 nVal)
+{
+	(void) pRef;
+	MsxBus_WriteIo ((uint16_t) nPort, (uint8_t) nVal);
+}
+
+// Hook the live RPMC bus into the emulated machine: every access to the
+// mapped primary slots is served by the physical cartridges, and any port the
+// emulator does not own goes to the board (music modules, SCC, FM...).
+void CKernel::AttachMsxbus (MSX_Machine *pMachine)
+{
+	if (pMachine == 0)
+	{
+		return;
+	}
+
+	pMachine->bus_ref      = this;
+	pMachine->bus_read     = MsxbusCoreRead;
+	pMachine->bus_write    = MsxbusCoreWrite;
+	pMachine->bus_read_io  = MsxbusCoreReadIo;
+	pMachine->bus_write_io = MsxbusCoreWriteIo;
+
+	// Board connector 1 and connector 3 each get one emulated primary slot.
+	// Defaults keep slot 3 free for the system RAM (0xC000-0xFFFF).
+	msx_slot_set_bus (pMachine, m_Config.nMsxbusSlot1, 0, MsxBusSlot1);
+	msx_slot_set_bus (pMachine, m_Config.nMsxbusSlot3, 0, MsxBusSlot3);
+
+	char sBuf[128];
+	snprintf (sBuf, sizeof (sBuf),
+		"MSXBUS: live - connector1 -> primary slot %d, connector3 -> primary slot %d",
+		m_Config.nMsxbusSlot1, m_Config.nMsxbusSlot3);
+	WriteLog ("msxbus", "%s", sBuf);
+}
+
+// Bring the RPMC bus up (pin map, GPCLK0, reset pulse) and light PWR. Safe to
+// call more than once: the second call is a no-op. After this the UART pins
+// are IORQ/MREQ, so no serial output is allowed (msx.ini log mode handles it).
+void CKernel::MsxbusBringUp (void)
+{
+	if (m_bMsxbusActive)
+	{
+		return;
+	}
+
 	// Divisor for ~3,579,545 Hz from the runtime oscillator: 19.2 MHz on
 	// Pi 3/Zero 2, 54 MHz on Pi 4/400. MASH=1 dithering covers the fraction.
 	unsigned nSource = CMachineInfo::Get ()->GetGPIOClockSourceRate (GPIOClockSourceOscillator);
@@ -1088,12 +1166,21 @@ void CKernel::DumpCartridges (void)
 		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s",
 		nDivi, nDivF, nSource, MsxBus_PackPresent () ? "pressed" : "open");
 	WriteLog ("msxbus", "%s", sBuf);
+}
+
+// Milestone A test: dump both cartridge slots to CART1.ROM / CART3.ROM, so a
+// cartridge can be verified on the PC (the expected "AB" header at 0x4000 and
+// the md5 against the known ROM).
+void CKernel::DumpCartridges (void)
+{
+	MsxbusBringUp ();
 
 	if (!m_Config.bMsxbusDump)
 	{
 		return;
 	}
 
+	char sBuf[160];
 	static const char *s_aNames[MsxBusSlotCount] = { "CART1.ROM", "CART3.ROM" };
 	static const unsigned char s_aSlotLed[MsxBusSlotCount] = { 0x20, 0x40 };
 

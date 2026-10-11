@@ -41,6 +41,8 @@ struct MSXConfig
 	bool bMsxbusDump;	// boot cartridge-dump test (this milestone)
 	int nMsxbusMode;	// MsxBusMode
 	unsigned nDumpBytes;	// bytes to dump per connector
+	int nMsxbusSlot1;	// emulated primary slot for board connector 1
+	int nMsxbusSlot3;	// emulated primary slot for board connector 3
 
 	MSXConfig (void)
 	:	nLogMode (MsxLogUart),
@@ -48,7 +50,9 @@ struct MSXConfig
 		bMsxbusEnable (false),
 		bMsxbusDump (false),
 		nMsxbusMode (MsxBusLive),
-		nDumpBytes (0x20000)	// 128 KiB
+		nDumpBytes (0x20000),	// 128 KiB
+		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1
+		nMsxbusSlot3 (2)	// connector 3 -> primary slot 2 (3 is RAM)
 	{
 	}
 };

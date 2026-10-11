@@ -147,6 +147,22 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 				pCfg->nDumpBytes = (unsigned) n;
 			}
 		}
+		else if (!strcasecmp (pKey, "msxbus.slot1"))
+		{
+			unsigned long n = strtoul (pVal, 0, 0);
+			if (n <= 3)			// an emulated primary slot
+			{
+				pCfg->nMsxbusSlot1 = (int) n;
+			}
+		}
+		else if (!strcasecmp (pKey, "msxbus.slot3"))
+		{
+			unsigned long n = strtoul (pVal, 0, 0);
+			if (n <= 3)
+			{
+				pCfg->nMsxbusSlot3 = (int) n;
+			}
+		}
 	}
 
 	return bParsed;

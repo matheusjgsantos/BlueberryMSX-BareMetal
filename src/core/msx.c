@@ -124,8 +124,14 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     int sslot = (active >> 2) & 3;
 
     if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
-        uint8_t *base = machine->slots[slot].subslots[sslot].data;
-        int size = machine->slots[slot].subslots[sslot].size;
+        MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+        // Live cartridge bus: the whole subslot lives on a real RPMC
+        // connector, so every byte comes from the physical cartridge.
+        if (ss->busSlot >= 0)
+            return machine->bus_read
+                ? machine->bus_read(machine->bus_ref, ss->busSlot, addr) : 0xFF;
+        uint8_t *base = ss->data;
+        int size = ss->size;
         // Each (slot, subslot) backs a full 64KB address space, indexed by the
         // complete Z80 address (region << 14 | offset). The active slot for the
         // 16KB region selects which slot's buffer is visible.
@@ -153,6 +159,14 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
 
     if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
         MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+        // Live cartridge bus: pass the write to the real cartridge so its
+        // mapper/bank register or on-board RAM sees it (ROM-array writes to
+        // emulated slots stay ignored below).
+        if (ss->busSlot >= 0) {
+            if (machine->bus_write)
+                machine->bus_write(machine->bus_ref, ss->busSlot, addr, val);
+            return;
+        }
         int size = ss->size;
         // ROM bytes are read-only: ignore writes (matches real hardware, where
         // writing to a ROM region has no effect). This is what lets the BIOS
@@ -229,11 +243,25 @@ static int io_traced (UInt16 port)
         || port == 0xDC || port == 0xDD;
 }
 
+/* Ports the emulator answers itself (VDP, PSG/PPI/slot register, C-BIOS map
+ * registers). Everything else is a cartridge/peripheral port and, when the
+ * live bus is attached, is handed to the real hardware - this is what makes a
+ * music module, SCC or FM pack in the second slot audible. */
+static int io_is_internal (UInt16 port)
+{
+    return (port >= 0x98 && port <= 0x9F)
+        || (port >= 0xA0 && port <= 0xAB)
+        || (port >= 0xFC && port <= 0xFF);
+}
+
 static UInt8 slot_read_io(void *ref, UInt16 port) {
     /* MSX peripherals decode A0-A7; the Z80 also drives A8-A15 on I/O. */
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
     UInt8 v;
+    /* Live bus: unclaimed ports belong to a cartridge. */
+    if (machine->bus_read_io && !io_is_internal(port))
+        return machine->bus_read_io(machine->bus_ref, port);
     if (port >= 0x98 && port <= 0x9F) {
         v = tms9918_read_reg((TMS9918*)machine->vdp, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
@@ -328,6 +356,9 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
                  name, (int)port, (int)((R800*)machine->z80)->regs.PC.W, (int)val);
         return;
     }
+    /* Live bus: unclaimed ports belong to a cartridge (SCC/FM/MSX-Music...). */
+    if (machine->bus_write_io && !io_is_internal(port))
+        machine->bus_write_io(machine->bus_ref, port, val);
 }
 
 static void dummy_patch(void *ref, CpuRegs *regs) { (void)ref; (void)regs; }
@@ -351,6 +382,11 @@ MSX_Machine* msx_create() {
     // Default: all regions map to slot 0, subslot 0
     memset(machine->activeSlot, 0, sizeof(machine->activeSlot));
     machine->slotReg = 0;
+
+    // No slot is bus-backed until msx_slot_set_bus() says so.
+    for (int s = 0; s < NUM_SLOTS; s++)
+        for (int t = 0; t < NUM_SUBSLOTS; t++)
+            machine->slots[s].subslots[t].busSlot = -1;
 
     machine->z80 = r800Create(0,
                               slot_read_mem, slot_write_mem,
@@ -421,6 +457,21 @@ void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uin
     memcpy(ss->data + offset, data, end - offset);
     memset(ss->rom + offset, 1, end - offset); // loaded ROM is read-only
     ss->size = SLOT_MAX_SIZE;
+}
+
+void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
+    if (!machine) return;
+    if (slot < 0 || slot >= NUM_SLOTS) return;
+    if (sslot < 0 || sslot >= NUM_SUBSLOTS) return;
+    MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+    ss->busSlot = nBusSlot;
+    if (nBusSlot >= 0) {
+        // The bus owns the whole 64KB subslot; make the emulated buffer look
+        // empty so any stray non-bus path stays inert.
+        memset(ss->data, 0xFF, SLOT_MAX_SIZE);
+        memset(ss->rom, 0, SLOT_MAX_SIZE);
+        ss->size = SLOT_MAX_SIZE;
+    }
 }
 
 int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address) {

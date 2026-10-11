@@ -217,7 +217,12 @@ public:
 	// (optional) cartridge-dump test. See msxconfig.h.
 	void LoadMsxConfig (void);
 	void FlushFileLog (void);
+	void MsxbusBringUp (void);
 	void DumpCartridges (void);
+	// Route the emulated cartridge slots to the two physical RPMC connectors
+	// (live reads/writes and port I/O). Called after msx_create/msx_load_cbios
+	// when msxbus=on; replaces the embedded-cart load.
+	void AttachMsxbus (MSX_Machine *pMachine);
 
 	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
