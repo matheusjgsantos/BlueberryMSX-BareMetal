@@ -245,7 +245,7 @@ CKernel::CKernel (void):
 	, m_nUiEvents (0)
 	, m_bOverlayOpen (FALSE)
 	, m_nOverlaySel (0)
-	, m_nCurrentCart (CartMsxDiag)
+	, m_nCurrentCart (CartSlots)
 	, m_nAudioDest (MSX_OUTPUT_AUTO)
 	, m_nAudioDestReq (-1)
 	, m_pSound (0)
@@ -490,11 +490,11 @@ TShutdownMode CKernel::Run (void)
 	WriteLog ("App", "Stage 10: C-BIOS loaded");
 	LogLine ("C-BIOS loaded successfully");
 
-	if (m_Config.bMsxbusEnable)
+	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		// Live mode: the cartridges are the real ones on the RPMC board.
 		AttachMsxbus (m_pMachine);
-		LogLine ("MSXBUS: live cartridges attached (no embedded cart)");
+		LogLine ("MSXBUS: live cartridges attached (SLOTS)");
 	}
 	else
 	{
@@ -866,7 +866,7 @@ void CKernel::DoReset (void)
 	m_pMachine->diag_log_budget = 200;
 
 	msx_load_cbios (m_pMachine);
-	if (m_Config.bMsxbusEnable)
+	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		AttachMsxbus (m_pMachine);
 	}

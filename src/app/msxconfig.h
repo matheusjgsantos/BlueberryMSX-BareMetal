@@ -47,7 +47,7 @@ struct MSXConfig
 	MSXConfig (void)
 	:	nLogMode (MsxLogUart),
 		nLogLevel (3),		// LogNotice
-		bMsxbusEnable (false),
+		bMsxbusEnable (true),	// SLOTS (live bus) is the default cartridge
 		bMsxbusDump (false),
 		nMsxbusMode (MsxBusLive),
 		nDumpBytes (0x20000),	// 128 KiB

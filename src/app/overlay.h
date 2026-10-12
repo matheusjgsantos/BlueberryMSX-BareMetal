@@ -13,7 +13,7 @@
 #include <circle/types.h>
 
 // Number of entries in the menu; must match the cartridge list in kernel.cpp.
-#define OVERLAY_CART_COUNT 2
+#define OVERLAY_CART_COUNT 3
 
 // Cache the framebuffer geometry. Call once after VDPBlit_Init(). Returns
 // FALSE when the screen target is unusable, in which case the menu is inert.

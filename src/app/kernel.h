@@ -58,6 +58,7 @@ enum TCartId
 {
 	CartMsxDiag = 0,		// MSX Diagnostics ("AB" 32K cartridge)
 	CartKnightmare = 1,	// Knightmare 32K cartridge
+	CartSlots = 2,		// live msxbus: the physical RPMC cartridges
 	TCartIdCount
 };
 
