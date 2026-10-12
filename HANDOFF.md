@@ -932,6 +932,12 @@ gcc -O1 -I../include -I../src/include -I../src/chips \
     -o io_decode_test io_decode_test.c ../src/core/msx.c \
     ../src/chips/z80/R800.c ../src/chips/vdp/tms9918.c ../src/chips/sound/psg.c
 ./io_decode_test    # OTIR + VDP/PPI aliases + PSG port decode
+
+gcc -O0 -g -std=gnu11 -I../include -I../src -I../src/core -I../src/chips \
+    -I../src/chips/z80 -I../src/chips/vdp -I../src/chips/sound -I../src/app \
+    -o megarom_bus_test megarom_bus_test.c ../src/core/msx.c \
+    ../src/chips/vdp/tms9918.c ../src/chips/z80/R800.c ../src/chips/sound/psg.c -lm
+./megarom_bus_test  # ASCII8 + Konami bank switch via bus callbacks (RESULT: PASS)
 ```
 
 Note: `framebuffer_blit.h` and `frame_pacer.h` are header-only, so their tests
