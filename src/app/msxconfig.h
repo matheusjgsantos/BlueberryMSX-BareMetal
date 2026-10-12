@@ -41,6 +41,7 @@ struct MSXConfig
 	int nLogLevel;		// Circle TLogSeverity (LogNotice default)
 	bool bMsxbusEnable;	// hook the bus into emulated slot 0/1 (later)
 	bool bMsxbusDump;	// boot cartridge-dump test (this milestone)
+	bool bDiagDump;		// per-frame PPM + bus counter dumps to the FAT card
 	int nMsxbusMode;	// MsxBusMode
 	unsigned nDumpBytes;	// bytes to dump per connector
 	int nMsxbusSlot1;	// emulated primary slot for board connector 1
@@ -52,6 +53,7 @@ struct MSXConfig
 		nLogLevel (3),		// LogNotice
 		bMsxbusEnable (true),	// SLOTS (live bus) is the default cartridge
 		bMsxbusDump (false),
+		bDiagDump (false),	// off: no mid-run SD writes during play
 		nMsxbusMode (MsxBusCache),	// fast path for plain ROM packs
 		nDumpBytes (0x20000),	// 128 KiB
 		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1

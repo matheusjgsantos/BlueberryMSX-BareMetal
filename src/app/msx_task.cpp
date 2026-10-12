@@ -340,10 +340,11 @@ void CMsxTask::Run (void)
 		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
 		{
 			// Bus counters to the data partition (128 KiB multi-sector write
-			// so it survives this Circle build's small-file FAT hang). A few
-			// points only, so the write stall does not skew the rate sample.
+			// so it survives this Circle build's small-file FAT hang). Opt-in
+			// (msx.ini diag=on): each write stalls the emulator, so it is off
+			// during normal play. A few points only, to keep the stall brief.
 			unsigned long long nDiagFrame = m_pKernel->GetFrames ();
-			if (m_pKernel->IsMsxbusActive () &&
+			if (m_pKernel->IsMsxbusActive () && m_pKernel->IsDiagDump () &&
 			    (nDiagFrame == 120 ||
 			     (nDiagFrame <= 1800 && (nDiagFrame % 600) == 0)))
 			{

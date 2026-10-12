@@ -195,6 +195,11 @@ public:
 	// nobody may touch the UART after MsxBus_Init().
 	boolean IsMsxbusActive (void) const { return m_bMsxbusActive; }
 
+	// TRUE when msx.ini diag=on: per-frame PPM frames and bus-counter (.STA)
+	// files are written to the data partition. Off by default because those
+	// SD writes stall the emulator (visible as periodic freezes).
+	boolean IsDiagDump (void) const { return m_Config.bDiagDump; }
+
 	// One-way serial kill switch: boot diagnostics and the AUD snapshots
 	// are emitted first, then the MSX task turns this off for good so the
 	// UART and logger cost nothing during play (user request: serial off

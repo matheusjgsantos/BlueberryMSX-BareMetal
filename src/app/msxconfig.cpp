@@ -128,6 +128,10 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		{
 			pCfg->bMsxbusDump = StrTrue (pVal);
 		}
+		else if (!strcasecmp (pKey, "diag"))
+		{
+			pCfg->bDiagDump = StrTrue (pVal);
+		}
 		else if (!strcasecmp (pKey, "msxbus.mode"))
 		{
 			if (!strcasecmp (pVal, "cache"))

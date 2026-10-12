@@ -433,12 +433,17 @@ TShutdownMode CKernel::Run (void)
 	WriteLog ("App", "Stage 6: Run started");
 
 	VDPBlit_Init (&m_Screen);
-	VDPBlit_SetDumpHook (
-		[](const unsigned char *pRGB, unsigned nBytes, unsigned nFrame, void *pUser)
-		{
-			((CKernel *) pUser)->WriteFrame (pRGB, nBytes, nFrame);
-		},
-		this);
+	if (m_Config.bDiagDump)
+	{
+		// Diagnostic frame capture writes a ~147 KB PPM per capture and
+		// stalls the emulator; only when msx.ini asks for it.
+		VDPBlit_SetDumpHook (
+			[](const unsigned char *pRGB, unsigned nBytes, unsigned nFrame, void *pUser)
+			{
+				((CKernel *) pUser)->WriteFrame (pRGB, nBytes, nFrame);
+			},
+			this);
+	}
 
 	WriteLog ("App", "Stage 7: VDP blit initialized");
 
@@ -1058,11 +1063,12 @@ void CKernel::LoadMsxConfig (void)
 		break;
 	}
 
-	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s mode=%d size=%u rddelay=%d",
+	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s diag=%s mode=%d size=%u rddelay=%d",
 		  bRead ? 1 : 0, MsxLogModeName (m_Config.nLogMode),
 		  bBus ? " (UART locked off)" : "",
 		  m_Config.bMsxbusEnable ? "on" : "off",
 		  m_Config.bMsxbusDump ? "on" : "off",
+		  m_Config.bDiagDump ? "on" : "off",
 		  m_Config.nMsxbusMode, m_Config.nDumpBytes, m_Config.nMsxbusReadDelay);
 }
 
