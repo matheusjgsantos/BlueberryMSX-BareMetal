@@ -1058,12 +1058,12 @@ void CKernel::LoadMsxConfig (void)
 		break;
 	}
 
-	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s mode=%d size=%u",
+	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s mode=%d size=%u rddelay=%d",
 		  bRead ? 1 : 0, MsxLogModeName (m_Config.nLogMode),
 		  bBus ? " (UART locked off)" : "",
 		  m_Config.bMsxbusEnable ? "on" : "off",
 		  m_Config.bMsxbusDump ? "on" : "off",
-		  m_Config.nMsxbusMode, m_Config.nDumpBytes);
+		  m_Config.nMsxbusMode, m_Config.nDumpBytes, m_Config.nMsxbusReadDelay);
 }
 
 // Flush the captured log to boot.log on the FAT partition (best effort).
@@ -1156,6 +1156,7 @@ void CKernel::MsxbusBringUp (void)
 	unsigned nDivF = (unsigned) ((dDiv - nDivi) * 4096.0 + 0.5);
 
 	MsxBus_Init (nDivi, nDivF);
+	MsxBus_SetReadDelay (m_Config.nMsxbusReadDelay);
 	m_bMsxbusActive = TRUE;
 	DataMemBarrier ();
 
@@ -1163,8 +1164,9 @@ void CKernel::MsxbusBringUp (void)
 
 	char sBuf[160];
 	snprintf (sBuf, sizeof (sBuf),
-		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s",
-		nDivi, nDivF, nSource, MsxBus_PackPresent () ? "pressed" : "open");
+		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s, rddelay=%d",
+		nDivi, nDivF, nSource, MsxBus_PackPresent () ? "pressed" : "open",
+		m_Config.nMsxbusReadDelay);
 	WriteLog ("msxbus", "%s", sBuf);
 }
 
@@ -1238,6 +1240,54 @@ void CKernel::DumpCartridges (void)
 		Stats.nMemReads[MsxBusSlot1], Stats.nMemReads[MsxBusSlot3],
 		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps);
 	WriteLog ("msxbus", "%s", sBuf);
+}
+
+// Diagnostic: report the RPMC bus counters as a file on the data partition so
+// they can be read back on a PC. The log itself is RAM-buffered (log=file) and
+// cannot be flushed (a small FAT write hangs this Circle build), so the report
+// is padded to 128 KiB - the same size class as the cartridge dumps and PPM
+// frames, which write reliably. Called once per heartbeat from the MSX task.
+void CKernel::DumpMsxbusDiag (unsigned long long nFrame, unsigned nTicks)
+{
+	if (!m_bFsMounted)
+	{
+		return;
+	}
+
+	MsxBusStats Stats;
+	MsxBus_GetStats (&Stats);
+
+	const unsigned nSize = 0x20000;		// 128 KiB
+	unsigned char *pBuf = new unsigned char[nSize];
+	if (pBuf == 0)
+	{
+		return;
+	}
+	memset (pBuf, 0, nSize);
+
+	snprintf ((char *) pBuf, 256,
+		"MSXBUS DIAG\n"
+		"frame=%llu ticks=%u\n"
+		"reads1=%lu reads3=%lu writes1=%lu writes3=%lu\n"
+		"ioreads=%lu iowrites=%lu\n"
+		"waititers=%lu waittimeouts=%lu slowops=%lu\n",
+		nFrame, nTicks,
+		Stats.nMemReads[MsxBusSlot1], Stats.nMemReads[MsxBusSlot3],
+		Stats.nMemWrites[MsxBusSlot1], Stats.nMemWrites[MsxBusSlot3],
+		Stats.nIoReads, Stats.nIoWrites,
+		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps);
+
+	char sName[16];
+	snprintf (sName, sizeof (sName), "MB%06X.STA", (unsigned) (nFrame & 0xFFFFFFu));
+
+	unsigned hFile = m_FileSystem.FileCreate (sName);
+	if (hFile != 0)
+	{
+		m_FileSystem.FileWrite (hFile, pBuf, nSize);
+		m_FileSystem.FileClose (hFile);
+	}
+
+	delete[] pBuf;
 }
 
 boolean CKernel::ClaimCore0Reset (void)

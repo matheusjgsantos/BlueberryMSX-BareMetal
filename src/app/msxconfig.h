@@ -43,6 +43,7 @@ struct MSXConfig
 	unsigned nDumpBytes;	// bytes to dump per connector
 	int nMsxbusSlot1;	// emulated primary slot for board connector 1
 	int nMsxbusSlot3;	// emulated primary slot for board connector 3
+	int nMsxbusReadDelay;	// post-WAIT settle iterations for memory reads
 
 	MSXConfig (void)
 	:	nLogMode (MsxLogUart),
@@ -52,7 +53,8 @@ struct MSXConfig
 		nMsxbusMode (MsxBusLive),
 		nDumpBytes (0x20000),	// 128 KiB
 		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1
-		nMsxbusSlot3 (2)	// connector 3 -> primary slot 2 (3 is RAM)
+		nMsxbusSlot3 (2),	// connector 3 -> primary slot 2 (3 is RAM)
+		nMsxbusReadDelay (16)	// WAIT signals ready; less settle than ref's 100
 	{
 	}
 };

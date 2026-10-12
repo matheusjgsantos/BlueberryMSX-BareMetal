@@ -339,6 +339,17 @@ void CMsxTask::Run (void)
 
 		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
 		{
+			// Bus counters to the data partition (128 KiB multi-sector write
+			// so it survives this Circle build's small-file FAT hang). A few
+			// points only, so the write stall does not skew the rate sample.
+			unsigned long long nDiagFrame = m_pKernel->GetFrames ();
+			if (m_pKernel->IsMsxbusActive () &&
+			    (nDiagFrame == 120 ||
+			     (nDiagFrame <= 1800 && (nDiagFrame % 600) == 0)))
+			{
+				m_pKernel->DumpMsxbusDiag (nDiagFrame, nFrameStart);
+			}
+
 			R800 *z80 = (R800 *) machine->z80;
 			char sBuf[128];
 			snprintf (sBuf, sizeof(sBuf),

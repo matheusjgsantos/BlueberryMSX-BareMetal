@@ -75,6 +75,12 @@ void MsxBus_Leds (unsigned char nByte);
 /// Copy the telemetry counters.
 void MsxBus_GetStats (MsxBusStats *pStats);
 
+/// Post-WAIT settle delay (delay-loop iterations) used by memory reads. The
+/// reference driver uses 100; since WAIT already signals data-ready, a smaller
+/// value can roughly halve the per-read GPIO traffic. Set via msx.ini
+/// (msxbus.rddelay) so a timing-sensitive cartridge can restore the margin.
+void MsxBus_SetReadDelay (int nDelay);
+
 #ifdef __cplusplus
 }
 #endif

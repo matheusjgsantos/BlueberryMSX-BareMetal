@@ -163,6 +163,14 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 				pCfg->nMsxbusSlot3 = (int) n;
 			}
 		}
+		else if (!strcasecmp (pKey, "msxbus.rddelay"))
+		{
+			unsigned long n = strtoul (pVal, 0, 0);
+			if (n <= 100000)
+			{
+				pCfg->nMsxbusReadDelay = (int) n;
+			}
+		}
 	}
 
 	return bParsed;

@@ -131,6 +131,10 @@ static volatile uint32_t *msxbus_gpset;
 static volatile uint32_t *msxbus_gpclr;
 static volatile uint32_t *msxbus_gplev;
 
+// Post-WAIT settle delay for memory reads (see MsxBus_SetReadDelay). The
+// reference uses 100; WAIT already signals data-ready, so 16 is the default.
+static int msxbus_read_delay = 16;
+
 static unsigned long msxbus_counter_nreads[MsxBusSlotCount];
 static unsigned long msxbus_counter_nwrites[MsxBusSlotCount];
 static unsigned long msxbus_counter_nioreads;
@@ -400,7 +404,7 @@ uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
 
 	msxbus_set_address (nAddr);
 	uint8_t nByte = msxbus_get_data (msxbus_slot_sel (nSlot) | MSXBUS_MREQ_BIT,
-					 MSXBUS_RD_BIT | nCs1 | nCs2, 100);
+					 MSXBUS_RD_BIT | nCs1 | nCs2, msxbus_read_delay);
 	msxbus_counter_nreads[nSlot]++;
 	return nByte;
 }
@@ -473,6 +477,19 @@ void MsxBus_Leds (unsigned char nByte)
 		MSXBUS_CLR (MSXBUS_SRCLK_BIT);
 	}
 	MSXBUS_SET (MSXBUS_RCLK_BIT);
+}
+
+void MsxBus_SetReadDelay (int nDelay)
+{
+	if (nDelay < 0)
+	{
+		nDelay = 0;
+	}
+	else if (nDelay > 100000)
+	{
+		nDelay = 100000;
+	}
+	msxbus_read_delay = nDelay;
 }
 
 void MsxBus_GetStats (MsxBusStats *pStats)

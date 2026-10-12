@@ -220,6 +220,10 @@ public:
 	void FlushFileLog (void);
 	void MsxbusBringUp (void);
 	void DumpCartridges (void);
+	// Diagnostic: write the RPMC bus counters to an 8.3 file (MB<frame>.STA)
+	// on the data partition. The file is padded to 128 KiB so the write takes
+	// the proven multi-sector path (a ~1 KiB write hangs this Circle build).
+	void DumpMsxbusDiag (unsigned long long nFrame, unsigned nTicks);
 	// Route the emulated cartridge slots to the two physical RPMC connectors
 	// (live reads/writes and port I/O). Called after msx_create/msx_load_cbios
 	// when msxbus=on; replaces the embedded-cart load.
