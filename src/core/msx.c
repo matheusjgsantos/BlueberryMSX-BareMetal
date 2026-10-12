@@ -454,8 +454,13 @@ void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uin
     if (ss->size == 0) memset(ss->data, 0xFF, SLOT_MAX_SIZE);
     int end = offset + size;
     if (end > SLOT_MAX_SIZE) end = SLOT_MAX_SIZE;
-    memcpy(ss->data + offset, data, end - offset);
-    memset(ss->rom + offset, 1, end - offset); // loaded ROM is read-only
+    if (end > offset) memcpy(ss->data + offset, data, end - offset);
+    // Everything reaches here as ROM (a cartridge image or a BIOS). Mark the
+    // WHOLE subslot read-only, not just the loaded bytes: bytes outside the
+    // image read 0xFF and ignore writes. Leaving them writable made them look
+    // like RAM, so an MSX memory scan (MSX Diag, MegaFlashROM) saw phantom RAM
+    // in every ROM slot and reported 112KB instead of the machine's 64KB.
+    memset(ss->rom, 1, SLOT_MAX_SIZE);
     ss->size = SLOT_MAX_SIZE;
 }
 
