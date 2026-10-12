@@ -44,6 +44,8 @@ typedef struct
 	unsigned long nWaitIters;	// total WAIT polling iterations
 	unsigned long nWaitTimeouts;	// WAIT never released within the bound
 	unsigned long nSlowOps;		// ops whose WAIT took > 500 iterations
+	unsigned long nCacheHits;	// reads served from the page cache
+	unsigned long nCacheMisses;	// reads that had to touch the bus
 } MsxBusStats;
 
 /// Initialize the bus: pin directions, pull-ups (WAIT/INT/SW1), GPCLK0 on
@@ -80,6 +82,15 @@ void MsxBus_GetStats (MsxBusStats *pStats);
 /// value can roughly halve the per-read GPIO traffic. Set via msx.ini
 /// (msxbus.rddelay) so a timing-sensitive cartridge can restore the margin.
 void MsxBus_SetReadDelay (int nDelay);
+
+/// Enable/disable the read page cache (msxbus.mode=cache). The cache keeps a
+/// copy of every byte the emulator reads from a connector and invalidates the
+/// whole connector on any write to it. Simple ROM packs then run at native
+/// speed after the first pass; a write-driven mapper stays correct because the
+/// bank-register write flushes the cache. (A mapper that switches banks on a
+/// *read* is not modelled: caching hides the repeat read.) Call after
+/// MsxBus_Init.
+void MsxBus_SetCacheMode (int bEnable);
 
 #ifdef __cplusplus
 }

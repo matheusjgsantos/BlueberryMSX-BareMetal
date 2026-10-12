@@ -26,6 +26,8 @@
 
 #include "msxbus.h"
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifndef RASPPI
 #define RASPPI 3
@@ -135,6 +137,15 @@ static volatile uint32_t *msxbus_gplev;
 // reference uses 100; WAIT already signals data-ready, so 16 is the default.
 static int msxbus_read_delay = 16;
 
+// Read page cache (see MsxBus_SetCacheMode). One 64 KiB data array and one
+// 64 KiB "valid" array per connector, lazily allocated so live mode costs
+// nothing. A byte is cached the first time the emulator reads it (reads stay
+// in program order, so a read-triggered mapper still advances as on the real
+// bus until the byte is cached); any write to the connector flushes it.
+static int msxbus_cache_mode = 0;
+static uint8_t *msxbus_cache[MsxBusSlotCount];
+static uint8_t *msxbus_cache_valid[MsxBusSlotCount];
+
 static unsigned long msxbus_counter_nreads[MsxBusSlotCount];
 static unsigned long msxbus_counter_nwrites[MsxBusSlotCount];
 static unsigned long msxbus_counter_nioreads;
@@ -142,6 +153,8 @@ static unsigned long msxbus_counter_niowrites;
 static unsigned long msxbus_counter_wait_iters;
 static unsigned long msxbus_counter_wait_timeouts;
 static unsigned long msxbus_counter_slow_ops;
+static unsigned long msxbus_counter_cache_hits;
+static unsigned long msxbus_counter_cache_misses;
 
 static inline void msxbus_dsb (void)
 {
@@ -397,7 +410,9 @@ int MsxBus_PackPresent (void)
 	return (MSXBUS_LEV () & MSXBUS_SW1_BIT) ? 0 : 1;
 }
 
-uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
+// Raw one-byte memory read on the bus (no cache). Kept separate so the cache
+// wrapper below can fall back to it on a miss.
+static uint8_t msxbus_bus_read (int nSlot, uint16_t nAddr)
 {
 	uint32_t nCs1 = (nAddr & 0xc000) == 0x4000 ? MSXBUS_CS1_BIT : 0;
 	uint32_t nCs2 = (nAddr & 0xc000) == 0x8000 ? MSXBUS_CS2_BIT : 0;
@@ -409,7 +424,9 @@ uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
 	return nByte;
 }
 
-void MsxBus_Write (int nSlot, uint16_t nAddr, uint8_t nByte)
+// Raw one-byte memory write on the bus (no cache). The cache is flushed by the
+// public MsxBus_Write wrapper, because a write may be a bank-register store.
+static void msxbus_bus_write (int nSlot, uint16_t nAddr, uint8_t nByte)
 {
 	uint32_t nCs;
 	if ((nAddr & 0xc000) == 0x4000)
@@ -438,6 +455,38 @@ void MsxBus_Write (int nSlot, uint16_t nAddr, uint8_t nByte)
 	msxbus_counter_nwrites[nSlot]++;
 }
 
+uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
+{
+	if (msxbus_cache_mode && msxbus_cache_valid[nSlot] != 0)
+	{
+		if (msxbus_cache_valid[nSlot][nAddr])
+		{
+			msxbus_counter_cache_hits++;
+			return msxbus_cache[nSlot][nAddr];
+		}
+
+		msxbus_counter_cache_misses++;
+		uint8_t nByte = msxbus_bus_read (nSlot, nAddr);
+		msxbus_cache[nSlot][nAddr] = nByte;
+		msxbus_cache_valid[nSlot][nAddr] = 1;
+		return nByte;
+	}
+
+	return msxbus_bus_read (nSlot, nAddr);
+}
+
+void MsxBus_Write (int nSlot, uint16_t nAddr, uint8_t nByte)
+{
+	msxbus_bus_write (nSlot, nAddr, nByte);
+
+	// Any write to a connector can move a bank register, so drop the whole
+	// connector's cache. Over-invalidating is safe, only slower to warm up.
+	if (msxbus_cache_mode && msxbus_cache_valid[nSlot] != 0)
+	{
+		memset (msxbus_cache_valid[nSlot], 0, 0x10000);
+	}
+}
+
 uint8_t MsxBus_ReadIo (uint16_t nAddr)
 {
 	msxbus_set_address (nAddr);
@@ -451,6 +500,21 @@ void MsxBus_WriteIo (uint16_t nAddr, uint8_t nByte)
 	msxbus_set_address (nAddr);
 	msxbus_set_data (MSXBUS_IORQ_BIT, MSXBUS_IORQ_BIT, 55, nByte);
 	msxbus_counter_niowrites++;
+
+	// A few cartridges expose their bank latch through an I/O port; the port
+	// does not say which connector, so flush both. Port stores are rare (the
+	// VDP/PSG/slot registers are handled inside the emulator), so this is
+	// cheap insurance for those edge-case packs.
+	if (msxbus_cache_mode)
+	{
+		for (int i = 0; i < MsxBusSlotCount; i++)
+		{
+			if (msxbus_cache_valid[i] != 0)
+			{
+				memset (msxbus_cache_valid[i], 0, 0x10000);
+			}
+		}
+	}
 }
 
 void MsxBus_Leds (unsigned char nByte)
@@ -492,6 +556,29 @@ void MsxBus_SetReadDelay (int nDelay)
 	msxbus_read_delay = nDelay;
 }
 
+void MsxBus_SetCacheMode (int bEnable)
+{
+	msxbus_cache_mode = bEnable ? 1 : 0;
+
+	if (!msxbus_cache_mode)
+	{
+		return;
+	}
+
+	for (int i = 0; i < MsxBusSlotCount; i++)
+	{
+		if (msxbus_cache[i] == 0)
+		{
+			msxbus_cache[i] = malloc (0x10000);
+			msxbus_cache_valid[i] = malloc (0x10000);
+		}
+		if (msxbus_cache_valid[i] != 0)
+		{
+			memset (msxbus_cache_valid[i], 0, 0x10000);
+		}
+	}
+}
+
 void MsxBus_GetStats (MsxBusStats *pStats)
 {
 	for (int i = 0; i < MsxBusSlotCount; i++)
@@ -504,4 +591,6 @@ void MsxBus_GetStats (MsxBusStats *pStats)
 	pStats->nWaitIters = msxbus_counter_wait_iters;
 	pStats->nWaitTimeouts = msxbus_counter_wait_timeouts;
 	pStats->nSlowOps = msxbus_counter_slow_ops;
+	pStats->nCacheHits = msxbus_counter_cache_hits;
+	pStats->nCacheMisses = msxbus_counter_cache_misses;
 }

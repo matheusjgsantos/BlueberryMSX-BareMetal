@@ -1157,6 +1157,7 @@ void CKernel::MsxbusBringUp (void)
 
 	MsxBus_Init (nDivi, nDivF);
 	MsxBus_SetReadDelay (m_Config.nMsxbusReadDelay);
+	MsxBus_SetCacheMode (m_Config.nMsxbusMode == MsxBusCache);
 	m_bMsxbusActive = TRUE;
 	DataMemBarrier ();
 
@@ -1164,9 +1165,10 @@ void CKernel::MsxbusBringUp (void)
 
 	char sBuf[160];
 	snprintf (sBuf, sizeof (sBuf),
-		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s, rddelay=%d",
+		"MSXBUS: bus up, GPCLK0 div=%u+%u/4096 (src %u Hz), SW1=%s, rddelay=%d mode=%s",
 		nDivi, nDivF, nSource, MsxBus_PackPresent () ? "pressed" : "open",
-		m_Config.nMsxbusReadDelay);
+		m_Config.nMsxbusReadDelay,
+		m_Config.nMsxbusMode == MsxBusCache ? "cache" : "live");
 	WriteLog ("msxbus", "%s", sBuf);
 }
 
@@ -1270,12 +1272,14 @@ void CKernel::DumpMsxbusDiag (unsigned long long nFrame, unsigned nTicks)
 		"frame=%llu ticks=%u\n"
 		"reads1=%lu reads3=%lu writes1=%lu writes3=%lu\n"
 		"ioreads=%lu iowrites=%lu\n"
-		"waititers=%lu waittimeouts=%lu slowops=%lu\n",
+		"waititers=%lu waittimeouts=%lu slowops=%lu\n"
+		"cachehits=%lu cachemisses=%lu\n",
 		nFrame, nTicks,
 		Stats.nMemReads[MsxBusSlot1], Stats.nMemReads[MsxBusSlot3],
 		Stats.nMemWrites[MsxBusSlot1], Stats.nMemWrites[MsxBusSlot3],
 		Stats.nIoReads, Stats.nIoWrites,
-		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps);
+		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps,
+		Stats.nCacheHits, Stats.nCacheMisses);
 
 	char sName[16];
 	snprintf (sName, sizeof (sName), "MB%06X.STA", (unsigned) (nFrame & 0xFFFFFFu));

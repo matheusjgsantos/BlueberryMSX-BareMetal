@@ -26,7 +26,9 @@ enum MsxLogMode
 };
 
 // msxbus.mode: live = every emulated cartridge access hits the GPIO bus;
-// cache = a page-window cache over the bus (planned; parsed but unused).
+// cache = a read cache over the bus (see MsxBus_SetCacheMode). Cache is fast
+// for plain ROM packs; a write-driven mapper stays correct because a write
+// flushes the cache, but a read-triggered mapper should use live.
 enum MsxBusMode
 {
 	MsxBusLive = 0,
@@ -50,7 +52,7 @@ struct MSXConfig
 		nLogLevel (3),		// LogNotice
 		bMsxbusEnable (true),	// SLOTS (live bus) is the default cartridge
 		bMsxbusDump (false),
-		nMsxbusMode (MsxBusLive),
+		nMsxbusMode (MsxBusCache),	// fast path for plain ROM packs
 		nDumpBytes (0x20000),	// 128 KiB
 		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1
 		nMsxbusSlot3 (2),	// connector 3 -> primary slot 2 (3 is RAM)
