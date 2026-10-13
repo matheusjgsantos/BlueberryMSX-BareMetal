@@ -22,7 +22,6 @@
 
 static const char *s_apCartNames[OVERLAY_CART_COUNT] = {
 	"MSX DIAG",
-	"KNIGHTMARE",
 	"SLOTS (MSXBUS)",
 };
 

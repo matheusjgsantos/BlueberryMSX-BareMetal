@@ -399,14 +399,14 @@ static void test_io_ports (void)
 	psg_write (psg, 7, 0x80);
 	check (psg_read (psg, 15) == 0xAA, "R15 output reads the register latch");
 
-	/* The exact Knightmare input sequence: R7 = 0xB8 (port A input,
+	/* The classic joystick read sequence: R7 = 0xB8 (port A input,
 	 * port B output), write R15 = 0x8F, then read R14 for the joystick.
 	 * A 0x00 read would CPL+AND 3Fh to 0x3F = all directions and both
 	 * triggers pressed, permanently. */
 	psg_write (psg, 7, 0xB8);
 	psg_write (psg, 15, 0x8F);
-	check (psg_read (psg, 14) == 0xFF, "Knightmare: R14 reads 0xFF with R7 = 0xB8");
-	check (psg_read (psg, 15) == 0x8F, "Knightmare: R15 output latch reads back 0x8F");
+	check (psg_read (psg, 14) == 0xFF, "R14 reads 0xFF with R7 = 0xB8");
+	check (psg_read (psg, 15) == 0x8F, "R15 output latch reads back 0x8F");
 
 	psg_destroy (psg);
 }

@@ -228,10 +228,9 @@ UInt8 psg_read(const PSG *psg, UInt8 reg)
      * clear the port is an input, and a read returns the external pins
      * instead of the register latch (openMSX AY8910::peekRegister does
      * the same via periphery.readA/readB).  Nothing is attached to the
-     * MSX PSG ports, so the pins read 0xFF (pull-ups).  Knightmare's
-     * input routine reads R14 with R7=0xB8 (port A input) and would
-     * treat a 0x00 latch read as "joystick held in all directions with
-     * both triggers pressed", which is what broke keyboard input there.
+     * MSX PSG ports, so the pins read 0xFF (pull-ups).  Games that read the
+     * joystick this way (R7 = 0xB8, R14) expect that 0xFF; returning the zeroed
+     * output latch instead would look like every direction held.
      * With the direction bit set the port is an output and the latch
      * reads back, like the real chip. */
     if (reg == 14 && !(psg->reg[7] & 0x40)) return 0xFF;

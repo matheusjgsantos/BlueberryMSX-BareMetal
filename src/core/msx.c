@@ -614,8 +614,8 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
     msx_frame_render(vdp);
     if (vdp->irq) {
         r800SetInt(z80);
-        /* Throttled IRQ delivery trace (~1 line / 60 frames) for the Knightmare
-         * bring-up serial log: tells us the IRQ is being latched, the IM mode,
+        /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
+         * serial log: tells us the IRQ is being latched, the IM mode,
          * whether interrupts are enabled (IFF1), and where the PC is.
          * Respect the diag_log budget. */
         static int s_irq_log_frame = 0;

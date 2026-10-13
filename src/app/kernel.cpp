@@ -9,7 +9,6 @@
 #include "vdpblit.h"
 #include "cbios_roms.h"
 #include "msxdiag_roms.h"
-#include "knightmare_roms.h"
 #include "overlay.h"
 #include "hid_keydiff.h"
 #include "msxconfig.h"
@@ -181,11 +180,6 @@ static void msx_load_cart (MSX_Machine *machine, int nCart)
 
 	switch (nCart)
 	{
-	case CartKnightmare:
-		pRom = knightmare_rom;
-		nRomSize = knightmare_rom_size;
-		break;
-
 	default:
 		pRom = msxdiag_rom;
 		nRomSize = msxdiag_rom_size;

@@ -1,5 +1,15 @@
 # Session Handoff — MSX Diag ROM + USB host boots on hardware (2026-10-05)
 
+## Update (2026-10-13): Knightmare cart removed
+
+The Knightmare cartridge and its host-test artifacts have been removed. The
+built-in cart selector now offers only `MSX DIAG` and `SLOTS (MSXBUS)`
+(`TCartId { CartMsxDiag, CartSlots }`, `OVERLAY_CART_COUNT == 2`). Historical
+notes below that mention a Knightmare cart describe earlier sessions. Build
+verified: `msx.img` md5 `48fa0026d25fb8207818b7091be9cd90`, 576,400 bytes.
+Build outputs (`*.o`, `*.d`, `*.elf`, `*.img`, `*.lst`, `*.map`) are no longer
+tracked (see `.gitignore`).
+
 ## Current status
 
 Hardware run confirmed (`MSX/serial-out/msx-boot.log`):
@@ -349,7 +359,7 @@ keys, rotating permutations of three held keys, a full six-key array, sparse
 reports and a duplicated usage.
 
 Cartridge switching (the chosen design — reload, no hot swap):
-`msx_load_cart(machine, nCart)` picks `msxdiag_rom` or `knightmare_rom`,
+`msx_load_cart(machine, nCart)` loads `msxdiag_rom`,
 clears slot 1 subslot 0 and copies the 32K image into `0x4000` and `0x8000`.
 `CKernel::m_nCurrentCart` remembers the selection; `DoReset()` recreates the
 machine and calls `msx_load_cbios()` + `msx_load_cart()`. `ENTER` sets the
@@ -357,8 +367,7 @@ cart and calls `RequestReset()`, so booting a new ROM and rebooting the
 current one share one path. `DoReset()` now also re-arms the `diag_log`
 bridge, which the old reset path silently dropped.
 
-`src/app/Makefile` now links `knightmare_roms.o` (previously only the harness
-linked it) and `overlay.o`.
+`src/app/Makefile` links `overlay.o`.
 
 Host tests (all passing):
 
@@ -990,8 +999,6 @@ forced-sync cleanup is required before the final firmware build.
 * No pre-built openMSX binary exists in the tree (`openMSX/build` contains only
   3rdparty makefile helpers), so openMSX cannot be run headless for ground truth.
   All comparison must be source-level or against known-good VRAM dumps.
-* `host-test/km/` holds scratch ROM extracts for `z80dasm`:
-  `h402e.bin`, `d49c0.bin`, `s49b7.bin`.
 * Z80 disassembler available at `/usr/local/bin/z80dasm`.
 * Toolchain: `arm-none-eabi-gcc` 16.1.0, `make` 4.4.1, `python3` 3.14. Do not
   reinstall.

@@ -18,7 +18,7 @@ int main(void)
     TMS9918 *vdp = tms9918_create();
     if (!vdp) { printf("create failed\n"); return 1; }
 
-    /* Registers as observed for Knightmare: GRAPHICS 2, name@0x3800. */
+    /* Registers as observed in a game using GRAPHICS 2, name@0x3800. */
     vdp->reg[0] = 0x02; vdp->reg[1] = 0xE2; vdp->reg[2] = 0x0E;
     vdp->reg[3] = 0x7F; vdp->reg[4] = 0x07; vdp->reg[7] = 0xE4;
 

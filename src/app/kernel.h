@@ -56,9 +56,8 @@ enum TShutdownMode
 // Cartridges the overlay menu can boot.
 enum TCartId
 {
-	CartMsxDiag = 0,		// MSX Diagnostics ("AB" 32K cartridge)
-	CartKnightmare = 1,	// Knightmare 32K cartridge
-	CartSlots = 2,		// live msxbus: the physical RPMC cartridges
+	CartMsxDiag = 0,	// MSX Diagnostics ("AB" 32K cartridge)
+	CartSlots = 1,		// live msxbus: the physical RPMC cartridges
 	TCartIdCount
 };
 

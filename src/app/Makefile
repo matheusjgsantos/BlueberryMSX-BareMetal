@@ -31,7 +31,6 @@ OBJS = main.o \
 	syscalls.o \
 	cbios_roms.o \
 	msxdiag_roms.o \
-	knightmare_roms.o \
 	msx_core.o \
 	r800.o \
 	tms9918.o \

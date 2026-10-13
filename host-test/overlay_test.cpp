@@ -241,7 +241,7 @@ int main (void)
 
 	// ---- Cart names ------------------------------------------------------
 	check ("cart 0 is MSX DIAG", strcmp (Overlay_CartName (0), "MSX DIAG") == 0);
-	check ("cart 1 is KNIGHTMARE", strcmp (Overlay_CartName (1), "KNIGHTMARE") == 0);
+	check ("cart 1 is SLOTS (MSXBUS)", strcmp (Overlay_CartName (1), "SLOTS (MSXBUS)") == 0);
 	check ("cart name is safe out of range", Overlay_CartName (-1)[0] == '\0');
 	check ("cart name is safe past the end", Overlay_CartName (77)[0] == '\0');
 	check ("cart count matches the label table", OVERLAY_CART_COUNT == 2);
