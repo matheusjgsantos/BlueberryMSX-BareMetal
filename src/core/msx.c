@@ -104,9 +104,6 @@ void msx_frame_render(void *vdp) {
     (void)vdp;
 }
 
-static int g_boot_frames = 0;
-static int g_boot_first_pc = -1;
-
 /* Slot/MFR event log (see msx.h). Two independent lists so the flood of
  * page-1 (port 0xA8) transitions - the BIOS trampoline flips it on every
  * CALSLT - can never crowd out the MegaFlashROM markers:
@@ -164,12 +161,6 @@ int msx_slot_event_get(unsigned nIndex, unsigned *nPc, unsigned *nPort, unsigned
 
 static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     MSX_Machine *machine = (MSX_Machine*)ref;
-    
-    if (addr >= 0x1A7E && addr <= 0x1A90 && g_boot_frames < 10) {
-        printf("[MEM-R-PC] PC=%04X slot=%d sslot=%d base=%p\n", 
-               addr, machine->activeSlot[addr/REGION_SIZE], 
-               (machine->activeSlot[addr/REGION_SIZE]) >> 2, ref);
-    }
 
     int region = addr / REGION_SIZE;
     if (region > 3) region = 3;
@@ -197,22 +188,7 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
 
 static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     MSX_Machine *machine = (MSX_Machine*)ref;
-    
-    if (addr >= 0x1A7E && addr <= 0x1A90 && g_boot_frames < 5) {
-        printf("[MEM-W] PC=%04X slot=%d sslot=%d val=%02X\n", 
-               addr, machine->activeSlot[addr/REGION_SIZE],
-               (machine->activeSlot[addr/REGION_SIZE]) >> 2, val);
-        g_boot_frames++;
-    }
 
-#ifdef MFR_DEBUG
-    if (addr == 0xE200 || addr == 0xE210) {
-        printf("[MFR] write %04X=%02X PC=%04X slotReg=%02X active=[%d %d %d %d]\n",
-               addr, val, (int)((R800*)machine->z80)->regs.PC.W, machine->slotReg,
-               machine->activeSlot[0], machine->activeSlot[1],
-               machine->activeSlot[2], machine->activeSlot[3]);
-    }
-#endif
     if (addr == 0xE200)
     {
         // C-BIOS itself mirrors the slot register into 0xE200 (PC=0D43/0D48)
@@ -563,38 +539,6 @@ void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
     }
 }
 
-int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address) {
-    FILE *f = fopen(filename, "rb");
-    if (!f) {
-        perror("Failed to open ROM file");
-        return -1;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    uint8_t *romData = (uint8_t*)malloc(size);
-    if (!romData) {
-        fclose(f);
-        return -1;
-    }
-
-    size_t bytesRead = fread(romData, 1, size, f);
-    fclose(f);
-
-    if (bytesRead != (size_t)size) {
-        fprintf(stderr, "Failed to read ROM file\n");
-        free(romData);
-        return -1;
-    }
-
-    int slot = (address < 0xC000) ? 0 : 3;
-    msx_load_data(machine, slot, 0, address, romData, size);
-    printf("Loaded ROM %s (%ld bytes) at %04X (slot %d)\n", filename, size, address, slot);
-    free(romData);
-    return 0;
-}
 
 /* Non-blocking single-frame step for cooperative schedulers (e.g. Circle).
  * Executes exactly vdp_frame_instr Z80 instructions, then fires the VDP sync

@@ -88,15 +88,13 @@ extern "C" {
 
 /*****************************************************
 ** Configuration options
+**
+** The optional instrumentation of the original Z80 core
+** (breakpoints, callstack, watchpoints, ASMSX debug commands,
+** trap callbacks and the per-instruction time trace) is not used
+** by the bare-metal port, so it stays disabled to save RAM
+** (breakpoints[] alone is 64 KB) and per-instruction cycles.
 */
-#ifndef Z80_CUSTOM_CONFIGURATION
-#define ENABLE_BREAKPOINTS
-#define ENABLE_CALLSTACK
-#define ENABLE_WATCHPOINTS
-#define ENABLE_ASMSX_DEBUG_COMMANDS
-#define ENABLE_TRAP_CALLBACK
-#define TIME_TRACE_SIZE 1024
-#endif
 
 /*****************************************************
 ** CpuMode

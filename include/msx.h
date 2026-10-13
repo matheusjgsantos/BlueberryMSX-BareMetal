@@ -175,7 +175,6 @@ unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
 extern unsigned g_psg_writes;
 extern unsigned g_psg_last_reg;
 extern unsigned g_psg_last_val;
-int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address);
 void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int size);
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size);
 

@@ -187,40 +187,6 @@ static void render_text(const TMS9918 *vdp, uint32_t *out, int pitch,
     }
 }
 
-/* SCREEN 1: 32x24 multicolor character mode. Patterns live in VRAM at
- * pat_ba + ch*8; the color table at col_ba holds 2 bits per character
- * selecting one of four fixed foreground/background pairs. */
-static const int k_s1_palette0[4][2] = {
-    { 1, 0 },  /* white on black   */
-    { 2, 6 },  /* red    on magenta */
-    { 3, 7 },  /* green  on cyan   */
-    { 4, 5 },  /* yellow on blue   */
-};
-
-static void render_screen1(const TMS9918 *vdp, uint32_t *out, int pitch,
-                           UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba) {
-    const int cols = 32, rows = 24;
-    const UInt16 mask = vdp->vram_size - 1;
-    for (int row = 0; row < rows; row++) {
-        for (int col = 0; col < cols; col++) {
-            int cell = row * cols + col;
-            UInt8 ch = vdp->vram[(name_ba + (UInt16)cell) & mask];
-            UInt8 cb = vdp->vram[(col_ba + (UInt16)(cell >> 2)) & mask];
-            int pair = (cb >> ((cell & 3) * 2)) & 0x03;
-            int fg = k_s1_palette0[pair][0];
-            int bg = k_s1_palette0[pair][1];
-            for (int py = 0; py < 8; py++) {
-                UInt8 byte = vdp->vram[(pat_ba + (UInt16)(ch * 8 + py)) & mask];
-                uint32_t *line = out + (row * 8 + py) * pitch;
-                for (int px = 0; px < 8; px++) {
-                    int c = (byte & (0x80u >> px)) ? fg : bg;
-                    line[col * 8 + px] = k_msx_palette[c & 0x0F];
-                }
-            }
-        }
-    }
-}
-
 static void render_graphics1(const TMS9918 *vdp, uint32_t *out, int pitch,
                              UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba,
                              int backdrop) {

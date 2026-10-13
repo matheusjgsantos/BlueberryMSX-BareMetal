@@ -157,11 +157,6 @@ static UInt8 readPort(R800* r800, UInt16 port) {
     delayVdpIO(r800, port);
 
     value = r800->readIoPort(r800->ref, port);
-#if 0	
-	UInt16 addr = (UInt16) (r800->regs.PC.W);
-	if (addr > 0x4000 && addr < 0xc000)
-		printf ("addr(%04x),readio:%02x,%02x\n", addr, port & 0xff, value);	
-#endif	
     delayPostIo(r800);
 
     return value;
@@ -172,11 +167,6 @@ static void writePort(R800* r800, UInt16 port, UInt8 value) {
     delayPreIo(r800);
 
     delayVdpIO(r800, port);
-#if 0	
-	UInt16 addr = (UInt16) (r800->regs.PC.W);
-	if (addr > 0x4000 && addr < 0xc000)
-		printf ("addr(%04x),writeio:%02x,%02x\n", addr, port & 0xff, value);
-#endif	
     r800->writeIoPort(r800->ref, port, value);
     delayPostIo(r800);
     
@@ -1311,22 +1301,6 @@ static void ld_h_l(R800* r800) {
     r800->regs.HL.B.h = r800->regs.HL.B.l; 
 }
 
-static void ld_h_ixh(R800* r800) {
-    r800->regs.HL.B.h = r800->regs.IX.B.h; 
-}
-
-static void ld_h_ixl(R800* r800) {
-    r800->regs.HL.B.h = r800->regs.IX.B.l;
-}
-
-static void ld_h_iyh(R800* r800) {
-    r800->regs.HL.B.h = r800->regs.IY.B.h; 
-}
-
-static void ld_h_iyl(R800* r800) {
-    r800->regs.HL.B.h = r800->regs.IY.B.l; 
-}
-
 static void ld_h_xhl(R800* r800) {
     r800->regs.HL.B.h = readMem(r800, r800->regs.HL.W); 
 }
@@ -1385,22 +1359,6 @@ static void ld_l_h(R800* r800) {
 
 static void ld_l_l(R800* r800) {
     r800->regs.HL.B.l = r800->regs.HL.B.l;
-}
-
-static void ld_l_ixh(R800* r800) {
-    r800->regs.HL.B.l = r800->regs.IX.B.h;
-}
-
-static void ld_l_ixl(R800* r800) {
-    r800->regs.HL.B.l = r800->regs.IX.B.l;
-}
-
-static void ld_l_iyh(R800* r800) {
-    r800->regs.HL.B.l = r800->regs.IY.B.h;
-}
-
-static void ld_l_iyl(R800* r800) {
-    r800->regs.HL.B.l = r800->regs.IY.B.l; 
 }
 
 static void ld_l_xhl(R800* r800) {
@@ -5730,6 +5688,8 @@ static void r800SwitchCpu(R800* r800) {
     case CPU_R800:
         r800->regBanks[1] = r800->regs;
         break;
+    case CPU_UNKNOWN:
+        break;
     }
 
     r800->oldCpuMode = CPU_UNKNOWN;
@@ -5740,6 +5700,8 @@ static void r800SwitchCpu(R800* r800) {
         break;
     case CPU_R800:
         r800->regs = r800->regBanks[1];
+        break;
+    case CPU_UNKNOWN:
         break;
     }
 
@@ -5984,6 +5946,8 @@ void r800SetFrequency(R800* r800, CpuMode cpuMode, UInt32 frequency) {
     case CPU_R800:
         r800->frequencyR800 = frequency;
         break;
+    case CPU_UNKNOWN:
+        break;
     }
 
     r800->oldCpuMode = r800->cpuMode;
@@ -6040,7 +6004,6 @@ void r800Execute(R800* r800) {
     static SystemTime lastRefreshTime = 0;
     while (!r800->terminate) {
         UInt16 address;
-        int iff1 = 0;
 
 #if TIME_TRACE_SIZE > 0
         if (r800->regs.PC.W != r800->lastPC) {
@@ -6238,19 +6201,10 @@ void r800ExecuteUntil(R800* r800, UInt32 endTime) {
     }
 }
 
-#ifdef PC_SAMPLER
-unsigned long pcHist[0x10000];
-void pcHistReset(void) { int i; for (i = 0; i < 0x10000; i++) pcHist[i] = 0; }
-#endif
-
 void r800ExecuteInstruction(R800* r800) {
     static SystemTime lastRefreshTime = 0;
     UInt16 address;
     int iff1 = 0;
-
-#ifdef PC_SAMPLER
-    pcHist[r800->regs.PC.W]++;
-#endif
 
     if (r800->cpuMode == CPU_R800) {
         if (r800->systemTime - lastRefreshTime > 222 * 3) {
