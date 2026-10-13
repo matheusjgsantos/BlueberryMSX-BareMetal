@@ -113,7 +113,8 @@ kernel.o: kernel.cpp kernel.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundbasedevice.h \
  ../../../BlueberryMSX/circle/include/circle/sound/soundcontroller.h \
  msxconfig.h msx_task.h vdpblit.h cbios_roms.h msxdiag_roms.h \
- knightmare_roms.h overlay.h msxbus.h \
+ knightmare_roms.h overlay.h msxbus.h ../chips/z80/R800.h \
+ ../../include/msx_types.h \
  ../../../BlueberryMSX/circle/include/circle/gpioclock.h
 kernel.h:
 ../../../BlueberryMSX/circle/include/circle/koptions.h:
@@ -243,4 +244,6 @@ msxdiag_roms.h:
 knightmare_roms.h:
 overlay.h:
 msxbus.h:
+../chips/z80/R800.h:
+../../include/msx_types.h:
 ../../../BlueberryMSX/circle/include/circle/gpioclock.h:

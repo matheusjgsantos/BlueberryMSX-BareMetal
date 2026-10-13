@@ -156,6 +156,55 @@ static unsigned long msxbus_counter_slow_ops;
 static unsigned long msxbus_counter_cache_hits;
 static unsigned long msxbus_counter_cache_misses;
 
+// Bank-switch diagnostics (see MsxBus_LogWrite* / MsxBus_LogRead*). Ring
+// buffers, so only the most recent accesses survive; the writer records every
+// cart write in 0x4000-0xBFFF (bank-register stores are rare) and the reader
+// records only the first 4 bytes of each 8 KiB bank (the entry vectors the
+// loader probes). Both are always recorded; dumping is on demand.
+#define MSXBUS_LOG_MAX 512
+static uint16_t msxbus_wlog_addr[MSXBUS_LOG_MAX];
+static uint8_t  msxbus_wlog_val [MSXBUS_LOG_MAX];
+static uint8_t  msxbus_wlog_slot[MSXBUS_LOG_MAX];
+static unsigned msxbus_wlog_head;
+static unsigned msxbus_wlog_count;
+static uint16_t msxbus_rlog_addr[MSXBUS_LOG_MAX];
+static uint8_t  msxbus_rlog_val [MSXBUS_LOG_MAX];
+static unsigned msxbus_rlog_head;
+static unsigned msxbus_rlog_count;
+
+static void msxbus_log_write (int nSlot, uint16_t nAddr, uint8_t nVal)
+{
+	if (nAddr < 0x4000 || nAddr >= 0xC000)
+	{
+		return;
+	}
+	unsigned i = msxbus_wlog_head;
+	msxbus_wlog_addr[i] = nAddr;
+	msxbus_wlog_val [i] = nVal;
+	msxbus_wlog_slot[i] = (uint8_t) nSlot;
+	msxbus_wlog_head = (i + 1) % MSXBUS_LOG_MAX;
+	if (msxbus_wlog_count < MSXBUS_LOG_MAX)
+	{
+		msxbus_wlog_count++;
+	}
+}
+
+static void msxbus_log_read (uint16_t nAddr, uint8_t nVal)
+{
+	if (nAddr < 0x4000 || nAddr >= 0xC000 || (nAddr & 0x1FFF) >= 4)
+	{
+		return;
+	}
+	unsigned i = msxbus_rlog_head;
+	msxbus_rlog_addr[i] = nAddr;
+	msxbus_rlog_val [i] = nVal;
+	msxbus_rlog_head = (i + 1) % MSXBUS_LOG_MAX;
+	if (msxbus_rlog_count < MSXBUS_LOG_MAX)
+	{
+		msxbus_rlog_count++;
+	}
+}
+
 static inline void msxbus_dsb (void)
 {
 	__asm__ __volatile__ ("dsb sy" ::: "memory");
@@ -264,10 +313,15 @@ static void msxbus_set_address (uint16_t nAddr)
 static void msxbus_set_data (uint32_t nIoFlag, uint32_t nFlag, int nDelay,
 			     unsigned char nByte)
 {
+	// The control latch (74LS373, enabled by LE_C) must stay transparent
+	// while the select/strobe lines are asserted. Clearing LE_C here freezes
+	// the latch and blocks the /WR pulse from ever reaching the cartridge
+	// (reads still work, which is why writes silently did nothing).
+	// msxbus_set_address leaves LE_C high; keep it high for the whole access
+	// and latch it (LE_C low) only at the end. Mirrors the known-good
+	// upstream msxslot / RGR SetData.
 	MSXBUS_SET (nByte);
-	MSXBUS_CLR (MSXBUS_LE_C_BIT | nFlag);
-	msxbus_delay (4);
-	MSXBUS_CLR (MSXBUS_WR_BIT);
+	MSXBUS_CLR (nFlag | MSXBUS_WR_BIT);
 	MSXBUS_SET (nIoFlag | MSXBUS_WR_BIT);
 	MSXBUS_SET (nIoFlag | MSXBUS_WR_BIT);
 	MSXBUS_CLR (nFlag);
@@ -293,6 +347,7 @@ static void msxbus_set_data (uint32_t nIoFlag, uint32_t nFlag, int nDelay,
 	MSXBUS_SET (MSXBUS_WR_BIT);
 	msxbus_delay (2);
 	MSXBUS_SET (MSXBUS_CONTROLS);
+	MSXBUS_CLR (MSXBUS_LE_C_BIT);
 }
 
 static unsigned char msxbus_get_data (uint32_t nFlag, uint32_t nRFlag, int nDelay)
@@ -421,6 +476,7 @@ static uint8_t msxbus_bus_read (int nSlot, uint16_t nAddr)
 	uint8_t nByte = msxbus_get_data (msxbus_slot_sel (nSlot) | MSXBUS_MREQ_BIT,
 					 MSXBUS_RD_BIT | nCs1 | nCs2, msxbus_read_delay);
 	msxbus_counter_nreads[nSlot]++;
+	msxbus_log_read (nAddr, nByte);
 	return nByte;
 }
 
@@ -453,6 +509,7 @@ static void msxbus_bus_write (int nSlot, uint16_t nAddr, uint8_t nByte)
 		msxbus_delay (500);
 	}
 	msxbus_counter_nwrites[nSlot]++;
+	msxbus_log_write (nSlot, nAddr, nByte);
 }
 
 uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
@@ -593,4 +650,39 @@ void MsxBus_GetStats (MsxBusStats *pStats)
 	pStats->nSlowOps = msxbus_counter_slow_ops;
 	pStats->nCacheHits = msxbus_counter_cache_hits;
 	pStats->nCacheMisses = msxbus_counter_cache_misses;
+}
+
+int MsxBus_LogWriteCount (void)
+{
+	return (int) msxbus_wlog_count;
+}
+
+int MsxBus_LogWriteGet (int nIndex, uint16_t *pAddr, uint8_t *pSlot, uint8_t *pVal)
+{
+	if (nIndex < 0 || (unsigned) nIndex >= msxbus_wlog_count)
+	{
+		return 0;
+	}
+	unsigned i = (msxbus_wlog_head + MSXBUS_LOG_MAX - msxbus_wlog_count + (unsigned) nIndex) % MSXBUS_LOG_MAX;
+	if (pAddr) *pAddr = msxbus_wlog_addr[i];
+	if (pSlot) *pSlot = msxbus_wlog_slot[i];
+	if (pVal)  *pVal  = msxbus_wlog_val[i];
+	return 1;
+}
+
+int MsxBus_LogReadCount (void)
+{
+	return (int) msxbus_rlog_count;
+}
+
+int MsxBus_LogReadGet (int nIndex, uint16_t *pAddr, uint8_t *pVal)
+{
+	if (nIndex < 0 || (unsigned) nIndex >= msxbus_rlog_count)
+	{
+		return 0;
+	}
+	unsigned i = (msxbus_rlog_head + MSXBUS_LOG_MAX - msxbus_rlog_count + (unsigned) nIndex) % MSXBUS_LOG_MAX;
+	if (pAddr) *pAddr = msxbus_rlog_addr[i];
+	if (pVal)  *pVal  = msxbus_rlog_val[i];
+	return 1;
 }

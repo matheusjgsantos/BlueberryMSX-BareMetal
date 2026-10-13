@@ -1,0 +1,1401 @@
+MSX Machine created with Z80 and TMS9918
+[VRAM-pop] frame=10 nonzero=0 name_0x38_nz=0 E600=F0  vdp_addr=0000 pending=00
+[VRAM-pop] frame=20 nonzero=5014 name_0x38_nz=0 E600=F0  vdp_addr=19BC pending=A4
+    [0000] 00 00 00 00 00 00 00 00 3C 42 A5 A5 C3 BD 42 3C 
+    [0010] 3C 7E DB DB BD C3 7E 3C 6C AA 92 44 44 28 10 00 
+    [0020] 10 28 44 82 44 28 10 00 10 38 38 D6 FE D6 38 00 
+    [0030] 10 38 7C 7C FE D6 38 00 00 00 00 18 18 00 00 00 
+    [0040] FF FF FF E7 E7 FF FF FF 3C 42 81 81 81 81 42 3C 
+    [0050] C3 BD 7E 7E 7E 7E BD C3 0C 04 08 70 88 88 70 00 
+
+=== VDP @ frame 40 ===
+  regs: R0=02 R1=E0 R2=06 R3=9F R4=00 R5=36 R6=07 R7=F5
+  addr=19BC write_mode=1 pending=A4 irq=1
+  mode: GRAPHICS 2
+  bases: name=1800 col=27C0 pat=0000  (sprite_pat=3800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  pat  table:
+    0000: 00 00 00 00 00 00 00 00 3C 42 A5 A5 C3 BD 42 3C  |........<B....B< |
+    0010: 3C 7E DB DB BD C3 7E 3C 6C AA 92 44 44 28 10 00  |<~....~<l..DD(.. |
+  col  table:
+    0000: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+    0010: F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5 F5  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 C8 30 60 98 00 00 00 00 88 88 88 78 08 70  |...0`........x.p |
+    0010: 00 00 F8 30 40 F8 00 00 10 20 20 40 20 20 10 00  |...0@....  @  .. |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 3C 42 A5 A5 C3 BD 42 3C  |........<B....B< |
+    0010: 3C 7E DB DB BD C3 7E 3C 6C AA 92 44 44 28 10 00  |<~....~<l..DD(.. |
+    0020: 10 28 44 82 44 28 10 00 10 38 38 D6 FE D6 38 00  |.(D.D(...88...8. |
+    0030: 10 38 7C 7C FE D6 38 00 00 00 00 18 18 00 00 00  |.8||..8......... |
+  render histogram (of 49152 px):
+     0 black       8262   16.8%
+     1 white       1203    2.4%
+    distinct palette slots: 2
+  row 0 (run-length):
+    x=  0..255 col=-1 len=256
+  row 48 (run-length):
+    x=  0.. 39 col=-1 len=40
+    x= 40.. 42 col=0 len=3
+    x= 43.. 58 col=-1 len=16
+    x= 59.. 76 col=0 len=18
+    x= 77.. 82 col=1 len=6
+    x= 83..119 col=0 len=37
+    x=120..124 col=1 len=5
+    x=125..215 col=0 len=91
+    x=216..216 col=-1 len=1
+    x=217..255 col=-1 len=39
+  row 96 (run-length):
+    x=  0.. 37 col=-1 len=38
+    x= 38.. 54 col=-1 len=17
+    x= 55.. 83 col=0 len=29
+    x= 84..100 col=-1 len=17
+    x=101..175 col=0 len=75
+    x=176..176 col=1 len=1
+    x=177..179 col=0 len=3
+    x=180..180 col=1 len=1
+    x=181..184 col=0 len=4
+    x=185..187 col=1 len=3
+    x=188..200 col=0 len=13
+    x=201..203 col=1 len=3
+    x=204..207 col=0 len=4
+    x=208..212 col=1 len=5
+    x=213..215 col=0 len=3
+    x=216..216 col=-1 len=1
+    x=217..255 col=-1 len=39
+  row 144 (run-length):
+    x=  0..255 col=-1 len=256
+  row 191 (run-length):
+    x=  0..255 col=-1 len=256
+  VRAM scan @ frame 40 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=200 first=08 maxval=FF
+    block 001 (0x0100-0x01FF): nz=145 first=08 maxval=F8
+    block 002 (0x0200-0x02FF): nz=183 first=00 maxval=F8
+    block 003 (0x0300-0x03FF): nz=161 first=00 maxval=F8
+    block 004 (0x0400-0x04FF): nz=111 first=0E maxval=FE
+    block 005 (0x0500-0x05FF): nz=179 first=00 maxval=FE
+    block 006 (0x0600-0x06FF): nz=134 first=00 maxval=FE
+    block 007 (0x0700-0x07FF): nz=160 first=03 maxval=FE
+    block 008 (0x0800-0x08FF): nz=200 first=08 maxval=FF
+    block 009 (0x0900-0x09FF): nz=145 first=08 maxval=F8
+    block 00A (0x0A00-0x0AFF): nz=183 first=00 maxval=F8
+    block 00B (0x0B00-0x0BFF): nz=161 first=00 maxval=F8
+    block 00C (0x0C00-0x0CFF): nz=194 first=00 maxval=F8
+    block 00D (0x0D00-0x0DFF): nz=177 first=00 maxval=FC
+    block 00E (0x0E00-0x0EFF): nz=191 first=06 maxval=FF
+    block 00F (0x0F00-0x0FFF): nz=172 first=02 maxval=F8
+    block 018 (0x1800-0x18FF): nz= 96 first=84 maxval=E4
+    block 019 (0x1900-0x19FF): nz=144 first=04 maxval=E5
+    block 01B (0x1B00-0x1BFF): nz= 95 first=00 maxval=D1
+    block 020 (0x2000-0x20FF): nz=256 first=00 maxval=F5
+    block 021 (0x2100-0x21FF): nz=256 first=00 maxval=F1
+    block 022 (0x2200-0x22FF): nz=256 first=00 maxval=F1
+    block 023 (0x2300-0x23FF): nz=256 first=00 maxval=F1
+    block 024 (0x2400-0x24FF): nz=227 first=0E maxval=F1
+    block 025 (0x2500-0x25FF): nz=256 first=00 maxval=F1
+    block 026 (0x2600-0x26FF): nz=242 first=00 maxval=F1
+    block 027 (0x2700-0x27FF): nz=234 first=00 maxval=F5
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 3C 42 A5 A5 C3 BD 42 3C  |........<B....B< |
+    0010: 3C 7E DB DB BD C3 7E 3C 6C AA 92 44 44 28 10 00  |<~....~<l..DD(.. |
+    0020: 10 28 44 82 44 28 10 00 10 38 38 D6 FE D6 38 00  |.(D.D(...88...8. |
+    0030: 10 38 7C 7C FE D6 38 00 00 00 00 18 18 00 00 00  |.8||..8......... |
+  pat  table @ pat_ba :
+    0000: 00 00 00 00 00 00 00 00 3C 42 A5 A5 C3 BD 42 3C  |........<B....B< |
+  col  table @ col_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 09 09  |................ |
+    0010: 00 00 09 09 90 90 09 09 09 90 09 09 09 09 09 09  |................ |
+  z80@40: PC=10AF SP=F2FE AF=0048 BC=6084 DE=19C4 HL=880C I=00 im=0 iff1=1 mode=0
+[VRAM-pop] frame=50 nonzero=5014 name_0x38_nz=0 E600=F0  vdp_addr=19BC pending=A4
+[PSG] frame=100 writes=10 last=R7 val=B8 sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+[VRAM-pop] frame=100 nonzero=5014 name_0x38_nz=0 E600=F0  vdp_addr=19BC pending=A4
+
+-- frame 100 --
+  z80@100: PC=10AF SP=F2FE AF=0048 BC=2484 DE=19C4 HL=880C I=00 im=0 iff1=1 mode=0
+  VDP R0=02 R1=E0 R2=06 R3=9F R4=00 R5=36 R6=07 R7=F5
+  slotReg=30 active=[0 0 3 0]
+  H.TIMI@FD9A: C9 C9 C9   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   F0 FF FF FF FF FF FF FF
+  rec0@E010: FF FF FF FF FF FF FF FF FF FF FF FF FF FF   (type=FF)
+  rec1@E01E: FF FF FF FF FF FF FF FF FF FF FF FF FF FF   (type=FF)
+  rec2@E02C: FF FF FF FF FF FF FF FF FF FF FF FF FF FF   (type=FF)
+  type@E012=FF E020=FF E02E=FF | E02D=FF E009=FF E052=FF E600=F0 E001=FF
+  state@E03A=FF  E064=FF E065=FF E066=FF
+[PSG] frame=200 writes=1228 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+[VRAM-pop] frame=200 nonzero=3198 name_0x38_nz=3 E600=00  vdp_addr=3974 pending=6C
+
+-- frame 200 --
+  z80@200: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 39 E4 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+
+=== VDP @ frame 240 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  addr=3974 write_mode=1 pending=6C irq=1
+  mode: GRAPHICS 2
+  bases: name=3800 col=1FC0 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  pat  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     1 white       1069    2.2%
+    distinct palette slots: 1
+  row 0 (run-length):
+    x=  0..255 col=-1 len=256
+  row 48 (run-length):
+    x=  0..255 col=-1 len=256
+  row 96 (run-length):
+    x=  0..255 col=-1 len=256
+  row 144 (run-length):
+    x=  0..255 col=-1 len=256
+  row 191 (run-length):
+    x=  0..255 col=-1 len=256
+  VRAM scan @ frame 240 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=152 first=00 maxval=F0
+    block 002 (0x0200-0x02FF): nz=216 first=00 maxval=F0
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=152 first=00 maxval=F0
+    block 00A (0x0A00-0x0AFF): nz=216 first=00 maxval=F0
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=152 first=00 maxval=F0
+    block 012 (0x1200-0x12FF): nz=216 first=00 maxval=F0
+    block 020 (0x2000-0x20FF): nz=113 first=81 maxval=A1
+    block 021 (0x2100-0x21FF): nz=127 first=01 maxval=7F
+    block 022 (0x2200-0x22FF): nz=152 first=0F maxval=FF
+    block 028 (0x2800-0x28FF): nz=113 first=81 maxval=A1
+    block 029 (0x2900-0x29FF): nz=127 first=01 maxval=7F
+    block 02A (0x2A00-0x2AFF): nz=152 first=0F maxval=FF
+    block 030 (0x3000-0x30FF): nz=113 first=81 maxval=A1
+    block 031 (0x3100-0x31FF): nz=127 first=01 maxval=7F
+    block 032 (0x3200-0x32FF): nz=152 first=0F maxval=FF
+    block 038 (0x3800-0x38FF): nz=  3 first=EA maxval=42
+    block 039 (0x3900-0x39FF): nz= 43 first=0A maxval=5A
+    block 03B (0x3B00-0x3BFF): nz=128 first=00 maxval=D0
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table @ col_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  z80@240: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+[PSG] frame=300 writes=3228 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 300 --
+  z80@300: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 9D 80 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=400 writes=5228 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 400 --
+  z80@400: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 01 1C 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=500 writes=7216 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+[VRAM-pop] frame=500 nonzero=4685 name_0x38_nz=32 E600=00  vdp_addr=3A17 pending=16
+
+-- frame 500 --
+  z80@500: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 63 BA 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=00
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=600 writes=9216 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 600 --
+  z80@600: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 C7 56 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=00
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=700 writes=11135 last=R10 val=00 sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 700 --
+  z80@700: PC=4436 SP=E7D8 AF=E154 BC=0498 DE=0000 HL=0067 I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 00 00 1E 20 01 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=00 E052=00 E600=00 E001=00
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=800 writes=13126 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 800 --
+  z80@800: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 80 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=02 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=900 writes=15126 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 900 --
+  z80@900: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 E4 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=05 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1000 writes=17126 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+[VRAM-pop] frame=1000 nonzero=11606 name_0x38_nz=256 E600=01  vdp_addr=3B1C pending=18
+
+-- frame 1000 --
+  z80@1000: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 48 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=04 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1100 writes=19126 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0001
+
+-- frame 1100 --
+  z80@1100: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 AC 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=00 E009=16 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1200 writes=21154 last=R14 val=0E sum/frame=-56 peak_max=5461 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=0D R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0080
+
+-- frame 1200 --
+  z80@1200: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 10 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 01 02 0F 42 4F 00 00 00 02 00 00 00 00 00   (type=0F)
+  type@E012=00 E020=00 E02E=0F | E02D=02 E009=1A E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+
+=== VDP @ frame 1200 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  addr=3B1C write_mode=1 pending=18 irq=1
+  mode: GRAPHICS 2
+  bases: name=3800 col=1FC0 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 5C 01 54 51 82 80 83 80 82 80 83 80 82 80 83 80  |\.TQ............ |
+    0010: 82 80 83 80 82 80 83 80 82 80 83 80 B1 B4 01 BC  |................ |
+    0020: 5C 5D 50 51 83 81 80 80 83 81 80 80 83 81 80 80  |\]PQ............ |
+    0030: 83 81 80 80 83 81 80 80 83 81 80 80 B1 B0 BD BC  |................ |
+  pat  table:
+    0000: 5C 01 54 51 82 80 83 80 82 80 83 80 82 80 83 80  |\.TQ............ |
+    0010: 82 80 83 80 82 80 83 80 82 80 83 80 B1 B4 01 BC  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     0 black       7671   15.6%
+     1 white        792    1.6%
+    distinct palette slots: 2
+  row 0 (run-length):
+    x=  0..  0 col=-1 len=1
+    x=  1..  1 col=0 len=1
+    x=  2..  2 col=-1 len=1
+    x=  3..  3 col=0 len=1
+    x=  4..  6 col=-1 len=3
+    x=  7.. 20 col=0 len=14
+    x= 21.. 25 col=-1 len=5
+    x= 26.. 26 col=0 len=1
+    x= 27.. 28 col=-1 len=2
+    x= 29.. 29 col=0 len=1
+    x= 30.. 30 col=-1 len=1
+    x= 31.. 31 col=0 len=1
+    x= 32.. 32 col=-1 len=1
+    x= 33.. 37 col=-1 len=5
+    x= 38.. 38 col=-1 len=1
+    x= 39.. 44 col=-1 len=6
+    x= 45.. 45 col=-1 len=1
+    x= 46.. 46 col=-1 len=1
+    x= 47.. 47 col=-1 len=1
+    x= 48.. 48 col=-1 len=1
+    x= 49.. 49 col=-1 len=1
+    x= 50.. 50 col=-1 len=1
+    x= 51.. 51 col=-1 len=1
+    x= 52.. 60 col=-1 len=9
+    x= 61.. 61 col=-1 len=1
+    x= 62.. 62 col=-1 len=1
+    x= 63.. 64 col=-1 len=2
+    x= 65.. 69 col=-1 len=5
+    x= 70.. 70 col=-1 len=1
+    x= 71.. 76 col=-1 len=6
+    x= 77.. 77 col=-1 len=1
+    x= 78.. 78 col=-1 len=1
+    x= 79.. 79 col=-1 len=1
+    x= 80.. 80 col=-1 len=1
+    x= 81.. 81 col=-1 len=1
+    x= 82.. 82 col=-1 len=1
+    x= 83.. 83 col=-1 len=1
+    x= 84.. 92 col=-1 len=9
+    x= 93.. 93 col=-1 len=1
+    x= 94.. 94 col=-1 len=1
+    x= 95.. 96 col=-1 len=2
+    x= 97..101 col=-1 len=5
+    x=102..102 col=-1 len=1
+    x=103..108 col=-1 len=6
+    x=109..109 col=-1 len=1
+    x=110..110 col=-1 len=1
+    x=111..111 col=-1 len=1
+    x=112..112 col=-1 len=1
+    x=113..113 col=-1 len=1
+    x=114..114 col=-1 len=1
+    x=115..115 col=-1 len=1
+    x=116..124 col=-1 len=9
+    x=125..125 col=-1 len=1
+    x=126..126 col=-1 len=1
+    x=127..128 col=-1 len=2
+    x=129..133 col=-1 len=5
+    x=134..134 col=-1 len=1
+    x=135..140 col=-1 len=6
+    x=141..141 col=-1 len=1
+    x=142..142 col=-1 len=1
+    x=143..143 col=-1 len=1
+    x=144..144 col=-1 len=1
+    x=145..145 col=-1 len=1
+    x=146..146 col=-1 len=1
+    x=147..147 col=-1 len=1
+    x=148..156 col=-1 len=9
+    x=157..157 col=-1 len=1
+    x=158..158 col=-1 len=1
+    x=159..160 col=-1 len=2
+    x=161..165 col=-1 len=5
+    x=166..166 col=-1 len=1
+    x=167..172 col=-1 len=6
+    x=173..179 col=0 len=7
+    x=180..188 col=-1 len=9
+    x=189..189 col=-1 len=1
+    x=190..190 col=-1 len=1
+    x=191..192 col=-1 len=2
+    x=193..197 col=-1 len=5
+    x=198..198 col=-1 len=1
+    x=199..204 col=-1 len=6
+    x=205..205 col=-1 len=1
+    x=206..206 col=-1 len=1
+    x=207..207 col=-1 len=1
+    x=208..208 col=-1 len=1
+    x=209..209 col=-1 len=1
+    x=210..210 col=-1 len=1
+    x=211..211 col=-1 len=1
+    x=212..220 col=-1 len=9
+    x=221..221 col=-1 len=1
+    x=222..222 col=-1 len=1
+    x=223..223 col=-1 len=1
+    x=224..224 col=0 len=1
+    x=225..225 col=-1 len=1
+    x=226..226 col=0 len=1
+    x=227..228 col=-1 len=2
+    x=229..229 col=0 len=1
+    x=230..234 col=-1 len=5
+    x=235..248 col=0 len=14
+    x=249..251 col=-1 len=3
+    x=252..252 col=0 len=1
+    x=253..253 col=-1 len=1
+    x=254..254 col=0 len=1
+    x=255..255 col=-1 len=1
+  row 48 (run-length):
+    x=  0..  0 col=-1 len=1
+    x=  1..  1 col=0 len=1
+    x=  2..  2 col=-1 len=1
+    x=  3..  3 col=0 len=1
+    x=  4..  6 col=-1 len=3
+    x=  7..  7 col=0 len=1
+    x=  8.. 16 col=-1 len=9
+    x= 17.. 17 col=0 len=1
+    x= 18.. 25 col=-1 len=8
+    x= 26.. 26 col=0 len=1
+    x= 27.. 28 col=-1 len=2
+    x= 29.. 29 col=0 len=1
+    x= 30.. 30 col=-1 len=1
+    x= 31.. 31 col=0 len=1
+    x= 32.. 36 col=-1 len=5
+    x= 37.. 37 col=-1 len=1
+    x= 38.. 38 col=-1 len=1
+    x= 39.. 39 col=-1 len=1
+    x= 40.. 40 col=-1 len=1
+    x= 41.. 41 col=-1 len=1
+    x= 42.. 42 col=-1 len=1
+    x= 43.. 43 col=-1 len=1
+    x= 44.. 52 col=-1 len=9
+    x= 53.. 53 col=-1 len=1
+    x= 54.. 54 col=-1 len=1
+    x= 55.. 55 col=-1 len=1
+    x= 56.. 62 col=-1 len=7
+    x= 63.. 63 col=-1 len=1
+    x= 64.. 68 col=-1 len=5
+    x= 69.. 69 col=-1 len=1
+    x= 70.. 70 col=-1 len=1
+    x= 71.. 71 col=-1 len=1
+    x= 72.. 72 col=-1 len=1
+    x= 73.. 73 col=-1 len=1
+    x= 74.. 74 col=-1 len=1
+    x= 75.. 75 col=-1 len=1
+    x= 76.. 82 col=-1 len=7
+    x= 83.. 83 col=0 len=1
+    x= 84.. 84 col=-1 len=1
+    x= 85.. 85 col=-1 len=1
+    x= 86.. 86 col=-1 len=1
+    x= 87.. 87 col=-1 len=1
+    x= 88.. 94 col=-1 len=7
+    x= 95.. 95 col=-1 len=1
+    x= 96..100 col=-1 len=5
+    x=101..101 col=-1 len=1
+    x=102..102 col=-1 len=1
+    x=103..103 col=-1 len=1
+    x=104..104 col=-1 len=1
+    x=105..105 col=-1 len=1
+    x=106..106 col=-1 len=1
+    x=107..107 col=-1 len=1
+    x=108..116 col=-1 len=9
+    x=117..117 col=-1 len=1
+    x=118..118 col=-1 len=1
+    x=119..119 col=-1 len=1
+    x=120..126 col=-1 len=7
+    x=127..127 col=-1 len=1
+    x=128..132 col=-1 len=5
+    x=133..133 col=-1 len=1
+    x=134..134 col=-1 len=1
+    x=135..135 col=-1 len=1
+    x=136..136 col=-1 len=1
+    x=137..137 col=-1 len=1
+    x=138..138 col=-1 len=1
+    x=139..139 col=-1 len=1
+    x=140..148 col=-1 len=9
+    x=149..149 col=-1 len=1
+    x=150..150 col=-1 len=1
+    x=151..151 col=-1 len=1
+    x=152..158 col=-1 len=7
+    x=159..159 col=-1 len=1
+    x=160..164 col=-1 len=5
+    x=165..165 col=-1 len=1
+    x=166..166 col=-1 len=1
+    x=167..167 col=-1 len=1
+    x=168..168 col=-1 len=1
+    x=169..169 col=-1 len=1
+    x=170..170 col=-1 len=1
+    x=171..171 col=-1 len=1
+    x=172..180 col=-1 len=9
+    x=181..181 col=-1 len=1
+    x=182..182 col=-1 len=1
+    x=183..183 col=-1 len=1
+    x=184..190 col=-1 len=7
+    x=191..191 col=-1 len=1
+    x=192..196 col=-1 len=5
+    x=197..197 col=-1 len=1
+    x=198..198 col=-1 len=1
+    x=199..199 col=-1 len=1
+    x=200..200 col=-1 len=1
+    x=201..201 col=-1 len=1
+    x=202..202 col=-1 len=1
+    x=203..203 col=-1 len=1
+    x=204..212 col=-1 len=9
+    x=213..213 col=-1 len=1
+    x=214..214 col=-1 len=1
+    x=215..215 col=-1 len=1
+    x=216..222 col=-1 len=7
+    x=223..223 col=-1 len=1
+    x=224..224 col=0 len=1
+    x=225..225 col=-1 len=1
+    x=226..226 col=0 len=1
+    x=227..228 col=-1 len=2
+    x=229..229 col=0 len=1
+    x=230..237 col=-1 len=8
+    x=238..238 col=0 len=1
+    x=239..247 col=-1 len=9
+    x=248..248 col=0 len=1
+    x=249..251 col=-1 len=3
+    x=252..252 col=0 len=1
+    x=253..253 col=-1 len=1
+    x=254..254 col=0 len=1
+    x=255..255 col=-1 len=1
+  row 96 (run-length):
+    x=  0..  0 col=-1 len=1
+    x=  1..  1 col=0 len=1
+    x=  2..  2 col=-1 len=1
+    x=  3..  3 col=0 len=1
+    x=  4..  6 col=-1 len=3
+    x=  7.. 20 col=0 len=14
+    x= 21.. 25 col=-1 len=5
+    x= 26.. 26 col=0 len=1
+    x= 27.. 28 col=-1 len=2
+    x= 29.. 29 col=0 len=1
+    x= 30.. 30 col=-1 len=1
+    x= 31.. 31 col=0 len=1
+    x= 32.. 32 col=-1 len=1
+    x= 33.. 37 col=-1 len=5
+    x= 38.. 38 col=-1 len=1
+    x= 39.. 44 col=-1 len=6
+    x= 45.. 45 col=-1 len=1
+    x= 46.. 46 col=-1 len=1
+    x= 47.. 47 col=-1 len=1
+    x= 48.. 48 col=-1 len=1
+    x= 49.. 49 col=-1 len=1
+    x= 50.. 50 col=-1 len=1
+    x= 51.. 51 col=-1 len=1
+    x= 52.. 60 col=-1 len=9
+    x= 61.. 61 col=-1 len=1
+    x= 62.. 62 col=-1 len=1
+    x= 63.. 64 col=-1 len=2
+    x= 65.. 69 col=-1 len=5
+    x= 70.. 70 col=-1 len=1
+    x= 71.. 76 col=-1 len=6
+    x= 77.. 77 col=-1 len=1
+    x= 78.. 78 col=-1 len=1
+    x= 79.. 79 col=-1 len=1
+    x= 80.. 80 col=-1 len=1
+    x= 81.. 81 col=-1 len=1
+    x= 82.. 82 col=-1 len=1
+    x= 83.. 83 col=-1 len=1
+    x= 84.. 92 col=-1 len=9
+    x= 93.. 93 col=-1 len=1
+    x= 94.. 94 col=-1 len=1
+    x= 95.. 96 col=-1 len=2
+    x= 97..101 col=-1 len=5
+    x=102..102 col=-1 len=1
+    x=103..108 col=-1 len=6
+    x=109..109 col=-1 len=1
+    x=110..110 col=-1 len=1
+    x=111..111 col=-1 len=1
+    x=112..112 col=-1 len=1
+    x=113..113 col=-1 len=1
+    x=114..114 col=-1 len=1
+    x=115..115 col=-1 len=1
+    x=116..124 col=-1 len=9
+    x=125..125 col=-1 len=1
+    x=126..126 col=-1 len=1
+    x=127..128 col=-1 len=2
+    x=129..133 col=-1 len=5
+    x=134..134 col=-1 len=1
+    x=135..140 col=-1 len=6
+    x=141..141 col=-1 len=1
+    x=142..142 col=-1 len=1
+    x=143..143 col=-1 len=1
+    x=144..144 col=-1 len=1
+    x=145..145 col=-1 len=1
+    x=146..146 col=-1 len=1
+    x=147..147 col=-1 len=1
+    x=148..156 col=-1 len=9
+    x=157..157 col=-1 len=1
+    x=158..158 col=-1 len=1
+    x=159..160 col=-1 len=2
+    x=161..165 col=-1 len=5
+    x=166..166 col=-1 len=1
+    x=167..172 col=-1 len=6
+    x=173..173 col=-1 len=1
+    x=174..174 col=-1 len=1
+    x=175..175 col=-1 len=1
+    x=176..176 col=-1 len=1
+    x=177..177 col=-1 len=1
+    x=178..178 col=-1 len=1
+    x=179..179 col=-1 len=1
+    x=180..188 col=-1 len=9
+    x=189..189 col=-1 len=1
+    x=190..190 col=-1 len=1
+    x=191..192 col=-1 len=2
+    x=193..197 col=-1 len=5
+    x=198..198 col=-1 len=1
+    x=199..204 col=-1 len=6
+    x=205..205 col=-1 len=1
+    x=206..206 col=-1 len=1
+    x=207..207 col=-1 len=1
+    x=208..208 col=-1 len=1
+    x=209..209 col=-1 len=1
+    x=210..210 col=-1 len=1
+    x=211..211 col=-1 len=1
+    x=212..220 col=-1 len=9
+    x=221..221 col=-1 len=1
+    x=222..222 col=-1 len=1
+    x=223..223 col=-1 len=1
+    x=224..224 col=0 len=1
+    x=225..225 col=-1 len=1
+    x=226..226 col=0 len=1
+    x=227..228 col=-1 len=2
+    x=229..229 col=0 len=1
+    x=230..234 col=-1 len=5
+    x=235..248 col=0 len=14
+    x=249..251 col=-1 len=3
+    x=252..252 col=0 len=1
+    x=253..253 col=-1 len=1
+    x=254..254 col=0 len=1
+    x=255..255 col=-1 len=1
+  row 144 (run-length):
+    x=  0..  4 col=-1 len=5
+    x=  5..  5 col=-1 len=1
+    x=  6..  6 col=-1 len=1
+    x=  7..  7 col=-1 len=1
+    x=  8..  8 col=-1 len=1
+    x=  9..  9 col=-1 len=1
+    x= 10.. 10 col=-1 len=1
+    x= 11.. 11 col=-1 len=1
+    x= 12.. 20 col=-1 len=9
+    x= 21.. 21 col=-1 len=1
+    x= 22.. 22 col=-1 len=1
+    x= 23.. 23 col=-1 len=1
+    x= 24.. 30 col=-1 len=7
+    x= 31.. 31 col=-1 len=1
+    x= 32.. 36 col=-1 len=5
+    x= 37.. 37 col=-1 len=1
+    x= 38.. 38 col=-1 len=1
+    x= 39.. 39 col=-1 len=1
+    x= 40.. 40 col=-1 len=1
+    x= 41.. 41 col=-1 len=1
+    x= 42.. 42 col=-1 len=1
+    x= 43.. 43 col=-1 len=1
+    x= 44.. 52 col=-1 len=9
+    x= 53.. 53 col=-1 len=1
+    x= 54.. 54 col=-1 len=1
+    x= 55.. 55 col=-1 len=1
+    x= 56.. 62 col=-1 len=7
+    x= 63.. 63 col=-1 len=1
+    x= 64.. 68 col=-1 len=5
+    x= 69.. 69 col=-1 len=1
+    x= 70.. 70 col=-1 len=1
+    x= 71.. 71 col=-1 len=1
+    x= 72.. 72 col=-1 len=1
+    x= 73.. 73 col=-1 len=1
+    x= 74.. 74 col=-1 len=1
+    x= 75.. 75 col=-1 len=1
+    x= 76.. 84 col=-1 len=9
+    x= 85.. 85 col=-1 len=1
+    x= 86.. 86 col=-1 len=1
+    x= 87.. 87 col=-1 len=1
+    x= 88.. 94 col=-1 len=7
+    x= 95.. 95 col=-1 len=1
+    x= 96..100 col=-1 len=5
+    x=101..101 col=-1 len=1
+    x=102..102 col=-1 len=1
+    x=103..103 col=-1 len=1
+    x=104..104 col=-1 len=1
+    x=105..105 col=-1 len=1
+    x=106..106 col=-1 len=1
+    x=107..107 col=-1 len=1
+    x=108..116 col=-1 len=9
+    x=117..117 col=-1 len=1
+    x=118..118 col=-1 len=1
+    x=119..119 col=-1 len=1
+    x=120..126 col=-1 len=7
+    x=127..127 col=-1 len=1
+    x=128..132 col=-1 len=5
+    x=133..133 col=-1 len=1
+    x=134..134 col=-1 len=1
+    x=135..135 col=-1 len=1
+    x=136..136 col=-1 len=1
+    x=137..137 col=-1 len=1
+    x=138..138 col=-1 len=1
+    x=139..139 col=-1 len=1
+    x=140..148 col=-1 len=9
+    x=149..149 col=-1 len=1
+    x=150..150 col=-1 len=1
+    x=151..151 col=-1 len=1
+    x=152..158 col=-1 len=7
+    x=159..159 col=-1 len=1
+    x=160..164 col=-1 len=5
+    x=165..165 col=-1 len=1
+    x=166..166 col=-1 len=1
+    x=167..167 col=-1 len=1
+    x=168..168 col=-1 len=1
+    x=169..169 col=-1 len=1
+    x=170..170 col=-1 len=1
+    x=171..171 col=-1 len=1
+    x=172..180 col=-1 len=9
+    x=181..181 col=-1 len=1
+    x=182..182 col=-1 len=1
+    x=183..183 col=-1 len=1
+    x=184..190 col=-1 len=7
+    x=191..191 col=-1 len=1
+    x=192..196 col=-1 len=5
+    x=197..197 col=-1 len=1
+    x=198..198 col=-1 len=1
+    x=199..199 col=-1 len=1
+    x=200..200 col=-1 len=1
+    x=201..201 col=-1 len=1
+    x=202..202 col=-1 len=1
+    x=203..203 col=-1 len=1
+    x=204..212 col=-1 len=9
+    x=213..213 col=-1 len=1
+    x=214..214 col=-1 len=1
+    x=215..215 col=-1 len=1
+    x=216..222 col=-1 len=7
+    x=223..223 col=-1 len=1
+    x=224..228 col=-1 len=5
+    x=229..229 col=-1 len=1
+    x=230..230 col=-1 len=1
+    x=231..231 col=-1 len=1
+    x=232..232 col=-1 len=1
+    x=233..233 col=-1 len=1
+    x=234..234 col=-1 len=1
+    x=235..235 col=-1 len=1
+    x=236..244 col=-1 len=9
+    x=245..245 col=-1 len=1
+    x=246..246 col=-1 len=1
+    x=247..247 col=-1 len=1
+    x=248..254 col=-1 len=7
+    x=255..255 col=-1 len=1
+  row 191 (run-length):
+    x=  0.. 50 col=0 len=51
+    x= 51.. 53 col=1 len=3
+    x= 54.. 58 col=0 len=5
+    x= 59.. 61 col=1 len=3
+    x= 62..122 col=0 len=61
+    x=123..125 col=1 len=3
+    x=126..130 col=0 len=5
+    x=131..133 col=1 len=3
+    x=134..170 col=0 len=37
+    x=171..173 col=1 len=3
+    x=174..178 col=0 len=5
+    x=179..181 col=1 len=3
+    x=182..226 col=0 len=45
+    x=227..229 col=1 len=3
+    x=230..234 col=0 len=5
+    x=235..237 col=1 len=3
+    x=238..255 col=0 len=18
+  VRAM scan @ frame 1200 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=256 first=00 maxval=FF
+    block 002 (0x0200-0x02FF): nz=256 first=00 maxval=FE
+    block 003 (0x0300-0x03FF): nz=160 first=00 maxval=FB
+    block 004 (0x0400-0x04FF): nz=256 first=00 maxval=EC
+    block 005 (0x0500-0x05FF): nz=256 first=00 maxval=FE
+    block 006 (0x0600-0x06FF): nz=160 first=00 maxval=FB
+    block 007 (0x0700-0x07FF): nz=256 first=00 maxval=EC
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=256 first=00 maxval=FF
+    block 00A (0x0A00-0x0AFF): nz=256 first=00 maxval=FE
+    block 00B (0x0B00-0x0BFF): nz=160 first=00 maxval=FB
+    block 00C (0x0C00-0x0CFF): nz=256 first=00 maxval=EC
+    block 00D (0x0D00-0x0DFF): nz=256 first=00 maxval=FE
+    block 00E (0x0E00-0x0EFF): nz=160 first=00 maxval=FB
+    block 00F (0x0F00-0x0FFF): nz=256 first=00 maxval=EC
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=256 first=00 maxval=FF
+    block 012 (0x1200-0x12FF): nz=256 first=00 maxval=FE
+    block 013 (0x1300-0x13FF): nz=160 first=00 maxval=FB
+    block 014 (0x1400-0x14FF): nz=256 first=00 maxval=EC
+    block 015 (0x1500-0x15FF): nz=256 first=00 maxval=FE
+    block 016 (0x1600-0x16FF): nz=160 first=00 maxval=FB
+    block 017 (0x1700-0x17FF): nz=256 first=00 maxval=EC
+    block 018 (0x1800-0x18FF): nz=136 first=0A maxval=FC
+    block 019 (0x1900-0x19FF): nz= 88 first=00 maxval=FE
+    block 01A (0x1A00-0x1AFF): nz=116 first=00 maxval=FF
+    block 01B (0x1B00-0x1BFF): nz=108 first=00 maxval=FF
+    block 01C (0x1C00-0x1CFF): nz= 92 first=00 maxval=FF
+    block 01D (0x1D00-0x1DFF): nz=116 first=02 maxval=FF
+    block 020 (0x2000-0x20FF): nz=113 first=81 maxval=A1
+    block 021 (0x2100-0x21FF): nz=241 first=01 maxval=FF
+    block 022 (0x2200-0x22FF): nz=225 first=01 maxval=FF
+    block 023 (0x2300-0x23FF): nz=153 first=01 maxval=FF
+    block 024 (0x2400-0x24FF): nz=216 first=00 maxval=FF
+    block 025 (0x2500-0x25FF): nz=221 first=01 maxval=FF
+    block 026 (0x2600-0x26FF): nz=153 first=01 maxval=FF
+    block 027 (0x2700-0x27FF): nz=216 first=00 maxval=FF
+    block 028 (0x2800-0x28FF): nz=113 first=81 maxval=A1
+    block 029 (0x2900-0x29FF): nz=241 first=01 maxval=FF
+    block 02A (0x2A00-0x2AFF): nz=225 first=01 maxval=FF
+    block 02B (0x2B00-0x2BFF): nz=153 first=01 maxval=FF
+    block 02C (0x2C00-0x2CFF): nz=216 first=00 maxval=FF
+    block 02D (0x2D00-0x2DFF): nz=221 first=01 maxval=FF
+    block 02E (0x2E00-0x2EFF): nz=153 first=01 maxval=FF
+    block 02F (0x2F00-0x2FFF): nz=216 first=00 maxval=FF
+    block 030 (0x3000-0x30FF): nz=113 first=81 maxval=A1
+    block 031 (0x3100-0x31FF): nz=241 first=01 maxval=FF
+    block 032 (0x3200-0x32FF): nz=225 first=01 maxval=FF
+    block 033 (0x3300-0x33FF): nz=153 first=01 maxval=FF
+    block 034 (0x3400-0x34FF): nz=216 first=00 maxval=FF
+    block 035 (0x3500-0x35FF): nz=221 first=01 maxval=FF
+    block 036 (0x3600-0x36FF): nz=153 first=01 maxval=FF
+    block 037 (0x3700-0x37FF): nz=216 first=00 maxval=FF
+    block 038 (0x3800-0x38FF): nz=256 first=00 maxval=CD
+    block 039 (0x3900-0x39FF): nz=256 first=00 maxval=E5
+    block 03A (0x3A00-0x3AFF): nz=221 first=00 maxval=83
+    block 03B (0x3B00-0x3BFF): nz= 62 first=00 maxval=F5
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 5C 01 54 51 82 80 83 80 82 80 83 80 82 80 83 80  |\.TQ............ |
+  col  table @ col_ba :
+    0000: 80 60 60 10 0E 0C 0B 03 02 00 00 00 00 00 00 00  |.``............. |
+    0010: 00 00 00 00 00 00 80 00 E0 80 80 00 00 00 00 00  |................ |
+  z80@1200: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+[PSG] frame=1300 writes=23162 last=R14 val=0E sum/frame=-61 peak_max=5461 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0070
+
+-- frame 1300 --
+  z80@1300: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 74 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 02 00 48 4F 00 00 00 02 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=02 E009=04 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1400 writes=25204 last=R14 val=0E sum/frame=-177 peak_max=10922 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+
+-- frame 1400 --
+  z80@1400: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 D8 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=19 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1500 writes=27204 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+
+-- frame 1500 --
+  z80@1500: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 3C 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=19 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1600 writes=29204 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+
+-- frame 1600 --
+  z80@1600: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 A0 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=04 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1700 writes=31204 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+
+-- frame 1700 --
+  z80@1700: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 04 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=C0 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1800 writes=33204 last=R14 val=0E sum/frame=0 peak_max=0 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+
+-- frame 1800 --
+  z80@1800: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 68 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=36 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=1900 writes=35242 last=R14 val=0E sum/frame=-6 peak_max=5461 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0070
+
+-- frame 1900 --
+  z80@1900: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 CC 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 02 00 48 4F 00 00 00 02 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=02 E009=CD E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=2000 writes=37284 last=R14 val=0E sum/frame=-13 peak_max=10922 | R5=00 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0001 tB=0001 tC=0052
+[VRAM-pop] frame=2000 nonzero=11615 name_0x38_nz=256 E600=01  vdp_addr=3B1C pending=18
+
+-- frame 2000 --
+  z80@2000: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 30 20 00 00 00
+  rec0@E010: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 01 00 36 4F 00 00 00 01 00 00 00 00 00   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=01 E009=DD E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=2100 writes=39304 last=R14 val=0E sum/frame=-132 peak_max=5462 | R5=02 R6=00 R7=B8 R8=09 R9=00 R10=09 R11=00 R12=00 R13=00 | tA=0100 tB=0001 tC=0200
+
+-- frame 2100 --
+  z80@2100: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 94 20 00 00 00
+  rec0@E010: 04 06 AE 64 51 02 0B 09 04 00 03 00 02 01   (type=AE)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 04 06 AE 7D 51 03 0B 09 04 00 03 00 02 01   (type=AE)
+  type@E012=AE E020=00 E02E=AE | E02D=06 E009=EB E052=00 E600=02 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=2200 writes=41334 last=R14 val=0E sum/frame=31 peak_max=5462 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2200 --
+  z80@2200: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 F8 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=01
+  state@E03A=B8  E064=01 E065=00 E066=00
+[PSG] frame=2300 writes=43322 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2300 --
+  z80@2300: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 5A D1 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=2400 writes=45322 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2400 --
+  z80@2400: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 BE 6D 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=2500 writes=47322 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2500 --
+  z80@2500: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 22 09 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=02
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=2600 writes=49310 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2600 --
+  z80@2600: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 84 A7 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=00
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=2700 writes=51310 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2700 --
+  z80@2700: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 E8 43 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=00
+  state@E03A=B8  E064=00 E065=00 E066=00
+[PSG] frame=2800 writes=53238 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2800 --
+  z80@2800: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 40 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=09 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=2900 writes=55238 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 2900 --
+  z80@2900: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 A4 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=11 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=3000 writes=57238 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3000 --
+  z80@3000: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 08 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=0A E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=3100 writes=59238 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=00 R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3100 --
+  z80@3100: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 6C 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=06 E052=00 E600=00 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=3200 writes=61356 last=R14 val=0E sum/frame=-9337 peak_max=3862 | R5=00 R6=0C R7=98 R8=00 R9=00 R10=08 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=0001
+
+-- frame 3200 --
+  z80@3200: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 D0 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 01 01 41 28 4C 02 08 06 02 03 03 00 01 01   (type=41)
+  type@E012=00 E020=00 E02E=41 | E02D=01 E009=14 E052=00 E600=00 E001=01
+  state@E03A=98  E064=01 E065=01 E066=00
+[PSG] frame=3300 writes=63620 last=R14 val=0E sum/frame=-13951 peak_max=3862 | R5=00 R6=0C R7=B8 R8=00 R9=00 R10=0A R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=001C
+
+-- frame 3300 --
+  z80@3300: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 34 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 01 01 02 37 4C 02 08 06 02 01 03 00 01 01   (type=02)
+  type@E012=00 E020=00 E02E=02 | E02D=01 E009=10 E052=00 E600=01 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=3400 writes=65762 last=R14 val=0E sum/frame=-4000 peak_max=5462 | R5=01 R6=0C R7=B8 R8=06 R9=00 R10=06 R11=00 R12=00 R13=00 | tA=02A8 tB=0001 tC=0154
+
+-- frame 3400 --
+  z80@3400: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   02 01 00 98 20 00 00 00
+  rec0@E010: 01 03 AE 72 51 03 08 06 01 00 03 00 01 01   (type=AE)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 01 03 AE 8B 51 02 08 06 01 00 03 00 01 01   (type=AE)
+  type@E012=AE E020=00 E02E=AE | E02D=03 E009=15 E052=00 E600=02 E001=01
+  state@E03A=B8  E064=01 E065=01 E066=00
+[PSG] frame=3500 writes=67764 last=R14 val=0E sum/frame=35 peak_max=1930 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3500 --
+  z80@3500: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 01 00 FA 20 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=01
+  state@E03A=B8  E064=00 E065=01 E066=00
+[PSG] frame=3600 writes=69764 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3600 --
+  z80@3600: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 5E AD 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=02
+  state@E03A=B8  E064=00 E065=01 E066=00
+[PSG] frame=3700 writes=71764 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3700 --
+  z80@3700: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E4
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   00 02 00 C2 49 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=02
+  state@E03A=B8  E064=00 E065=01 E066=00
+[PSG] frame=3800 writes=73752 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3800 --
+  z80@3800: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 24 E7 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=00
+  state@E03A=B8  E064=00 E065=01 E066=00
+[PSG] frame=3900 writes=75752 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+
+-- frame 3900 --
+  z80@3900: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 88 83 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=00
+  state@E03A=B8  E064=00 E065=01 E066=00
+[PSG] frame=4000 writes=77752 last=R14 val=0E sum/frame=0 peak_max=0 | R5=01 R6=0C R7=B8 R8=00 R9=00 R10=00 R11=00 R12=00 R13=00 | tA=0358 tB=0001 tC=01AC
+[VRAM-pop] frame=4000 nonzero=10448 name_0x38_nz=32 E600=02  vdp_addr=3A17 pending=16
+
+-- frame 4000 --
+  z80@4000: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+  VDP R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  slotReg=14 active=[0 1 1 0]
+  H.TIMI@FD9A: C3 2E 40   H.KEYI@FD9F: C9 C9 C9
+  work@E000:   01 00 00 EC 1F 00 00 00
+  rec0@E010: 00 06 00 74 51 03 08 06 01 00 03 00 01 01   (type=00)
+  rec1@E01E: 00 00 00 D2 53 00 00 00 00 00 00 00 00 00   (type=00)
+  rec2@E02C: 00 03 00 8D 51 02 08 06 01 00 03 00 01 01   (type=00)
+  type@E012=00 E020=00 E02E=00 | E02D=03 E009=00 E052=00 E600=02 E001=00
+  state@E03A=B8  E064=00 E065=01 E066=00
+
+=== VDP @ frame 4000 ===
+  regs: R0=02 R1=E2 R2=0E R3=7F R4=07 R5=76 R6=03 R7=E0
+  addr=3A17 write_mode=1 pending=16 irq=1
+  mode: GRAPHICS 2
+  bases: name=3800 col=1FC0 pat=3800  (sprite_pat=1800)
+  name table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0020: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  pat  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table:
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+    0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  sprite RAM 0x3C0:
+    0000: 81 81 81 81 81 81 81 81 81 81 81 81 81 81 81 81  |................ |
+    0010: 81 81 81 81 81 81 81 81 81 81 81 81 81 81 81 81  |................ |
+  VRAM @0x0000:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  render histogram (of 49152 px):
+     0 black      47120   95.9%
+     1 white        944    1.9%
+    distinct palette slots: 2
+  row 0 (run-length):
+    x=  0..255 col=0 len=256
+  row 48 (run-length):
+    x=  0.. 98 col=0 len=99
+    x= 99..101 col=-1 len=3
+    x=102..255 col=0 len=154
+  row 96 (run-length):
+    x=  0.. 81 col=0 len=82
+    x= 82.. 85 col=1 len=4
+    x= 86..255 col=0 len=170
+  row 144 (run-length):
+    x=  0..255 col=0 len=256
+  row 191 (run-length):
+    x=  0..255 col=0 len=256
+  VRAM scan @ frame 4000 (total size 16384):
+  256-byte blocks with nonzero content (first nonzero shown):
+    block 000 (0x0000-0x00FF): nz=248 first=08 maxval=F0
+    block 001 (0x0100-0x01FF): nz=256 first=00 maxval=FE
+    block 002 (0x0200-0x02FF): nz=224 first=00 maxval=F0
+    block 003 (0x0300-0x03FF): nz=256 first=00 maxval=81
+    block 004 (0x0400-0x04FF): nz=256 first=00 maxval=FE
+    block 005 (0x0500-0x05FF): nz=224 first=00 maxval=FE
+    block 006 (0x0600-0x06FF): nz= 24 first=80 maxval=88
+    block 007 (0x0700-0x07FF): nz=256 first=00 maxval=E8
+    block 008 (0x0800-0x08FF): nz=248 first=08 maxval=F0
+    block 009 (0x0900-0x09FF): nz=256 first=00 maxval=FE
+    block 00A (0x0A00-0x0AFF): nz=224 first=00 maxval=F0
+    block 00B (0x0B00-0x0BFF): nz=256 first=00 maxval=81
+    block 00C (0x0C00-0x0CFF): nz=256 first=00 maxval=FE
+    block 00D (0x0D00-0x0DFF): nz=224 first=00 maxval=FE
+    block 00E (0x0E00-0x0EFF): nz= 24 first=80 maxval=88
+    block 00F (0x0F00-0x0FFF): nz=256 first=00 maxval=E8
+    block 010 (0x1000-0x10FF): nz=248 first=08 maxval=F0
+    block 011 (0x1100-0x11FF): nz=256 first=00 maxval=FE
+    block 012 (0x1200-0x12FF): nz=224 first=00 maxval=F0
+    block 013 (0x1300-0x13FF): nz=256 first=00 maxval=81
+    block 014 (0x1400-0x14FF): nz=256 first=00 maxval=FE
+    block 015 (0x1500-0x15FF): nz=224 first=00 maxval=FE
+    block 016 (0x1600-0x16FF): nz= 24 first=80 maxval=88
+    block 017 (0x1700-0x17FF): nz=256 first=00 maxval=E8
+    block 018 (0x1800-0x18FF): nz=116 first=0B maxval=FC
+    block 019 (0x1900-0x19FF): nz= 88 first=00 maxval=FE
+    block 01A (0x1A00-0x1AFF): nz=116 first=00 maxval=FF
+    block 01B (0x1B00-0x1BFF): nz=108 first=00 maxval=FF
+    block 01C (0x1C00-0x1CFF): nz= 92 first=00 maxval=FF
+    block 01D (0x1D00-0x1DFF): nz=116 first=02 maxval=FF
+    block 01E (0x1E00-0x1EFF): nz=108 first=00 maxval=FC
+    block 020 (0x2000-0x20FF): nz=113 first=81 maxval=A1
+    block 021 (0x2100-0x21FF): nz=229 first=01 maxval=FF
+    block 022 (0x2200-0x22FF): nz=160 first=0F maxval=FF
+    block 023 (0x2300-0x23FF): nz=217 first=02 maxval=FF
+    block 024 (0x2400-0x24FF): nz=251 first=00 maxval=FF
+    block 025 (0x2500-0x25FF): nz=198 first=01 maxval=FF
+    block 026 (0x2600-0x26FF): nz= 24 first=80 maxval=FF
+    block 027 (0x2700-0x27FF): nz=234 first=01 maxval=FF
+    block 028 (0x2800-0x28FF): nz=113 first=81 maxval=A1
+    block 029 (0x2900-0x29FF): nz=229 first=01 maxval=FF
+    block 02A (0x2A00-0x2AFF): nz=160 first=0F maxval=FF
+    block 02B (0x2B00-0x2BFF): nz=217 first=02 maxval=FF
+    block 02C (0x2C00-0x2CFF): nz=251 first=00 maxval=FF
+    block 02D (0x2D00-0x2DFF): nz=198 first=01 maxval=FF
+    block 02E (0x2E00-0x2EFF): nz= 24 first=80 maxval=FF
+    block 02F (0x2F00-0x2FFF): nz=234 first=01 maxval=FF
+    block 030 (0x3000-0x30FF): nz=113 first=81 maxval=A1
+    block 031 (0x3100-0x31FF): nz=229 first=01 maxval=FF
+    block 032 (0x3200-0x32FF): nz=160 first=0F maxval=FF
+    block 033 (0x3300-0x33FF): nz=217 first=02 maxval=FF
+    block 034 (0x3400-0x34FF): nz=251 first=00 maxval=FF
+    block 035 (0x3500-0x35FF): nz=198 first=01 maxval=FF
+    block 036 (0x3600-0x36FF): nz= 24 first=80 maxval=FF
+    block 037 (0x3700-0x37FF): nz=234 first=01 maxval=FF
+    block 038 (0x3800-0x38FF): nz= 32 first=8B maxval=75
+    block 039 (0x3900-0x39FF): nz= 22 first=0B maxval=80
+    block 03A (0x3A00-0x3AFF): nz= 12 first=09 maxval=2E
+    block 03B (0x3B00-0x3BFF): nz=128 first=00 maxval=D0
+  Expected SCREEN 1 regions:
+  name table @ name_ba:
+    0000: 00 00 00 00 00 00 00 00 01 01 01 01 01 01 01 01  |................ |
+    0010: 02 02 02 02 02 02 02 02 03 03 03 03 03 03 03 03  |................ |
+    0020: 04 04 04 04 04 04 04 04 05 05 05 05 05 05 05 05  |................ |
+    0030: 06 06 06 06 06 06 06 06 07 07 07 07 07 07 07 07  |................ |
+  pat  table @ pat_ba :
+    0000: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  |................ |
+  col  table @ col_ba :
+    0000: 80 60 60 10 0E 0C 0B 03 02 00 00 00 00 00 00 00  |.``............. |
+    0010: 00 00 00 00 00 00 80 00 E0 80 80 00 00 00 00 00  |................ |
+  z80@4000: PC=40C9 SP=E800 AF=1F44 BC=0008 DE=00B8 HL=44CD I=00 im=1 iff1=1 mode=0
+
+[PSG-summary] frames_with_audio(peak>64)=420/4000  writes=77752
+[PSG-summary] max volume A/B/C = 11/0/15 (15 = full)
+[PSG-summary] final mixer R7=B8  volumes R8/R9/R10=00/00/00
+[PSG-summary] R7 value histogram (frames each value held):
+   R7=00: 14
+   R7=98: 128
+   R7=B8: 3858
+[PSG-summary] tone periods A/B/C = 0358/0001/01AC  noise R6=0C  env R11/R12/R13=00/00/00
+MSX Machine destroyed

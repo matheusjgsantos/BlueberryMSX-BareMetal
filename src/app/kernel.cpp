@@ -14,6 +14,7 @@
 #include "hid_keydiff.h"
 #include "msxconfig.h"
 #include "msxbus.h"
+#include "R800.h"
 
 #include <circle/string.h>
 #include <circle/usb/usbhid.h>
@@ -426,6 +427,10 @@ TShutdownMode CKernel::Run (void)
 	if (m_Config.bMsxbusDump)
 	{
 		DumpCartridges ();
+	}
+	if (m_Config.bMfrProbe)
+	{
+		ProbeMfrMapper ();
 	}
 
 	WriteLog (FromKernel, "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
@@ -1250,6 +1255,95 @@ void CKernel::DumpCartridges (void)
 	WriteLog ("msxbus", "%s", sBuf);
 }
 
+// Diagnostic probe of the physical MegaFlashROM SCC+ mapper, run once after
+// the bus is up and before C-BIOS boots. The MFR powers up with its
+// configuration register at 0 (Konami-SCC mode), where the bank registers live
+// at 0x5000/0x7000/0x9000/0xB000; the multicart menu instead writes its banks
+// to 0x8000/0xA000, which only latch in Konami mode (config bit 5 set). The
+// probe records which (mode,address) actually moves which page, then leaves the
+// cart in Konami mode with its default bank mapping restored, so the launch can
+// be retested. Writes a padded MFRPROBE.TXT to the data partition.
+void CKernel::ProbeMfrMapper (void)
+{
+	if (!m_bFsMounted)
+	{
+		return;
+	}
+
+	const unsigned nSize = 0x20000;		// 128 KiB padded, like the STA dumps
+	unsigned char *pBuf = new unsigned char[nSize];
+	if (pBuf == 0)
+	{
+		return;
+	}
+	memset (pBuf, 0, nSize);
+
+	char *p = (char *) pBuf;
+	unsigned nOff = 0;
+	unsigned nCap = nSize - 256;
+#define APP(...)	do { if (nOff < nCap) nOff += (unsigned) snprintf (p + nOff, 200, __VA_ARGS__); } while (0)
+
+	// Signature of a page: the cart's 8 KiB bank begins "AB" then a 16-bit
+	// INIT vector. Reading the four pages reveals which 8 KiB bank is mapped.
+	auto sig = [&](uint16_t base) -> unsigned {
+		unsigned b2 = MsxBus_Read (MsxBusSlot1, (uint16_t) (base + 2));
+		unsigned b3 = MsxBus_Read (MsxBusSlot1, (uint16_t) (base + 3));
+		return (b3 << 8) | b2;
+	};
+	auto line4 = [&](const char *tag) {
+		APP ("%s p0=%04X p1=%04X p2=%04X p3=%04X\n",
+			tag, sig (0x4000), sig (0x6000), sig (0x8000), sig (0xA000));
+	};
+
+	static const struct { const char *name; unsigned char mode; } s_aMode[5] = {
+		{ "konami-scc", 0x00 },
+		{ "konami",     0x20 },
+		{ "64k",        0x40 },
+		{ "ascii8",     0x80 },
+		{ "ascii16",    0xC0 },
+	};
+	static const unsigned short s_aReg[8] = { 0x4000, 0x5000, 0x6000, 0x7000, 0x8000, 0x9000, 0xA000, 0xB000 };
+
+	APP ("MFR MAPPER PROBE (connector1)\n");
+	line4 ("boot  ");
+
+	for (unsigned m = 0; m < 5; m++)
+	{
+		MsxBus_Write (MsxBusSlot1, 0x7FFE, s_aMode[m].mode);	// set config register
+		line4 (s_aMode[m].name);
+
+		for (unsigned r = 0; r < 8; r++)
+		{
+			MsxBus_Write (MsxBusSlot1, s_aReg[r], 0x05);
+			char tag[24];
+			snprintf (tag, sizeof (tag), "  w%04X", s_aReg[r]);
+			line4 (tag);
+		}
+	}
+
+#undef APP
+
+	// Leave a sane launch state: force Konami mode so the menu's
+	// 0x8000/0xA000 bank stores latch, then restore the default bank mapping
+	// (banks 0..3 = p0..p3). In Konami mode page0 latches at 0x5000-0x57FF,
+	// page1 at 0x6000, page2 at 0x8000 and page3 at 0xA000.
+	MsxBus_Write (MsxBusSlot1, 0x7FFE, 0x20);
+	MsxBus_Write (MsxBusSlot1, 0x5000, 0x00);
+	MsxBus_Write (MsxBusSlot1, 0x6000, 0x01);
+	MsxBus_Write (MsxBusSlot1, 0x8000, 0x02);
+	MsxBus_Write (MsxBusSlot1, 0xA000, 0x03);
+
+	unsigned hFile = m_FileSystem.FileCreate ("MFRPROBE.TXT");
+	if (hFile != 0)
+	{
+		m_FileSystem.FileWrite (hFile, pBuf, nSize);
+		m_FileSystem.FileClose (hFile);
+	}
+	WriteLog ("msxbus", "MFRPROBE.TXT written (mapper probe, Konami mode forced)");
+
+	delete[] pBuf;
+}
+
 // Diagnostic: report the RPMC bus counters as a file on the data partition so
 // they can be read back on a PC. The log itself is RAM-buffered (log=file) and
 // cannot be flushed (a small FAT write hangs this Circle build), so the report
@@ -1286,6 +1380,95 @@ void CKernel::DumpMsxbusDiag (unsigned long long nFrame, unsigned nTicks)
 		Stats.nIoReads, Stats.nIoWrites,
 		Stats.nWaitIters, Stats.nWaitTimeouts, Stats.nSlowOps,
 		Stats.nCacheHits, Stats.nCacheMisses);
+
+	// Machine-side state at this frame: the physical MegaFlashROM menu decides
+	// RAM is missing and aborts, so dump exactly what it saw - the current slot
+	// register, per-page active slots, the current-slot marker (0xE200) the
+	// scan skips, the RAMAD result (0xF341-3) and EXPTBL. Padded file, so it
+	// writes reliably (see note above).
+	if (m_pMachine != 0)
+	{
+		UInt8 *pRam = m_pMachine->slots[3].subslots[0].data;
+		unsigned nPc = 0;
+		if (m_pMachine->z80 != 0)
+		{
+			nPc = ((R800 *) m_pMachine->z80)->regs.PC.W;
+		}
+
+		snprintf ((char *) pBuf + 256, 256,
+			"MSX STATE\n"
+			"pc=%04X slotReg=%02X active=%d %d %d %d\n"
+			"E210=%02X E200=%02X F3E9=%02X RAMAD=%02X %02X %02X\n"
+			"EXPTBL=%02X %02X %02X %02X\n"
+			"F380=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+			nPc, m_pMachine->slotReg,
+			m_pMachine->activeSlot[0], m_pMachine->activeSlot[1],
+			m_pMachine->activeSlot[2], m_pMachine->activeSlot[3],
+			pRam[0xE210], pRam[0xE200], pRam[0xF3E9],
+			pRam[0xF341], pRam[0xF342], pRam[0xF343],
+			pRam[0xFCC1], pRam[0xFCC2], pRam[0xFCC3], pRam[0xFCC4],
+			pRam[0xF380], pRam[0xF381], pRam[0xF382], pRam[0xF383],
+			pRam[0xF384], pRam[0xF385], pRam[0xF386], pRam[0xF387]);
+
+		// Slot/MFR event log: page-1 (port 0xA8) transitions and every write
+		// to 0xE200/0xE210, each with the store PC. Shows whether the
+		// cartridge INIT ran once or more and which page-1 slot each saw.
+		{
+			char *pEvt = (char *) pBuf + 512;
+			unsigned nEvt = msx_slot_event_count ();
+			unsigned nOff = (unsigned) snprintf (pEvt, 128,
+				"SLOT EVT count=%u\n", nEvt);
+			for (unsigned i = 0; i < nEvt; i++)
+			{
+				unsigned nPcE = 0, nPortE = 0, nValE = 0;
+				if (!msx_slot_event_get (i, &nPcE, &nPortE, &nValE))
+				{
+					break;
+				}
+				const char *pName = (nPortE == 0) ? "A8" :
+				                    (nPortE == 1) ? "E200" : "E210";
+				nOff += (unsigned) snprintf (pEvt + nOff, 64,
+					"%03u %s=%02X pc=%04X\n", i, pName, nValE, nPcE);
+				if (nOff > 9000)
+				{
+					break;
+				}
+			}
+		}
+	}
+
+	// Bank-switch log: the physical cart's memory accesses in 0x4000-0xBFFF.
+	// Tells whether the MFR menu's bank-register stores reached the cartridge
+	// (WRITES) and, critically, whether the loader's read-back of the entry
+	// vectors (first bytes of each 8 KiB bank) changed after the store - i.e.
+	// whether the physical bank switch actually took effect.
+	{
+		char *pLog = (char *) pBuf + 0x4000;
+		unsigned nCap = 0x10000;	// 64 KiB region for the log
+		unsigned nOff = (unsigned) snprintf (pLog, 128,
+			"BUS LOG writes=%d reads=%d\n",
+			MsxBus_LogWriteCount (), MsxBus_LogReadCount ());
+
+		int nW = MsxBus_LogWriteCount ();
+		nOff += (unsigned) snprintf (pLog + nOff, 64, "-- writes --\n");
+		for (int i = 0; i < nW && nOff < nCap - 64; i++)
+		{
+			uint16_t nA = 0; uint8_t nS = 0, nV = 0;
+			if (!MsxBus_LogWriteGet (i, &nA, &nS, &nV)) break;
+			nOff += (unsigned) snprintf (pLog + nOff, 32,
+				"W%u %04X=%02X\n", nS, nA, nV);
+		}
+
+		int nR = MsxBus_LogReadCount ();
+		nOff += (unsigned) snprintf (pLog + nOff, 64, "-- reads --\n");
+		for (int i = 0; i < nR && nOff < nCap - 64; i++)
+		{
+			uint16_t nA = 0; uint8_t nV = 0;
+			if (!MsxBus_LogReadGet (i, &nA, &nV)) break;
+			nOff += (unsigned) snprintf (pLog + nOff, 32,
+				"R %04X=%02X\n", nA, nV);
+		}
+	}
 
 	char sName[16];
 	snprintf (sName, sizeof (sName), "MB%06X.STA", (unsigned) (nFrame & 0xFFFFFFu));

@@ -225,6 +225,7 @@ public:
 	void FlushFileLog (void);
 	void MsxbusBringUp (void);
 	void DumpCartridges (void);
+	void ProbeMfrMapper (void);
 	// Diagnostic: write the RPMC bus counters to an 8.3 file (MB<frame>.STA)
 	// on the data partition. The file is padded to 128 KiB so the write takes
 	// the proven multi-sector path (a ~1 KiB write hangs this Circle build).

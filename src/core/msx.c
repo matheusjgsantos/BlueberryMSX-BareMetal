@@ -107,6 +107,61 @@ void msx_frame_render(void *vdp) {
 static int g_boot_frames = 0;
 static int g_boot_first_pc = -1;
 
+/* Slot/MFR event log (see msx.h). Two independent lists so the flood of
+ * page-1 (port 0xA8) transitions - the BIOS trampoline flips it on every
+ * CALSLT - can never crowd out the MegaFlashROM markers:
+ *   - MFR events: every write to 0xE200/0xE210 (0xE200 gated on 0xE210!=0),
+ *     kept in full (only a few), so a later re-INIT stays visible.
+ *   - A8 transitions: a ring of the most recent page-1 changes only. */
+#define MSX_MFR_EVT_MAX 64
+#define MSX_A8_EVT_MAX 64
+static UInt16 s_mfrPc[MSX_MFR_EVT_MAX];
+static UInt8  s_mfrPort[MSX_MFR_EVT_MAX];
+static UInt8  s_mfrVal[MSX_MFR_EVT_MAX];
+static unsigned s_mfrCount = 0;
+static UInt8  s_slotEvtE210 = 0;
+static UInt16 s_a8Pc[MSX_A8_EVT_MAX];
+static UInt8  s_a8Val[MSX_A8_EVT_MAX];
+static unsigned s_a8Total = 0;
+static int s_slotEvtLastPage1 = -1;
+
+static void mfr_evt(UInt16 pc, UInt8 port, UInt8 val) {
+    if (s_mfrCount >= MSX_MFR_EVT_MAX) return;
+    s_mfrPc[s_mfrCount] = pc;
+    s_mfrPort[s_mfrCount] = port;
+    s_mfrVal[s_mfrCount] = val;
+    s_mfrCount++;
+}
+
+static void a8_evt(UInt16 pc, UInt8 val) {
+    unsigned idx = s_a8Total % MSX_A8_EVT_MAX;
+    s_a8Pc[idx] = pc;
+    s_a8Val[idx] = val;
+    s_a8Total++;
+}
+
+unsigned msx_slot_event_count(void) {
+    unsigned nA8 = (s_a8Total < MSX_A8_EVT_MAX) ? s_a8Total : MSX_A8_EVT_MAX;
+    return s_mfrCount + nA8;
+}
+
+int msx_slot_event_get(unsigned nIndex, unsigned *nPc, unsigned *nPort, unsigned *nVal) {
+    unsigned nA8 = (s_a8Total < MSX_A8_EVT_MAX) ? s_a8Total : MSX_A8_EVT_MAX;
+    if (nIndex >= s_mfrCount + nA8) return 0;
+    if (nIndex < s_mfrCount) {
+        if (nPc)   *nPc = s_mfrPc[nIndex];
+        if (nPort) *nPort = s_mfrPort[nIndex];
+        if (nVal)  *nVal = s_mfrVal[nIndex];
+    } else {
+        unsigned nStart = (s_a8Total > MSX_A8_EVT_MAX) ? s_a8Total - MSX_A8_EVT_MAX : 0;
+        unsigned idx = (nStart + (nIndex - s_mfrCount)) % MSX_A8_EVT_MAX;
+        if (nPc)   *nPc = s_a8Pc[idx];
+        if (nPort) *nPort = 0;
+        if (nVal)  *nVal = s_a8Val[idx];
+    }
+    return 1;
+}
+
 static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     MSX_Machine *machine = (MSX_Machine*)ref;
     
@@ -148,6 +203,28 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
                addr, machine->activeSlot[addr/REGION_SIZE],
                (machine->activeSlot[addr/REGION_SIZE]) >> 2, val);
         g_boot_frames++;
+    }
+
+#ifdef MFR_DEBUG
+    if (addr == 0xE200 || addr == 0xE210) {
+        printf("[MFR] write %04X=%02X PC=%04X slotReg=%02X active=[%d %d %d %d]\n",
+               addr, val, (int)((R800*)machine->z80)->regs.PC.W, machine->slotReg,
+               machine->activeSlot[0], machine->activeSlot[1],
+               machine->activeSlot[2], machine->activeSlot[3]);
+    }
+#endif
+    if (addr == 0xE200)
+    {
+        // C-BIOS itself mirrors the slot register into 0xE200 (PC=0D43/0D48)
+        // many times during boot, so only record writes once the MegaFlashROM
+        // INIT has claimed the machine by setting 0xE210=1.
+        if (s_slotEvtE210)
+            mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 1, val);
+    }
+    else if (addr == 0xE210)
+    {
+        s_slotEvtE210 = val;
+        mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 2, val);
     }
 
     int region = addr / REGION_SIZE;
@@ -333,6 +410,13 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
         machine->activeSlot[1] = (val >> 2) & 0x03;
         machine->activeSlot[2] = (val >> 4) & 0x03;
         machine->activeSlot[3] = (val >> 6) & 0x03;
+        {
+            int page1 = (val >> 2) & 0x03;
+            if (page1 != s_slotEvtLastPage1) {
+                a8_evt((UInt16)pc, val);
+                s_slotEvtLastPage1 = page1;
+            }
+        }
         return;
     }
     if (port == 0xAA) {

@@ -179,6 +179,14 @@ int msx_load_rom(MSX_Machine *machine, const char *filename, UInt16 address);
 void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int size);
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size);
 
+/* Slot/MFR event log for the on-SD diagnostic dump: records page-1 slot
+ * transitions (port 0xA8) and every write to the MegaFlashROM current-slot
+ * markers 0xE200/0xE210, each with the store PC. Shows how often the cartridge
+ * INIT runs and which page 1 selects. Port tag: 0=A8, 1=0xE200, 2=0xE210. */
+#define MSX_SLOT_EVT_MAX 512
+unsigned msx_slot_event_count(void);
+int msx_slot_event_get(unsigned nIndex, unsigned *nPc, unsigned *nPort, unsigned *nVal);
+
 /* Route a whole (slot, subslot) to a physical RPMC board connector:
  * nBusSlot 0 = connector 1, 1 = connector 3; -1 restores the emulated buffer.
  * All four 16KB regions of that subslot then live on the bus, so the caller

@@ -337,20 +337,26 @@ void CMsxTask::Run (void)
 			m_pKernel->SetSerialEnabled (FALSE);
 		}
 
-		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
+		// Bus counters to the data partition (128 KiB multi-sector write so it
+		// survives this Circle build's small-file FAT hang). Opt-in
+		// (msx.ini diag=on): each write stalls the emulator, so it is off
+		// during normal play. Dense across the C-BIOS boot / cartridge INIT
+		// (frames 100-200, step 2) plus a few sparse points, to keep the stall
+		// brief while catching the page-1 transition.
+		if (m_pKernel->IsMsxbusActive () && m_pKernel->IsDiagDump ())
 		{
-			// Bus counters to the data partition (128 KiB multi-sector write
-			// so it survives this Circle build's small-file FAT hang). Opt-in
-			// (msx.ini diag=on): each write stalls the emulator, so it is off
-			// during normal play. A few points only, to keep the stall brief.
 			unsigned long long nDiagFrame = m_pKernel->GetFrames ();
-			if (m_pKernel->IsMsxbusActive () && m_pKernel->IsDiagDump () &&
-			    (nDiagFrame == 120 ||
-			     (nDiagFrame <= 1800 && (nDiagFrame % 600) == 0)))
+			if ((nDiagFrame >= 100 && nDiagFrame <= 200 && (nDiagFrame % 2) == 0) ||
+			    (nDiagFrame > 200 && nDiagFrame <= 600 && (nDiagFrame % 5) == 0) ||
+			    nDiagFrame == 60 || nDiagFrame == 90 ||
+			    (nDiagFrame != 0 && nDiagFrame <= 1800 && (nDiagFrame % 600) == 0))
 			{
 				m_pKernel->DumpMsxbusDiag (nDiagFrame, nFrameStart);
 			}
+		}
 
+		if ((m_pKernel->GetFrames () % HEARTBEAT_FRAMES) == 0)
+		{
 			R800 *z80 = (R800 *) machine->z80;
 			char sBuf[128];
 			snprintf (sBuf, sizeof(sBuf),

@@ -48,6 +48,15 @@ typedef struct
 	unsigned long nCacheMisses;	// reads that had to touch the bus
 } MsxBusStats;
 
+/// Bank-switch diagnostics: ring-buffered history of cart memory accesses in
+/// 0x4000-0xBFFF. Writes are recorded in full (bank-register stores are rare);
+/// reads only for the first 4 bytes of each 8 KiB bank (the entry vectors a
+/// loader probes). Index 0 is the oldest retained entry. Dump on demand.
+int MsxBus_LogWriteCount (void);
+int MsxBus_LogWriteGet (int nIndex, uint16_t *pAddr, uint8_t *pSlot, uint8_t *pVal);
+int MsxBus_LogReadCount (void);
+int MsxBus_LogReadGet (int nIndex, uint16_t *pAddr, uint8_t *pVal);
+
 /// Initialize the bus: pin directions, pull-ups (WAIT/INT/SW1), GPCLK0 on
 /// GPIO 20 and a reset pulse. nCkDivi/nCkDivF must produce ~3,579,545 Hz
 /// from the runtime clock source (see kernel.cpp / CMachineInfo).

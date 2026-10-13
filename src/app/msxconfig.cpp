@@ -14,7 +14,10 @@
 #include <ctype.h>
 
 #define MSX_INI_FILENAME	"msx.ini"
-#define MSX_INI_MAX		2048
+// Must exceed the whole file: the active (uncommented) settings usually sit
+// below the comment header, so a too-small buffer silently drops them. The
+// shipped msx.ini is ~3.6 KiB; keep headroom for future edits.
+#define MSX_INI_MAX		8192
 
 static char *Trim (char *p)
 {
@@ -68,7 +71,8 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		return false;
 	}
 
-	char aBuf[MSX_INI_MAX];
+	// static: this is called once at boot; avoids an 8 KiB stack frame
+	static char aBuf[MSX_INI_MAX];
 	unsigned nRead = pFs->FileRead (hFile, aBuf, sizeof (aBuf) - 1);
 	pFs->FileClose (hFile);
 	if (nRead == 0)
@@ -131,6 +135,10 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		else if (!strcasecmp (pKey, "diag"))
 		{
 			pCfg->bDiagDump = StrTrue (pVal);
+		}
+		else if (!strcasecmp (pKey, "mfrprobe"))
+		{
+			pCfg->bMfrProbe = StrTrue (pVal);
 		}
 		else if (!strcasecmp (pKey, "msxbus.mode"))
 		{
