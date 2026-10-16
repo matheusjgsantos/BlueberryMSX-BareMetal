@@ -9,20 +9,25 @@
 # for the USB host controller of the Compute Module 4.
 #
 
-arm_64bit=0
-initial_turbo=1
-kernel=msx.img
-#enable_uart=1
+[pi02]
+kernel=msx-pi3.img
+
+[pi3]
+kernel=msx-pi3.img
 
 [pi4]
-kernel=msx.img
+kernel=msx-pi4.img
 armstub=armstub7-rpi4.bin
 max_framebuffers=2
 
 [cm4]
+kernel=msx-pi4.img
 otg_mode=1
 
 [all]
+arm_64bit=0
+initial_turbo=1
+#enable_uart=1
 #uart_2ndstage=1
 # Force HDMI so the monitor is always detected (known requirement).
 hdmi_force_hotplug=1
