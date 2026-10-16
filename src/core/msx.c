@@ -176,6 +176,27 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
         if (ss->busSlot >= 0)
             return machine->bus_read
                 ? machine->bus_read(machine->bus_ref, ss->busSlot, addr) : 0xFF;
+        /* MegaROM mappers for emulated ROM subslots. All supported types
+         * (ASCII8, Konami, Konami-SCC) expose four 8KB windows in
+         * 0x4000/0x6000/0x8000/0xA000 selected by ss->bank[0..3]; only the
+         * bank-register write decode differs. */
+        if (ss->mapperType != MSX_MAPPER_NONE &&
+            ss->mapperType != MSX_MAPPER_NOMAPPER &&
+            ss->mapperType != MSX_MAPPER_AUTO &&
+            ss->romSize > 0 && addr >= 0x4000) {
+            int window = (addr - 0x4000) >> 13;
+            if (window < 0 || window > 3) return 0xFF;
+            unsigned bank = ss->bank[window];
+            unsigned page = bank & ss->romMask;
+            unsigned offset = (page << 13) | (addr & 0x1FFF);
+            if (offset < ss->romSize) {
+                if (ss->pRomImage) {
+                    return ss->pRomImage[offset];
+                }
+                return ss->data[offset];
+            }
+            return 0xFF;
+        }
         uint8_t *base = ss->data;
         int size = ss->size;
         // Each (slot, subslot) backs a full 64KB address space, indexed by the
@@ -219,6 +240,52 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
             if (machine->bus_write)
                 machine->bus_write(machine->bus_ref, ss->busSlot, addr, val);
             return;
+        }
+        /* MegaROM bank-register writes for emulated ROM subslots. Non-bus
+         * mapper writes to any other address are ignored (ROM is read-only). */
+        {
+            int mapped = (ss->mapperType == MSX_MAPPER_ASCII8 ||
+                          ss->mapperType == MSX_MAPPER_ASCII16 ||
+                          ss->mapperType == MSX_MAPPER_KONAMI ||
+                          ss->mapperType == MSX_MAPPER_KONAMI_SCC);
+            if (mapped && ss->romSize > 0) {
+                if (ss->mapperType == MSX_MAPPER_KONAMI_SCC) {
+                    /* bank 1: 0x5000-0x57FF, bank 2: 0x7000-0x77FF,
+                     * bank 3: 0x9000-0x97FF, bank 4: 0xB000-0xB7FF.
+                     * (0x9800-0x9FFF is the SCC register window; with no SCC
+                     * chip present those writes are ignored.) */
+                    if (addr >= 0x5000 && addr < 0xC000 &&
+                        (addr & 0x1800) == 0x1000) {
+                        int window = (addr >> 13) - 2; /* 0x5000->0 .. 0xB000->3 */
+                        if (window >= 0 && window <= 3) {
+                            ss->bank[window] = val & ss->romMask;
+                        }
+                    }
+                    return;
+                }
+                if (ss->mapperType == MSX_MAPPER_KONAMI) {
+                    /* Page 0x4000 is fixed at segment 0; 0x6000/0x8000/0xA000
+                     * select windows 1/2/3 (any address in the page works). */
+                    if (addr >= 0x6000 && addr < 0xC000) {
+                        int window = (addr >> 13) - 2; /* 0x6000->1 .. 0xA000->3 */
+                        if (window >= 0 && window <= 3) {
+                            ss->bank[window] = val & ss->romMask;
+                        }
+                    }
+                    return;
+                }
+                /* ASCII8: 0x6000/w0, 0x6800/w1, 0x7000/w2, 0x7800/w3. */
+                if (addr >= 0x6000 && addr <= 0x67FF) {
+                    ss->bank[0] = val & ss->romMask;
+                } else if (addr >= 0x6800 && addr <= 0x6FFF) {
+                    ss->bank[1] = val & ss->romMask;
+                } else if (addr >= 0x7000 && addr <= 0x77FF) {
+                    ss->bank[2] = val & ss->romMask;
+                } else if (addr >= 0x7800 && addr <= 0x7FFF) {
+                    ss->bank[3] = val & ss->romMask;
+                }
+                return;
+            }
         }
         int size = ss->size;
         // ROM bytes are read-only: ignore writes (matches real hardware, where
@@ -448,7 +515,11 @@ MSX_Machine* msx_create() {
         for (int t = 0; t < NUM_SUBSLOTS; t++)
             machine->slots[s].subslots[t].busSlot = -1;
 
-    machine->z80 = r800Create(0,
+    // Match the reference blueMSX MSX board timing: CPU_ENABLE_M1 adds the
+    // Z80 M1 (opcode fetch) cycle to each instruction's delay so the per
+    // instruction systemTime advance matches blueMSX. Without it the core is
+    // ~1 T-state/instruction too fast. (MSX.c reference sets the same flag.)
+    machine->z80 = r800Create(CPU_ENABLE_M1,
                               slot_read_mem, slot_write_mem,
                               slot_read_io, slot_write_io,
                               dummy_patch, dummy_timer, dummy_bp, dummy_debug,
@@ -489,6 +560,10 @@ MSX_Machine* msx_create() {
 void msx_destroy(MSX_Machine *machine) {
     if (!machine) return;
     psg_log_clear();
+    for (int s = 0; s < NUM_SLOTS; s++)
+        for (int t = 0; t < NUM_SUBSLOTS; t++)
+            if (machine->slots[s].subslots[t].pRomImage)
+                free(machine->slots[s].subslots[t].pRomImage);
     if (machine->z80) r800Destroy((R800*)machine->z80);
     if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
     if (machine->sound) psg_destroy((PSG*)machine->sound);
@@ -500,17 +575,129 @@ void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int 
     if (slot < 0 || slot >= NUM_SLOTS) return;
     if (sslot < 0 || sslot >= NUM_SUBSLOTS) return;
     MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+    if (ss->pRomImage) { free(ss->pRomImage); ss->pRomImage = 0; }
     memset(ss->data, 0xFF, SLOT_MAX_SIZE);
     memset(ss->rom, 0, SLOT_MAX_SIZE); // RAM slot: everything writable
     if (size > SLOT_MAX_SIZE) size = SLOT_MAX_SIZE;
     memcpy(ss->data, data, size);
     ss->size = SLOT_MAX_SIZE;
+    ss->mapperType = MSX_MAPPER_NONE;
+    ss->romSize = 0;
+}
+
+MSX_MapperType msx_guess_mapper(const uint8_t *pImage, unsigned nSize) {
+    if (!pImage) return MSX_MAPPER_NONE;
+    /* Anything that fits in a single 32KB page pair with no bank selects has
+     * no mapper. Small ROMs (<64KB) are treated as plain even if a stray
+     * 0x32 exists. */
+    if (nSize < 0x10000) return MSX_MAPPER_NONE;
+
+    int nScc = 0, nKonami = 0, nAscii8 = 0, nAscii16 = 0;
+    unsigned i;
+    for (i = 0; i + 3 <= nSize; i++) {
+        if (pImage[i] != 0x32) continue; /* LD (nn),A */
+        unsigned v = (unsigned)pImage[i + 1] | ((unsigned)pImage[i + 2] << 8);
+        switch (v) {
+        case 0x5000: case 0x9000: case 0xB000:
+            nScc++; break;                              /* Konami-SCC only */
+        case 0x4000: case 0x8000: case 0xA000:
+            nKonami++; break;                           /* Konami only */
+        case 0x6800: case 0x7800:
+            nAscii8++; break;                           /* ASCII8 only */
+        case 0x6000:
+            nKonami++; nAscii8++; nAscii16++; break;    /* ambiguous */
+        case 0x7000:
+            nScc++; nAscii8++; nAscii16++; break;       /* ambiguous */
+        case 0x77FF:
+            nAscii16++; break;                          /* ASCII16 marker */
+        default:
+            break;
+        }
+    }
+    /* openMSX biases away from ASCII8 (its marker is weakest). */
+    if (nAscii8 > 0) nAscii8--;
+
+    if (nScc == 0 && nKonami == 0 && nAscii8 == 0 && nAscii16 == 0) {
+        /* No recognizable idiom: fall back to ASCII8 (the common MegaROM). */
+        return MSX_MAPPER_ASCII8;
+    }
+    if (nScc > 0 && nScc >= nKonami && nScc >= nAscii8 && nScc >= nAscii16)
+        return MSX_MAPPER_KONAMI_SCC;
+    if (nKonami > 0 && nKonami >= nAscii8 && nKonami >= nAscii16)
+        return MSX_MAPPER_KONAMI;
+    if (nAscii8 >= nAscii16) return MSX_MAPPER_ASCII8;
+    /* ASCII16 wins, but we approximate it with the shared ASCII8 decode. */
+    return MSX_MAPPER_ASCII8;
+}
+
+void msx_set_mapper(MSX_Machine *machine, int slot, int sslot, MSX_MapperType type) {
+    if (!machine) return;
+    if (slot < 0 || slot >= NUM_SLOTS) return;
+    if (sslot < 0 || sslot >= NUM_SUBSLOTS) return;
+    MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+    if (ss->busSlot >= 0) {
+        /* Physical bus owns mapper; ignore. */
+        return;
+    }
+    if (type == MSX_MAPPER_AUTO) {
+        /* Let the bank-select heuristic decide; the overlay/config lets the
+         * user override it at load time. */
+        ss->mapperType = msx_guess_mapper(ss->pRomImage, ss->romSize);
+    } else {
+        ss->mapperType = type;
+    }
+    /* Initialize banks: page 0->bank0 at 0x4000-5FFF? standard ASCII8 maps 0x4000->page0, 0x6000->page1, 0x8000->page2, 0xA000->page3 */
+    ss->bank[0] = 0; /* 0x4000-0x5FFF */
+    ss->bank[1] = 1; /* 0x6000-0x7FFF */
+    ss->bank[2] = 2; /* 0x8000-0x9FFF */
+    ss->bank[3] = 3; /* 0xA000-0xBFFF */
+    if (ss->romSize > 0) {
+        unsigned nbanks = ss->romSize / 0x2000;
+        if (nbanks < 1) nbanks = 1;
+        ss->romMask = nbanks - 1;
+        ss->bank[0] &= ss->romMask;
+        ss->bank[1] &= ss->romMask;
+        ss->bank[2] &= ss->romMask;
+        ss->bank[3] &= ss->romMask;
+    } else {
+        ss->romMask = 0xFF;
+    }
+}
+
+void msx_load_rom_image(MSX_Machine *machine, int slot, int sslot, uint8_t *pImage, unsigned nSize, MSX_MapperType mapper) {
+    if (!machine) return;
+    if (slot < 0 || slot >= NUM_SLOTS) return;
+    if (sslot < 0 || sslot >= NUM_SUBSLOTS) return;
+    MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+    if (ss->pRomImage) {
+        free(ss->pRomImage);
+        ss->pRomImage = 0;
+    }
+    memset(ss->data, 0xFF, SLOT_MAX_SIZE);
+    memset(ss->rom, 1, SLOT_MAX_SIZE);
+    ss->size = SLOT_MAX_SIZE;
+    ss->pRomImage = pImage;
+    ss->romSize = nSize;
+    ss->mapperType = mapper;
+    /* Initialize mapper banks */
+    ss->bank[0] = 0; ss->bank[1] = 1; ss->bank[2] = 2; ss->bank[3] = 3;
+    if (ss->romSize > 0) {
+        unsigned nbanks = ss->romSize / 0x2000;
+        if (nbanks < 1) nbanks = 1;
+        ss->romMask = nbanks - 1;
+    } else {
+        ss->romMask = 0;
+    }
+    if (mapper == MSX_MAPPER_AUTO) {
+        msx_set_mapper(machine, slot, sslot, MSX_MAPPER_AUTO);
+    }
 }
 
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size) {
     if (slot < 0 || slot >= NUM_SLOTS) return;
     if (sslot < 0 || sslot >= NUM_SUBSLOTS) return;
     MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
+    if (ss->pRomImage) { free(ss->pRomImage); ss->pRomImage = 0; }
     if (ss->size == 0) memset(ss->data, 0xFF, SLOT_MAX_SIZE);
     int end = offset + size;
     if (end > SLOT_MAX_SIZE) end = SLOT_MAX_SIZE;
@@ -522,6 +709,11 @@ void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uin
     // in every ROM slot and reported 112KB instead of the machine's 64KB.
     memset(ss->rom, 1, SLOT_MAX_SIZE);
     ss->size = SLOT_MAX_SIZE;
+    ss->mapperType = MSX_MAPPER_NONE;
+    ss->pRomImage = 0;
+    ss->romSize = (unsigned)size;
+    ss->romMask = 0;
+    ss->bank[0] = ss->bank[1] = ss->bank[2] = ss->bank[3] = 0;
 }
 
 void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
@@ -541,18 +733,28 @@ void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
 
 
 /* Non-blocking single-frame step for cooperative schedulers (e.g. Circle).
- * Executes exactly vdp_frame_instr Z80 instructions, then fires the VDP sync
- * IRQ and the msx_frame_render() hook once. Returns the number of instructions
- * executed. */
-int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
+ * Runs the CPU until one video frame's worth of R800 master-clock time has
+ * elapsed (frame_ticks; a 60 Hz frame is R800_MASTER_FREQUENCY/60 ~= 357954),
+ * then fires the VDP sync IRQ and the msx_frame_render() hook once. This
+ * matches the reference blueMSX MSX board, which drives the CPU from the
+ * system timer (r800ExecuteUntil), not a fixed instruction count: a fixed
+ * count made CPU-bound games (Konami MegaROMs) run too fast while VBlank
+ * synced games stayed correct. Returns the number of instructions executed.
+ * (s_instrDone/s_instrTotal now carry elapsed/frame *ticks*, used only to
+ * time-stamp PSG writes within the frame.) */
+int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     R800    *z80 = (R800 *)machine->z80;
     TMS9918 *vdp = (TMS9918 *)machine->vdp;
+    SystemTime start = r800GetSystemTime(z80);
+    unsigned n = 0;
 
-    s_instrTotal = (unsigned) vdp_frame_instr;
-    for (int i = 0; i < vdp_frame_instr; i++) {
-        s_instrDone = (unsigned) i;
+    s_instrTotal = (unsigned) frame_ticks;
+    while ((UInt32)(r800GetSystemTime(z80) - start) < (UInt32) frame_ticks) {
+        s_instrDone = (unsigned)(r800GetSystemTime(z80) - start);
         r800ExecuteInstruction(z80);
+        n++;
     }
+    s_instrDone = s_instrTotal;
 
     tms9918_gen_sync_irq(vdp);
     msx_frame_render(vdp);
@@ -568,7 +770,7 @@ int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr) {
                      z80->regs.iff1, z80->regs.im,
                      z80->regs.PC.W);
     }
-    return vdp_frame_instr;
+    return (int) n;
 }
 
 /* Render the PSG into nSamples mono samples covering nMasterCycles master

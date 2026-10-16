@@ -2,8 +2,9 @@
 
 Bare-metal MSX1 emulator for the Raspberry Pi 3B+ (Cortex-A53, AArch32), built
 on the [Circle](https://github.com/martin-rotter/circle) C++ bare-metal
-environment. C-BIOS ROMs are embedded in the image; the kernel boots straight to
-the MSX BASIC prompt and renders the TMS9918 VDP screen to the Pi's HDMI
+environment. The C-BIOS ROMs are read at boot from the `BIOS/` folder on the SD
+data partition (the machine halts if missing); the kernel boots straight to the
+MSX BASIC prompt and renders the TMS9918 VDP screen to the Pi's HDMI
 framebuffer. There is no networking at runtime (the former HTTP control API was
 removed on Sep 19 2026 — see Known Issues).
 
@@ -36,8 +37,11 @@ TFTP server, waits for an image to be uploaded, then **chain-boots it at
 sequence hangs during USB teardown (see Known Issues) and direct boot makes it
 unnecessary.
 
-There is no filesystem at runtime; everything (C-BIOS, fonts, palette) is linked
-into `msx.img`.
+At runtime the SD data partition (FAT2, `emmc1-2`) is mounted read-only: C-BIOS
+is loaded from `BIOS/` there, and the overlay's `ROM FROM FILE` browser loads
+ROM images from the partition. This superseded the earlier fully-linked build
+(C-BIOS, fonts, palette used to be linked into `msx.img`); the embedded
+fallback ROMs were removed in v0.11.
 
 ## Objective / Roadmap
 
@@ -167,7 +171,11 @@ Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
   256x192 image in Circle's framebuffer.
 - `src/app/apilog.{h,cpp}`, `teelog.h` — log ring buffer + UART/ring tee logger.
 - `src/app/syscalls.cpp` — newlib syscall stubs (`_write`, `_sbrk`, …, `_exit`).
-- `src/app/cbios_roms.{h,cpp}` — embedded C-BIOS ROM images (main + logo).
+- `src/app/biosrom.{h,cpp}` — load the machine's C-BIOS ROM set from `BIOS/` on
+  the SD data partition (`msx.ini` `machine=` selects msx1/msx2/msx2+; the
+  machine halts if the BIOS files are missing).
+- `src/app/cbios_roms.{h,cpp}` — legacy embedded C-BIOS arrays (host-test only;
+  no longer compiled into `msx.img`).
 - `src/core/msx.c` — MSX machine: 4 slots / subslots, I/O routing, `msx_create`,
   `msx_load_data`, and the per-frame stepper `msx_step_frame`.
 - `src/chips/z80/R800.{h,c}` — Z80 CPU.

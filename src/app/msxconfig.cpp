@@ -140,6 +140,35 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		{
 			pCfg->bMfrProbe = StrTrue (pVal);
 		}
+		else if (!strcasecmp (pKey, "machine"))
+		{
+			if (!strcasecmp (pVal, "msx2+") || !strcasecmp (pVal, "msx2plus")
+			 || !strcasecmp (pVal, "msx2+"))
+			{
+				pCfg->nMachine = 2;
+			}
+			else if (!strcasecmp (pVal, "msx2"))
+			{
+				pCfg->nMachine = 1;
+			}
+			else /* msx1 */
+			{
+				pCfg->nMachine = 0;
+			}
+		}
+		else if (!strcasecmp (pKey, "cart.mapper") || !strcasecmp (pKey, "mapper"))
+		{
+			if (!strcasecmp (pVal, "ascii8"))
+				pCfg->nCartMapper = MsxMapperAscii8;
+			else if (!strcasecmp (pVal, "none"))
+				pCfg->nCartMapper = MsxMapperNone;
+			else if (!strcasecmp (pVal, "konami"))
+				pCfg->nCartMapper = MsxMapperKonami;
+			else if (!strcasecmp (pVal, "konamiscc"))
+				pCfg->nCartMapper = MsxMapperKonamiScc;
+			else
+				pCfg->nCartMapper = MsxMapperAuto;
+		}
 		else if (!strcasecmp (pKey, "msxbus.mode"))
 		{
 			if (!strcasecmp (pVal, "cache"))
@@ -158,6 +187,17 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 			{
 				pCfg->nDumpBytes = (unsigned) n;
 			}
+		}
+		else if (!strcasecmp (pKey, "msxbus.dumpmapper"))
+		{
+			if (!strcasecmp (pVal, "konami"))
+				pCfg->nDumpMapper = MsxBusDumpKonami;
+			else if (!strcasecmp (pVal, "konamiscc"))
+				pCfg->nDumpMapper = MsxBusDumpKonamiScc;
+			else if (!strcasecmp (pVal, "ascii8"))
+				pCfg->nDumpMapper = MsxBusDumpAscii8;
+			else /* linear */
+				pCfg->nDumpMapper = MsxBusDumpLinear;
 		}
 		else if (!strcasecmp (pKey, "msxbus.slot1"))
 		{

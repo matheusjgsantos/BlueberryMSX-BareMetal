@@ -9,6 +9,16 @@
 #define REGION_SIZE 0x4000
 #define SLOT_MAX_SIZE 0x10000
 
+typedef enum {
+    MSX_MAPPER_NONE = 0,
+    MSX_MAPPER_AUTO,
+    MSX_MAPPER_ASCII8,
+    MSX_MAPPER_ASCII16,
+    MSX_MAPPER_KONAMI,
+    MSX_MAPPER_KONAMI_SCC,
+    MSX_MAPPER_NOMAPPER
+} MSX_MapperType;
+
 typedef struct {
     uint8_t data[0x10000]; // 64KB per slot/subslot
     uint8_t rom[0x10000];  // read-only mask: 1 = ROM byte (writes ignored)
@@ -18,6 +28,14 @@ typedef struct {
     // memory read/write in this (slot, subslot) is served by the bus
     // callbacks below instead of data[].
     int busSlot;
+    // MegaROM mapper state for emulated (non-bus) subslots. pRomImage is a
+    // heap-owned full ROM image (may exceed the 64KB data[] window); it is
+    // only used when mapperType != MSX_MAPPER_NONE.
+    MSX_MapperType mapperType;
+    uint8_t *pRomImage;
+    unsigned romSize;      // total ROM bytes loaded
+    unsigned romMask;      // bank mask (e.g. (romSize/0x2000)-1)
+    unsigned char bank[4]; // 8KB bank numbers for windows 0x4000,0x6000,0x8000,0xA000
 } MSX_SubSlot;
 
 typedef struct {
@@ -159,9 +177,14 @@ extern "C" {
 
 MSX_Machine* msx_create();
 void msx_destroy(MSX_Machine *machine);
-/* Non-blocking: execute one VDP frame's worth of Z80 instructions and fire the
- * sync IRQ + render hook once. For cooperative schedulers (e.g. Circle). */
-int msx_step_frame(MSX_Machine *machine, int vdp_frame_instr);
+/* Non-blocking: run the CPU for one video frame's worth of R800 master-clock
+ * time (frame_ticks, see MSX_FRAME_TICKS) and fire the sync IRQ + render hook
+ * once. For cooperative schedulers (e.g. Circle). Returns the number of
+ * instructions executed. Driving by time (not a fixed instruction count)
+ * matches the reference blueMSX MSX board and keeps CPU-bound games at the
+ * correct speed. */
+#define MSX_FRAME_TICKS 357954   /* R800_MASTER_FREQUENCY (21477270) / 60 */
+int msx_step_frame(MSX_Machine *machine, int frame_ticks);
 
 /* AY-3-8910 PSG. Master clock is 3579545 Hz; one MSX frame (1/60 s) is
  * 59659 clocks. Render nSamples mono samples for the given number of master
@@ -177,6 +200,15 @@ extern unsigned g_psg_last_reg;
 extern unsigned g_psg_last_val;
 void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int size);
 void msx_load_data(MSX_Machine *machine, int slot, int sslot, UInt16 offset, uint8_t *data, int size);
+void msx_load_rom_image(MSX_Machine *machine, int slot, int sslot, uint8_t *pImage, unsigned nSize, MSX_MapperType mapper);
+/* Set mapper for an emulated subslot (applied at load/reset time). */
+void msx_set_mapper(MSX_Machine *machine, int slot, int sslot, MSX_MapperType type);
+
+/* Heuristic mapper detection for ROM images, following openMSX's own guesser:
+ * scan for LD (nn),A bank-select idioms to the known mapper register windows.
+ * Returns MSX_MAPPER_NONE for images smaller than 64KB and a best-guess
+ * MegaROM mapper otherwise (defaulting to ASCII8 when nothing stands out). */
+MSX_MapperType msx_guess_mapper(const uint8_t *pImage, unsigned nSize);
 
 /* Slot/MFR event log for the on-SD diagnostic dump: records page-1 slot
  * transitions (port 0xA8) and every write to the MegaFlashROM current-slot

@@ -29,7 +29,7 @@ OBJS = main.o \
 	sound.o \
 	apilog.o \
 	syscalls.o \
-	cbios_roms.o \
+	biosrom.o \
 	msxdiag_roms.o \
 	msx_core.o \
 	r800.o \

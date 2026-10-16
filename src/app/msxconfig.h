@@ -35,6 +35,29 @@ enum MsxBusMode
 	MsxBusCache
 };
 
+// msxbus.dumpmapper: how the boot cartridge dump walks the cart's banks.
+// A raw linear read (0x4000..) only ever captures the four 8 KiB banks the
+// cart maps at power-on, so any cart larger than 32 KiB comes out wrapped and
+// garbled. The banked modes write the mapper's bank register before reading
+// each 8 KiB window, and stop when a bank repeats bank 0 (auto-size).
+enum MsxBusDumpMapper
+{
+	MsxBusDumpLinear = 0,	// legacy 0x4000+i read, no bank switch
+	MsxBusDumpKonami,	// Konami (no SCC): bank -> window 2 (0x8000)
+	MsxBusDumpKonamiScc,	// Konami SCC: bank -> window 0 (0x5000)
+	MsxBusDumpAscii8	// ASCII8: bank -> window 0 (0x6000)
+};
+
+enum MsxMapper
+{
+	MsxMapperAuto = 0,
+	MsxMapperNone,
+	MsxMapperAscii8,
+	MsxMapperKonami,
+	MsxMapperKonamiScc,
+	MsxMapperNoMapper
+};
+
 struct MSXConfig
 {
 	int nLogMode;		// MsxLogMode
@@ -45,9 +68,12 @@ struct MSXConfig
 	bool bMfrProbe;		// boot MegaFlashROM mapper probe (+ force Konami mode)
 	int nMsxbusMode;	// MsxBusMode
 	unsigned nDumpBytes;	// bytes to dump per connector
+	int nDumpMapper;	// MsxBusDumpMapper
 	int nMsxbusSlot1;	// emulated primary slot for board connector 1
 	int nMsxbusSlot3;	// emulated primary slot for board connector 3
 	int nMsxbusReadDelay;	// post-WAIT settle iterations for memory reads
+	int nMachine;		// msx.machine: 0=MSX1, 1=MSX2, 2=MSX2+
+	int nCartMapper;	// MsxMapper
 
 	MSXConfig (void)
 	:	nLogMode (MsxLogUart),
@@ -58,9 +84,12 @@ struct MSXConfig
 		bMfrProbe (false),	// off: no cart mapper poking by default
 		nMsxbusMode (MsxBusCache),	// fast path for plain ROM packs
 		nDumpBytes (0x20000),	// 128 KiB
+		nDumpMapper (MsxBusDumpLinear),	// legacy linear read
 		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1
 		nMsxbusSlot3 (2),	// connector 3 -> primary slot 2 (3 is RAM)
-		nMsxbusReadDelay (16)	// WAIT signals ready; less settle than ref's 100
+		nMsxbusReadDelay (16),	// WAIT signals ready; less settle than ref's 100
+		nMachine (0),		// MSX1 (only complete machine type so far)
+		nCartMapper (MsxMapperAuto)
 	{
 	}
 };

@@ -57,7 +57,7 @@ int main(int argc, char **argv)
             g_trace_count = 0;
             g_trace_io = 1;
         }
-        msx_step_frame(m,12000);
+        msx_step_frame(m,MSX_FRAME_TICKS);
         unsigned pc=((R800*)m->z80)->regs.PC.W;
         if(pc>=0x453A && pc<=0x454F){ printf("*** ERROR PATH at frame %d pc=%04X ***\n",i,pc); hit=1; break; }
         if(pc>=0x4080 && pc<=0x40FF) cartInit=1;

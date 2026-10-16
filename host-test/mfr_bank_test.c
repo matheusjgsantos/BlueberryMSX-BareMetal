@@ -100,7 +100,7 @@ int main(int argc, char **argv)
             ((R800*)m->z80)->regs.PC.W = (UInt16)injectPc;
             ((R800*)m->z80)->regs.AF.B.h = (UInt8)injectBank;
         }
-        msx_step_frame(m,12000);
+        msx_step_frame(m,MSX_FRAME_TICKS);
         unsigned pc=((R800*)m->z80)->regs.PC.W;
         if (pc>=0x453A && pc<=0x454F){ printf("*** ERROR PATH frame %d pc=%04X ***\n",i,pc); break; }
     }

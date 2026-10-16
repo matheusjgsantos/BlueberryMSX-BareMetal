@@ -9,8 +9,8 @@ place an image is published or flashed from.
 
 Deploy: copy the whole folder to the card - `config.txt`, `msx.img`,
 `kernel7l.img`, the `.dtb` and the bootloader go on the **boot** partition
-(FAT1); `msx.ini` goes on the **data** partition (FAT2, `emmc1-2`). The
-emulator must never write the boot partition.
+(FAT1); `msx.ini` **and the `BIOS/` folder** go on the **data** partition
+(FAT2, `emmc1-2`). The emulator must never write the boot partition.
 
 Record every release here with its `msx.img` md5 and size.
 
@@ -26,10 +26,158 @@ Record every release here with its `msx.img` md5 and size.
 | v0.8 | 2026-10-13 | working tree | `1d08564134659ebfb66024fa04ebe18d` | 609,104 | Boot MFR mapper probe; force Konami mode |
 | v0.9 | 2026-10-13 | working tree | `9233958b55e18fa08366d0987b544c25` | 609,104 | **LE_C write-protocol fix** (keep control latch transparent during /WR) |
 | v0.10 | 2026-10-13 | working tree | `9233958b55e18fa08366d0987b544c25` | 609,104 | Play config: `diag=off`, `msxbus.dump=off` (same image as v0.9) |
+| v0.11 | 2026-10-14 | working tree | `88d45b55697e3a1ac8d9cdc665a24d0a` | 525,904 | **C-BIOS loaded from SD `BIOS/`** (0.29a); embedded ROMs removed |
+| v0.12 | 2026-10-15 | working tree | `98a512d137ee8a5ae0866b1bb81f2753` | 531,792 | **Emulated ASCII8 MegaROM + SD file browser** (`ROMS/` from the overlay) |
+| v0.13 | 2026-10-15 | working tree | `ebc6e417337c4a33818b25c76b291a64` | 532,496 | **Konami / Konami-SCC emulated mappers + AUTO detection** (Gradius, Salamander, Nemesis 3) |
+| v0.14 | 2026-10-15 | working tree | `c112657a8ffe9560551295df4a121545` | 533,008 | **Bank-aware cart dump** (`msxbus.dumpmapper`) — correct dumps of >32 KiB MegaROMs |
 
 Bundle file list is identical across releases (`config.txt`, `kernel7l.img`,
 `bcm2710-rpi-zero-2-w.dtb` are unchanged; `config.txt` md5
 `981608755b496b2cc76b8a530c1e7e6b`).
+
+---
+
+## v0.14 — 2026-10-15 (bank-aware cartridge dump)
+
+**Image:** `release/v0.14/msx.img` md5 `c112657a8ffe9560551295df4a121545`,
+533,008 B. **VERIFIED on hardware (2026-10-15):** the bank-aware dump produced a
+correct `CART1.ROM` for the physical F1 Spirit (Konami-SCC) cart. The dump
+genuinely was broken: a
+512 KiB dump of the physical F1 Spirit cart (`CART1.ROM`, renamed
+`F1SPIRIT.ROM`) is 32K/64K-periodic and holds only 4 distinct 8 KiB banks — a
+raw linear read, not a ROM image.
+
+- **Root cause.** `DumpCartridges` read `MsxBus_Read(slot, 0x4000 + i)` linearly
+  and never wrote a bank register, so it only ever captured the four 8 KiB banks
+  the cart maps at power-on; the 16-bit address then wraps and the rest repeats
+  (with the Konami-SCC mirror folding `0xC000→0x4000` / `0x0000→0x8000`, which
+  is why the dump is 32K-periodic). Present since the dump was first added
+  (`b73e10e`, Milestone A), so earlier "valid" cart dumps were valid only in
+  their first 32 KiB.
+- **Fix — the dump now switches banks.** New shared walk `src/app/cartdump.h`
+  (`CartDump_Banked`), used by `CKernel::DumpCartridges`: for each 8 KiB bank it
+  writes the mapper's bank register, reads the window, and stops as soon as a
+  bank repeats bank 0 (the cart's bank register ignores the bits it does not
+  decode, so the first repeat reveals the real ROM size — auto-size). The cart
+  is reset afterwards to restore its power-on mapping.
+- **New config key** `msxbus.dumpmapper` = `linear` (default, legacy behaviour) |
+  `konami` | `konamiscc` | `ascii8`. The banked kinds pair a register with the
+  window it selects:
+  - `konamiscc`: `0x5000` → `0x4000` window (win0)
+  - `konami`: `0x8000` → `0x8000` window (win2; page `0x4000` is fixed)
+  - `ascii8`: `0x6000` → `0x4000` window (win0)
+- **Host test:** `host-test/cartdump_test.c` (31 checks, PASS) drives the exact
+  shipped walk against a fake cart whose bank register masks to its real size,
+  for all three banked mappers, with the production read-cache policy on and
+  off; it also asserts the old linear read does *not* reconstruct a 128 KiB ROM.
+- **Verified on hardware (2026-10-15):** with the F1 Spirit cart (Konami-SCC)
+  in connector 1, v0.14 (`msxbus.dump=on`, `msxbus.dumpmapper=konamiscc`) wrote
+  a correct `CART1.ROM`.
+
+---
+
+## v0.13 — 2026-10-15 (Konami / Konami-SCC emulated mappers + AUTO detection)
+
+**Image:** `release/v0.13/msx.img` md5 `ebc6e417337c4a33818b25c76b291a64`,
+532,496 B. **VERIFIED on hardware (2026-10-15):** Gradius, Salamander and
+Nemesis 3 (the Konami-family games that previously failed) all boot and run
+correctly via `ROM FROM FILE`.
+
+- **Konami and Konami-SCC bank decoders.** Previously both shared the ASCII8
+  decode, so no Konami-family cartridge could switch banks. `src/core/msx.c`
+  `slot_write_mem` now dispatches on `mapperType`:
+  - **Konami** (no SCC): page `0x4000` fixed at segment 0; any write in
+    `0x6000-0xBFFF` selects window `1/2/3` (`address >> 13`).
+  - **Konami-SCC**: `0x5000-0x57FF`→win0, `0x7000-0x77FF`→win1,
+    `0x9000-0x97FF`→win2, `0xB000-0xB7FF`→win3 (matched as
+    `(address & 0x1800) == 0x1000`, `address` in `0x5000-0xBFFF`). The
+    `0x9800-0x9FFF` SCC register window is ignored (no SCC chip emulated yet).
+- **AUTO now detects the mapper** (`msx_guess_mapper()`): scans the image for
+  `LD (nn),A` bank-select idioms, following openMSX's own heuristic
+  (`0x5000/0x9000/0xB000`→SCC, `0x4000/0x8000/0xA000`→Konami,
+  `0x6800/0x7800`→ASCII8, with the ASCII8 bias). Images <64 KB stay plain;
+  large images with no recognizable idiom default to ASCII8. Verified: Gradius,
+  Salamander, Nemesis 3 → KONAMI-SCC; Goonies, Pac-Man → ASCII8.
+- **Host test:** `host-test/konami_emu_test.c` (28 checks, PASS) exercises the
+  Konami and Konami-SCC register maps (including the fixed `0x4000` page, the
+  `0x800`-wide register ranges and the SCC window) plus the AUTO guesser.
+- **The `cart.mapper`/`mapper` override still wins** over AUTO
+  (`ascii8`|`konami`|`konamiscc`|`none`); the boot log now reports the resolved
+  mapper (`AUTO:KONAMI-SCC`, etc.).
+- **Verified on hardware (2026-10-15):** Gradius, Salamander and Nemesis 3 boot
+  and run correctly, loaded via the overlay `ROM FROM FILE` browser.
+
+---
+
+## v0.12 — 2026-10-14 (emulated ASCII8 MegaROM + SD file browser)
+
+**Image:** `release/v0.12/msx.img` md5 `98a512d137ee8a5ae0866b1bb81f2753`,
+531,792 B. **Partly hardware-verified (2026-10-15):** the SD file browser lists
+files correctly, including VFAT long names with full 8-character base names
+(the 7.3 truncation is fixed). ASCII8 MegaROM boot from a browsed file still
+needs confirming.
+
+- **Fix (Circle FAT `ListDir`):** the short-name buffer was
+  `char ShortName[FAT_DIR_NAME_LENGTH + 1]` (12 B) but `FAT2Name` writes
+  `name.ext` + NUL (up to 13 B). The terminator overflowed one byte into the
+  adjacent `LongName` buffer, wiping the first character of every VFAT long
+  name — an 8-character base name showed as 7 (e.g. `mfrprobe.rom` →
+  `frprobe.rom`). Enlarged to `FAT_DIR_NAME_LENGTH + 2`; verified in the
+  compiled object that `ShortName` no longer abuts `LongName`.
+- **Emulated ASCII8 MegaROM mapper in the core.** `include/msx.h` gains an
+  `MSX_MapperType` enum and per-subslot mapper state (`mapperType`,
+  `pRomImage`, `romSize`, `romMask`, `bank[4]`); `src/core/msx.c` adds
+  `msx_load_rom_image()` and `msx_set_mapper()` and mapper-aware
+  `slot_read_mem`/`slot_write_mem`. Bank registers: `0x6000-0x67FF`→`0x4000`
+  window, `0x6800-0x6FFF`→`0x6000`, `0x7000-0x77FF`→`0x8000`,
+  `0x7800-0x7FFF`→`0xA000`. `AUTO` treats images ≥128 KiB as ASCII8.
+  Konami/Konami-SCC select the same decode for now (placeholder). The image is
+  heap-owned by the core and freed on reload / `msx_destroy`. (Circle's
+  `malloc`/`free` back onto a ~128 MB heap, so multi-MB images are fine.)
+- **SD file browser in the overlay.** The third menu entry is now
+  **`ROM FROM FILE`**; choosing it lists ROM-like files (`rom`/`bin`/`mx1`/
+  `mx2`/`col`) and directories from the data partition, lets you descend into
+  folders and select a file, then boots it via the normal reset path.
+  Cross-core rule is respected: core 1 (UI) drives navigation while all
+  filesystem access runs on core 0 through a `ClaimBrowserList`/
+  `FinishBrowserList` handshake (same shape as the reset handshake).
+  New Circle API `CFATDirectory::ListDir` (+ `CFATFileSystem::ListDir`) powers
+  the listing (`libfatfs.a` rebuilt).
+- **New config key** `cart.mapper` / `mapper` = `auto` (default) | `none` |
+  `ascii8` | `konami` | `konamiscc` in `msx.ini`.
+- **Host test:** `host-test/ascii8_emu_test.c` (13 checks, PASS) drives the
+  emulated mapper directly (`msx_load_rom_image` + slot read/write).
+- **Verify on hardware:** put one or more `.ROM` images on the data partition,
+  open the overlay, pick `ROM FROM FILE`, navigate and load. Confirm an ASCII8
+  MegaROM boots and that a plain ROM still boots.
+
+---
+
+## v0.11 — 2026-10-14 (C-BIOS loaded from SD; embedded ROMs removed)
+
+**Image:** `release/v0.11/msx.img` md5 `88d45b55697e3a1ac8d9cdc665a24d0a`,
+525,904 B. **Not yet hardware-verified** (see verify step below).
+
+- **C-BIOS now loads from the card.** The MSX1 BIOS used to be compiled into
+  `msx.img` (`src/app/cbios_roms.cpp`, C-BIOS 0.23); it is now read at boot
+  from `BIOS/cbios_main_msx1.rom` and `BIOS/cbios_logo_msx1.rom` on the data
+  partition (C-BIOS **0.29a**). Dropping the embedded arrays shrank the image
+  by ~47 KB (568,400 -> 521,488 B).
+- **New:** `src/app/biosrom.{cpp,h}` maps a machine type to its ROM set;
+  `msx.ini` gains `machine=msx1|msx2|msx2+` (default `msx1`). The `BIOS/`
+  folder ships MSX1/2/2+ main+logo, `cbios_sub.rom` and `cbios_music.rom`.
+  **MSX2/2+ are scaffolded but do not boot yet** (they also need the MSX2
+  secondary-slot register and a V9938 VDP in the core).
+- **Fatal if missing:** if the `BIOS/` files are absent (or the data partition
+  is not mounted) the kernel logs `FATAL: BIOS load failed: <file>` and halts;
+  there is no embedded fallback.
+- **Circle FAT gained subdirectory + VFAT long-name support.**
+  `CFATFileSystem::FileOpen` is now path-aware and `CFATDirectory` parses VFAT
+  long file names (`cbios_main_msx1.rom` is not a legal 8.3 name). Root files
+  (`msx.ini`, `CART*.ROM`) are unaffected.
+- **Verify on hardware:** boot v0.11 and confirm C-BIOS reaches the MSX logo /
+  BASIC; then remove a `BIOS/` file and confirm the kernel logs
+  `FATAL: BIOS load failed: ...` and halts.
 
 ---
 
@@ -262,3 +410,8 @@ When cutting a release:
    `msx.img`; adjust `msx.ini` for the release.
 3. Record the version, date, commit, `msx.img` md5 and size in the table above,
    with a short changelog entry.
+
+Note: `msx.img` embeds `__DATE__`/`__TIME__` (the boot log line in
+`kernel.cpp`), so the md5 is **not reproducible** — a rebuild of identical
+source yields a different hash. Always build once, then copy *that* `msx.img`
+into `release/<ver>/` and record *its* md5 (do not rebuild after recording).

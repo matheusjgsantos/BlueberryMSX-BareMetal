@@ -17,12 +17,14 @@
 #define OV_SHADOW	0x000000u
 #define OV_TEXT		0xFFFFFFu
 #define OV_TEXT_DIM	0x8090A8u
+#define OV_TITLE	0xFF6060u
 #define OV_SELECT_BG	0xFFFFFFu
 #define OV_SELECT_FG	0x101828u
 
 static const char *s_apCartNames[OVERLAY_CART_COUNT] = {
 	"MSX DIAG",
 	"SLOTS (MSXBUS)",
+	"ROM FROM FILE",
 };
 
 static const char *s_apTitle = "SELECT MSX ROM";
@@ -292,5 +294,210 @@ void Overlay_Draw (int nSelected, const char *pAudioLabel)
 
 	nY += nCell;
 	DrawText (nBoxX + (nBoxW - nHintW) / 2, nY, s_apHint,
+		  OV_TEXT_DIM, OV_BACKDROP, nScale);
+}
+
+void Overlay_DrawBrowser (const char *pDir, const char *const *apItems,
+			  int nCount, int nSel, int nScroll)
+{
+	if (!Overlay_IsReady ())
+	{
+		return;
+	}
+
+	if (pDir == 0 || pDir[0] == '\0')
+	{
+		pDir = "/";
+	}
+
+	int nScale = s_nHeight / 300;
+	if (nScale < 1)
+	{
+		nScale = 1;
+	}
+
+	int nCell = 8 * nScale;
+
+	// Visible rows: at least 1, at most OVERLAY_BROWSER_ROWS, and never
+	// more than the number of entries.
+	int nRows = nCount < OVERLAY_BROWSER_ROWS ? nCount : OVERLAY_BROWSER_ROWS;
+	if (nRows < 1)
+	{
+		nRows = 1;
+	}
+
+	if (nScroll < 0)
+	{
+		nScroll = 0;
+	}
+	if (nSel < nScroll)
+	{
+		nScroll = nSel;
+	}
+	if (nSel >= nScroll + nRows)
+	{
+		nScroll = nSel - nRows + 1;
+	}
+	if (nScroll > nCount - nRows && nCount >= nRows)
+	{
+		nScroll = nCount - nRows;
+	}
+
+	static const char *apTitle = "LOAD ROM FROM SD";
+	static const char *apHint = "UP/DOWN MOVE  ENTER SELECT  ESC BACK";
+
+	int nTitleW = TextWidth (apTitle, nScale);
+	int nDirW = TextWidth (pDir, nScale);
+	int nHintW = TextWidth (apHint, nScale);
+
+	int nItemW = 0;
+	for (int i = 0; i < nRows; i++)
+	{
+		int nIdx = nScroll + i;
+		const char *pRow = nIdx < nCount ? apItems[nIdx] : "";
+		int w = TextWidth (pRow, nScale);
+		if (w > nItemW) nItemW = w;
+	}
+
+	int nTextW = nItemW + 2 * nCell;	// cursor column
+	if (nTitleW > nTextW) nTextW = nTitleW;
+	if (nDirW > nTextW) nTextW = nDirW;
+	if (nHintW > nTextW) nTextW = nHintW;
+
+	int nBoxW = nTextW + 4 * nCell;
+	int nBoxH = (nRows + 7) * nCell;
+
+	if (nBoxW > s_nWidth) nBoxW = s_nWidth;
+	if (nBoxH > s_nHeight) nBoxH = s_nHeight;
+
+	int nBoxX = (s_nWidth - nBoxW) / 2;
+	int nBoxY = (s_nHeight - nBoxH) / 2;
+	if (nBoxX < 0) nBoxX = 0;
+	if (nBoxY < 0) nBoxY = 0;
+
+	FillRect (nBoxX + nCell, nBoxY + nCell, nBoxW, nBoxH, OV_SHADOW);
+	FillRect (nBoxX, nBoxY, nBoxW, nBoxH, OV_BACKDROP);
+	for (int i = 0; i < nBoxW; i++)
+	{
+		PutPixel (nBoxX + i, nBoxY, OV_BORDER);
+		PutPixel (nBoxX + i, nBoxY + nBoxH - 1, OV_BORDER);
+	}
+	for (int i = 0; i < nBoxH; i++)
+	{
+		PutPixel (nBoxX, nBoxY + i, OV_BORDER);
+		PutPixel (nBoxX + nBoxW - 1, nBoxY + i, OV_BORDER);
+	}
+	for (int i = 2; i < nBoxW - 2; i++)
+	{
+		PutPixel (nBoxX + i, nBoxY + 2, OV_TEXT_DIM);
+		PutPixel (nBoxX + i, nBoxY + nBoxH - 3, OV_TEXT_DIM);
+	}
+
+	int nY = nBoxY + 3 * nCell;
+	DrawText (nBoxX + (nBoxW - nTitleW) / 2, nY, apTitle,
+		  OV_TEXT, OV_BACKDROP, nScale);
+	nY += nCell;
+
+	DrawText (nBoxX + (nBoxW - TextWidth (pDir, nScale)) / 2, nY, pDir,
+		  OV_TEXT_DIM, OV_BACKDROP, nScale);
+	nY += nCell;
+
+	int nTextX = nBoxX + (nBoxW - nTextW) / 2;
+	for (int i = 0; i < nRows; i++)
+	{
+		int nIdx = nScroll + i;
+		const char *pRow = nIdx < nCount ? apItems[nIdx] : "";
+		int nRowW = nTextW - nCell;
+		int nRowX = nTextX + nCell / 2;
+		bool bSelected = nIdx < nCount && nIdx == nSel;
+
+		FillRect (nRowX - nCell / 2, nY, nRowW, nCell,
+			  bSelected ? OV_SELECT_BG : OV_BACKDROP);
+
+		if (bSelected)
+		{
+			DrawText (nRowX, nY, ">", OV_SELECT_FG, OV_SELECT_BG, nScale);
+		}
+		DrawText (nRowX + 2 * nCell, nY, pRow,
+			  bSelected ? OV_SELECT_FG : OV_TEXT,
+			  bSelected ? OV_SELECT_BG : OV_BACKDROP, nScale);
+		nY += nCell;
+	}
+
+	nY += nCell;
+	DrawText (nBoxX + (nBoxW - nHintW) / 2, nY, apHint,
+		  OV_TEXT_DIM, OV_BACKDROP, nScale);
+}
+
+void Overlay_ShowError (const char *pTitle, const char *pDetail, const char *pHint)
+{
+	if (!Overlay_IsReady ())
+	{
+		return;
+	}
+
+	if (pTitle == 0)  pTitle = "";
+	if (pDetail == 0) pDetail = "";
+	if (pHint == 0)   pHint = "";
+
+	// Same growth rule as the menu: at least 1x, larger on big displays.
+	int nScale = s_nHeight / 300;
+	if (nScale < 1)
+	{
+		nScale = 1;
+	}
+
+	int nCell = 8 * nScale;
+
+	int nTitleW  = TextWidth (pTitle, nScale);
+	int nDetailW = TextWidth (pDetail, nScale);
+	int nHintW   = TextWidth (pHint, nScale);
+
+	int nTextW = nTitleW;
+	if (nDetailW > nTextW) nTextW = nDetailW;
+	if (nHintW > nTextW) nTextW = nHintW;
+
+	int nBoxW = nTextW + 4 * nCell;
+	int nBoxH = 8 * nCell;
+	if (nBoxW > s_nWidth)  nBoxW = s_nWidth;
+	if (nBoxH > s_nHeight) nBoxH = s_nHeight;
+
+	int nBoxX = (s_nWidth - nBoxW) / 2;
+	int nBoxY = (s_nHeight - nBoxH) / 2;
+	if (nBoxX < 0) nBoxX = 0;
+	if (nBoxY < 0) nBoxY = 0;
+
+	// Black page, then the same shadow/box/double-border style as the menu.
+	FillRect (0, 0, s_nWidth, s_nHeight, OV_SHADOW);
+	FillRect (nBoxX + nCell, nBoxY + nCell, nBoxW, nBoxH, OV_SHADOW);
+	FillRect (nBoxX, nBoxY, nBoxW, nBoxH, OV_BACKDROP);
+	for (int i = 0; i < nBoxW; i++)
+	{
+		PutPixel (nBoxX + i, nBoxY, OV_BORDER);
+		PutPixel (nBoxX + i, nBoxY + nBoxH - 1, OV_BORDER);
+	}
+	for (int i = 0; i < nBoxH; i++)
+	{
+		PutPixel (nBoxX, nBoxY + i, OV_BORDER);
+		PutPixel (nBoxX + nBoxW - 1, nBoxY + i, OV_BORDER);
+	}
+	for (int i = 2; i < nBoxW - 2; i++)
+	{
+		PutPixel (nBoxX + i, nBoxY + 2, OV_TITLE);
+		PutPixel (nBoxX + i, nBoxY + nBoxH - 3, OV_TEXT_DIM);
+	}
+
+	DrawText (nBoxX + (nBoxW - nTitleW) / 2, nBoxY + 2 * nCell, pTitle,
+		  OV_TITLE, OV_BACKDROP, nScale);
+
+	// Dim divider between the title and the detail line.
+	for (int i = nCell; i < nBoxW - nCell; i++)
+	{
+		PutPixel (nBoxX + i, nBoxY + 3 * nCell, OV_TEXT_DIM);
+	}
+
+	DrawText (nBoxX + (nBoxW - nDetailW) / 2, nBoxY + 4 * nCell, pDetail,
+		  OV_TEXT, OV_BACKDROP, nScale);
+	DrawText (nBoxX + (nBoxW - nHintW) / 2, nBoxY + 5 * nCell, pHint,
 		  OV_TEXT_DIM, OV_BACKDROP, nScale);
 }

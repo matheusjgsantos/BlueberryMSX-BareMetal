@@ -477,6 +477,7 @@ static uint8_t msxbus_bus_read (int nSlot, uint16_t nAddr)
 					 MSXBUS_RD_BIT | nCs1 | nCs2, msxbus_read_delay);
 	msxbus_counter_nreads[nSlot]++;
 	msxbus_log_read (nAddr, nByte);
+	MsxBus_Leds (0x80 | (nSlot == MsxBusSlot1 ? 0x20 : 0x40));
 	return nByte;
 }
 
@@ -510,6 +511,7 @@ static void msxbus_bus_write (int nSlot, uint16_t nAddr, uint8_t nByte)
 	}
 	msxbus_counter_nwrites[nSlot]++;
 	msxbus_log_write (nSlot, nAddr, nByte);
+	MsxBus_Leds (0x80 | (nSlot == MsxBusSlot1 ? 0x20 : 0x40));
 }
 
 uint8_t MsxBus_Read (int nSlot, uint16_t nAddr)
@@ -549,6 +551,9 @@ uint8_t MsxBus_ReadIo (uint16_t nAddr)
 	msxbus_set_address (nAddr);
 	uint8_t nByte = msxbus_get_data (MSXBUS_IORQ_BIT, MSXBUS_RD_BIT, 45);
 	msxbus_counter_nioreads++;
+	MsxBus_Leds (0x80 | 0x10);
+	msxbus_delay (2000);
+	MsxBus_Leds (0x80);
 	return nByte;
 }
 
@@ -557,6 +562,9 @@ void MsxBus_WriteIo (uint16_t nAddr, uint8_t nByte)
 	msxbus_set_address (nAddr);
 	msxbus_set_data (MSXBUS_IORQ_BIT, MSXBUS_IORQ_BIT, 55, nByte);
 	msxbus_counter_niowrites++;
+	MsxBus_Leds (0x80 | 0x10);
+	msxbus_delay (2000);
+	MsxBus_Leds (0x80);
 
 	// A few cartridges expose their bank latch through an I/O port; the port
 	// does not say which connector, so flush both. Port stores are rare (the
@@ -577,9 +585,11 @@ void MsxBus_WriteIo (uint16_t nAddr, uint8_t nByte)
 void MsxBus_Leds (unsigned char nByte)
 {
 	static unsigned char s_oldByte = 0;
+	// Don't debounce if I/O activity bit changes quickly; but easier to just
+	// update every time (shifting 8 bits is cheap). Also slot bits can stay.
 	if (nByte == s_oldByte)
 	{
-		return;
+		// allow forced refresh? not needed
 	}
 	s_oldByte = nByte;
 

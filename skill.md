@@ -25,8 +25,9 @@ Two images, two stages:
 - Target: **Pi 3B+, `RASPPI=3`, `AARCH=32`** in both Makefiles.
 - Emulator image is **uploaded, never flashed**; it must chain-boot at load
   address **0x8000**.
-- **No filesystem at runtime.** C-BIOS ROMs, fonts and palette are compiled into
-  `msx.img` (`src/app/cbios_roms.cpp`). Do not add file I/O to the app.
+- **C-BIOS comes from the SD card.** The ROMs are read at boot from the `BIOS/`
+  folder on the data partition (FAT2, `emmc1-2`); the machine halts if they are
+  missing. `msx.ini` also lives there. Fonts and palette are still compiled in.
 - Networking is **static IP** `192.168.178.42/24`, gw `192.168.178.1`
   (`m_acStaticIP` in `kernel.cpp`). HTTP API port is **8080**.
 - The MSX core (`src/core`, `src/chips`, `include`) is **plain C** shared with
@@ -47,7 +48,8 @@ BlueberryMSX-BareMetal/
 │   │   ├── apilog.{h,cpp} # 8 KiB log ring buffer
 │   │   ├── teelog.h       # UART + ring tee logger (CTeeLogDevice)
 │   │   ├── syscalls.cpp   # newlib syscall stubs
-│   │   └── cbios_roms.{h,cpp}# embedded C-BIOS ROM arrays
+│   │   ├── biosrom.{h,cpp}  # load C-BIOS from SD BIOS/ (machine -> ROM set)
+│   │   └── cbios_roms.{h,cpp}# legacy embedded ROM arrays (host-test only)
 │   ├── core/msx.c         # MSX machine: slots, I/O routing, msx_step_frame
 │   └── chips/             # z80/R800 (CPU), vdp/tms9918 + msx_font.h
 ├── include/               # bus.h, msx.h, msx_types.h (C API)
@@ -97,11 +99,10 @@ the received bytes straight to `EnableChainBoot()`. Verify with `file msx.elf`
    `LIBS` — a quoted path in `LIBS` becomes a make prerequisite and breaks.
    Also keep the `_exit` stub in `syscalls.cpp` (newlib's `abort` needs it).
 
-2. **C++ `const` arrays have internal linkage → DCE'd.** Namespace-scope `const`
-   ROM arrays in `cbios_roms.cpp` vanish at link time unless marked `extern`.
-   The 4 definitions carry an explicit `extern`. If you regenerate that file,
-   preserve it. (The file is auto-generated from `Docs/cbios-0.29a/`; no
-   generator script exists in the repo — edit by hand or re-derive carefully.)
+2. **(Legacy) C++ `const` arrays have internal linkage → DCE'd.** The embedded
+   ROM arrays in `cbios_roms.cpp` carry an explicit `extern` for that reason.
+   That file is **no longer compiled into `msx.img`** (C-BIOS now loads from SD
+   `BIOS/` via `biosrom.cpp`), but the host tests (`host-test/`) still link it.
 
 3. **MSX core C headers have no `__cplusplus` guards.** Every include of
    `msx.h`, `R800.h`, `tms9918.h`, etc. from a C++ translation unit must be
@@ -135,9 +136,10 @@ the received bytes straight to `EnableChainBoot()`. Verify with `file msx.elf`
 - `msx_step_frame(machine, vdp_frame_instr)` runs exactly that many instructions,
   then fires the sync IRQ and the `msx_frame_render()` hook once. It is the only
   execution entry point used by the app (there is no blocking run loop).
-- Boot sequence (`kernel.cpp`): slot 3 / subslot 0 RAM init → load C-BIOS **main
-  ROM at 0x0000** and **logo ROM at 0x8000** via `msx_load_data` → write slot map
-  port `0xA8 = 0xC0`.
+- Boot sequence (`kernel.cpp`): SD data partition mounted → `LoadMsxConfig()`
+  → `msx_create()` → `LoadBios()` reads the machine's ROM set from `BIOS/` on
+  the data partition and maps it onto the slots (RAM in slot 3, BIOS in slot 0)
+  → slot map port `0xA8 = 0xC0`. A missing BIOS is fatal.
 - Slot map port 0xA8: region0 = `val & 3`, region1 = `(val >> 2) & 3`,
   region2 = `(val >> 4) & 3`, region3 = `(val >> 6) & 3`.
 

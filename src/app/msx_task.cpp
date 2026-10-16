@@ -20,8 +20,10 @@ extern "C"
 #include "tms9918.h"
 }
 
-// Existing instruction budget; instruction count is not Z80 cycle timing.
-#define VDP_FRAME_INSTR	12000
+// Per-frame CPU budget in R800 master-clock ticks (21477270/60). msx_step_frame
+// runs until this much emulated time has elapsed, matching the reference
+// blueMSX board's timer-driven execution rather than a fixed instruction count.
+#define VDP_FRAME_TICKS	MSX_FRAME_TICKS
 #define HEARTBEAT_FRAMES	120
 #define OVERLAY_REDRAW_MS	16
 
@@ -50,6 +52,45 @@ static bool ServiceUiQueue (CKernel *pKernel)
 
 	for (int nKey = pKernel->PopUiKey (); nKey != UiKeyNone; nKey = pKernel->PopUiKey ())
 	{
+		// The file browser owns the keys while it is open.
+		if (pKernel->IsBrowserOpen ())
+		{
+			switch (nKey)
+			{
+			case UiKeyUp:
+			case UiKeyDown:
+				pKernel->BrowserMove (nKey == UiKeyDown ? 1 : -1);
+				bChanged = true;
+				break;
+
+			case UiKeyEnter:
+			{
+				int r = pKernel->BrowserEnter ();
+				if (r == 1)
+				{
+					pKernel->LogLine ("UI: ROM file selected; booting");
+				}
+				else if (r == 2)
+				{
+					pKernel->LogLine ("UI: browser entered directory");
+				}
+				bChanged = true;
+				break;
+			}
+
+			case UiKeyEsc:
+			case UiKeyF11:
+				pKernel->BrowserClose ();
+				pKernel->LogLine ("UI: file browser closed");
+				bChanged = true;
+				break;
+
+			default:
+				break;
+			}
+			continue;
+		}
+
 		switch (nKey)
 		{
 		case UiKeyF11:
@@ -108,6 +149,16 @@ static bool ServiceUiQueue (CKernel *pKernel)
 							  : nNext == MSX_OUTPUT_HDMI
 									 ? "UI: audio output -> HDMI"
 									 : "UI: audio output -> jack");
+					bChanged = TRUE;
+					break;
+				}
+				if (nSel == CartRomFile)
+				{
+					// Open the SD file browser; the menu stays "open"
+					// (IsBrowserOpen covers the screen) and a file
+					// selection boots it via RequestReset.
+					pKernel->BrowserOpen ();
+					pKernel->LogLine ("UI: file browser opened");
 					bChanged = TRUE;
 					break;
 				}
@@ -172,6 +223,13 @@ void CMsxTask::Run (void)
 	// even when the selection itself did not move.
 	int nDrawnSel = OVERLAY_NOT_DRAWN;
 	int nDrawnAudio = -1;
+
+	// File-browser repaint tracking.
+	int nDrawnBrowserSel = -1;
+	int nDrawnBrowserCount = -1;
+	char sDrawnBrowserDir[MSX_ROM_PATH_MAX];
+	sDrawnBrowserDir[0] = '\0';
+
 	for (;;)
 	{
 		if (m_pKernel->TakeResetRequest ())
@@ -198,9 +256,37 @@ void CMsxTask::Run (void)
 		bool bUiHandled = ServiceUiQueue (m_pKernel);
 
 		// The menu owns the screen while it is open: freeze the emulator.
-		if (m_pKernel->IsOverlayOpen ())
+		if (m_pKernel->IsOverlayOpen () || m_pKernel->IsBrowserOpen ())
 		{
 			bPacingActive = false;
+
+			if (m_pKernel->IsBrowserOpen ())
+			{
+				int nBsel = m_pKernel->BrowserGetSelection ();
+				int nBcount = m_pKernel->BrowserGetCount ();
+				const char *pDir = m_pKernel->BrowserGetDir ();
+				if (nBsel != nDrawnBrowserSel ||
+				    nBcount != nDrawnBrowserCount ||
+				    strcmp (pDir, sDrawnBrowserDir) != 0)
+				{
+					nDrawnBrowserSel = nBsel;
+					nDrawnBrowserCount = nBcount;
+					strncpy (sDrawnBrowserDir, pDir,
+						 sizeof (sDrawnBrowserDir) - 1);
+					sDrawnBrowserDir[sizeof (sDrawnBrowserDir) - 1] = '\0';
+
+					static const char *apDisp[MSX_BROWSE_MAX];
+					int n = nBcount < MSX_BROWSE_MAX ? nBcount
+									 : MSX_BROWSE_MAX;
+					for (int i = 0; i < n; i++)
+					{
+						apDisp[i] = m_pKernel->BrowserGetDisplay (i);
+					}
+					Overlay_DrawBrowser (pDir, apDisp, n, nBsel, 0);
+				}
+				msx_spin_us (OVERLAY_REDRAW_MS * 1000);
+				continue;
+			}
 
 			// Diagnostic: about once a second, report the frame counter. While
 			// the menu is up it must not move - if it does, something is still
@@ -234,6 +320,7 @@ void CMsxTask::Run (void)
 
 		// Menu closed: forget what was painted so the next open repaints.
 		nDrawnSel = OVERLAY_NOT_DRAWN;
+		nDrawnBrowserSel = -1;
 
 		MSX_Machine *machine = m_pKernel->GetMachine ();
 
@@ -249,7 +336,7 @@ void CMsxTask::Run (void)
 			bPacingActive = false;
 			if (m_pKernel->TakeStepRequest ())
 			{
-				msx_step_frame (machine, VDP_FRAME_INSTR);
+				msx_step_frame (machine, VDP_FRAME_TICKS);
 				m_pKernel->IncFrames ();
 			}
 			msx_spin_us (5000);
@@ -275,7 +362,7 @@ void CMsxTask::Run (void)
 		}
 
 		m_pKernel->SetInStep (TRUE);
-		msx_step_frame (machine, VDP_FRAME_INSTR);
+		msx_step_frame (machine, VDP_FRAME_TICKS);
 		m_pKernel->SetInStep (FALSE);
 		m_pKernel->IncFrames ();
 

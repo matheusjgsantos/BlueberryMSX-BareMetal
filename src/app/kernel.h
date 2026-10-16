@@ -58,6 +58,7 @@ enum TCartId
 {
 	CartMsxDiag = 0,	// MSX Diagnostics ("AB" 32K cartridge)
 	CartSlots = 1,		// live msxbus: the physical RPMC cartridges
+	CartRomFile = 2,	// ROM loaded from SD file
 	TCartIdCount
 };
 
@@ -162,6 +163,27 @@ public:
 	void SetCurrentCart (int nCart);
 	const char *GetCartName (int nCart) const;
 
+	// ROM-from-file cartridge (CartRomFile): path on the SD data partition
+	// (e.g. "ROMS/GAME.ROM"). Applied on the next reset/load.
+	#define MSX_ROM_PATH_MAX 260
+	void SetRomPath (const char *pPath);
+	const char *GetRomPath (void) const { return m_sRomPath; }
+
+	// Choose a mapper for the ROM-from-file cartridge and persist it to
+	// msx.ini (MsxMapper enum in msxconfig.h). Applied on next load.
+	void SetCartMapper (int nMapper) { m_Config.nCartMapper = nMapper; }
+	int  GetCartMapper (void) const  { return m_Config.nCartMapper; }
+	const char *GetCartMapperName (void) const;
+
+	// Overlay file browser: list ROMs under a directory on the data
+	// partition. Returns the number of entries written (0 on failure).
+	// Names are full paths, sorted; directories end with '/'.
+	#define MSX_BROWSE_MAX 128
+	int ListRomDirectory (const char *pDir, char (*pNames)[MSX_ROM_PATH_MAX], int nMax);
+
+	// Load m_sRomPath into machine slot 1 subslot 0 (mapper from config).
+	boolean LoadCartRomFile (MSX_Machine *machine);
+
 	// Audio output destination (MSX_OUTPUT_*). The menu (core 1) sets it
 	// optimistically for the on-screen label and arms a request; the core 0
 	// loop consumes it via TakeAudioDestRequest() and calls SetOutput(),
@@ -185,6 +207,29 @@ public:
 	boolean IsOverlayOpen (void)         { return m_bOverlayOpen; }
 	void SetOverlaySelection (int nSel)  { m_nOverlaySel = nSel; }
 	int  GetOverlaySelection (void)      { return m_nOverlaySel; }
+
+	// --- File browser (overlay) ---------------------------------------
+	// The browser lists directories on the SD data partition and loads a
+	// selected ROM. Filesystem access must stay on core 0, so core 1
+	// requests a listing and spins on the completion flag (same handshake
+	// shape as ArmCore0Reset). Navigation itself is pure memory.
+	boolean IsBrowserOpen (void) const   { return m_bBrowserOpen; }
+	void BrowserClose (void)             { m_bBrowserOpen = FALSE; }
+	void BrowserOpen (void);		// list the current/root dir and open
+	void BrowserSetDir (const char *pDir);	// core 1: list dir (blocking)
+	int  BrowserGetCount (void) const    { return m_nBrowserCount; }
+	int  BrowserGetSelection (void) const{ return m_nBrowserSel; }
+	void BrowserMove (int nDelta);
+	// Selects the highlighted entry. Returns 0 none, 1 file loaded (browser
+	// closed, reset requested), 2 descended into a directory.
+	int  BrowserEnter (void);
+	const char *BrowserGetDisplay (int nIdx) const;
+	boolean BrowserAtRoot (void) const   { return m_sBrowserDir[0] == '\0'; }
+	const char *BrowserGetDir (void) const { return m_sBrowserDir; }
+
+	// Core 0 side of the listing handshake (called from the kernel loop).
+	boolean ClaimBrowserList (void);
+	void FinishBrowserList (void)        { m_bBrowserReqDone = TRUE; }
 
 	// Write a preformatted line to the logger (UART + log ring buffer).
 	void LogLine (const char *pText);
@@ -222,6 +267,9 @@ public:
 	// (optional) cartridge-dump test. See msxconfig.h.
 	void LoadMsxConfig (void);
 	void FlushFileLog (void);
+	// Load the C-BIOS ROM set for the configured machine from BIOS/ on the
+	// SD data partition. A missing BIOS is fatal (returns FALSE).
+	boolean LoadBios (void);
 	void MsxbusBringUp (void);
 	void DumpCartridges (void);
 	void ProbeMfrMapper (void);
@@ -230,7 +278,7 @@ public:
 	// the proven multi-sector path (a ~1 KiB write hangs this Circle build).
 	void DumpMsxbusDiag (unsigned long long nFrame, unsigned nTicks);
 	// Route the emulated cartridge slots to the two physical RPMC connectors
-	// (live reads/writes and port I/O). Called after msx_create/msx_load_cbios
+	// (live reads/writes and port I/O). Called after msx_create/LoadBios
 	// when msxbus=on; replaces the embedded-cart load.
 	void AttachMsxbus (MSX_Machine *pMachine);
 
@@ -314,6 +362,18 @@ private:
 	volatile boolean m_bOverlayOpen;
 	int m_nOverlaySel;
 	int m_nCurrentCart;
+	int m_nResolvedMapper;		// mapper actually used for the loaded ROM
+	char m_sRomPath[MSX_ROM_PATH_MAX];
+
+	// File browser state (see the API above).
+	volatile boolean m_bBrowserOpen;
+	int m_nBrowserSel;
+	int m_nBrowserCount;
+	char m_sBrowserDir[MSX_ROM_PATH_MAX];
+	char m_aBrowserNames[MSX_BROWSE_MAX][MSX_ROM_PATH_MAX];
+	volatile int m_nBrowserReq;		// 0 none, 1 list requested
+	volatile boolean m_bBrowserReqDone;
+	char m_sBrowserReqDir[MSX_ROM_PATH_MAX];
 	volatile int m_nAudioDest;	// destination shown in the menu
 	volatile int m_nAudioDestReq;	// pending request for the core 0 loop
 

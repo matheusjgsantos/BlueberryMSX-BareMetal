@@ -7,12 +7,13 @@
 #include "kernel.h"
 #include "msx_task.h"
 #include "vdpblit.h"
-#include "cbios_roms.h"
+#include "biosrom.h"
 #include "msxdiag_roms.h"
 #include "overlay.h"
 #include "hid_keydiff.h"
 #include "msxconfig.h"
 #include "msxbus.h"
+#include "cartdump.h"
 #include "R800.h"
 
 #include <circle/string.h>
@@ -20,9 +21,11 @@
 #include <circle/machineinfo.h>
 #include <circle/gpioclock.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <math.h>
+#include <stdlib.h>
 
 static const char *FromKernel = "kernel";
 
@@ -146,24 +149,35 @@ static int HidKeyToEC (unsigned char ucKey)
 	return -1;
 }
 
-// Load the C-BIOS MSX1 ROMs and set up the slot map (same mapping as the
-// host build):
-//   Region 0 (0x0000-0x3FFF) -> slot 0 main BIOS
-//   Region 1 (0x4000-0x7FFF) -> slot 0 main BIOS
-//   Region 2 (0x8000-0xBFFF) -> slot 0 logo BIOS
-//   Region 3 (0xC000-0xFFFF) -> slot 3 RAM area
-static void msx_load_cbios (MSX_Machine *machine)
+// Load the C-BIOS ROM set for the configured machine from BIOS/ on the SD
+// data partition (emmc1-2). The images used to be linked into msx.img in C
+// code; they now ship on the card (cbios_main_msx1.rom etc.). A missing BIOS
+// is fatal: the machine cannot boot without one.
+boolean CKernel::LoadBios (void)
 {
-	// initialize RAM in slot 3
-	msx_set_slot (machine, 3, 0, 0, 0);
-	memset (machine->slots[3].subslots[0].data, 0, SLOT_MAX_SIZE);
+	char sErr[64];
+	TMsxMachine machine = (TMsxMachine) m_Config.nMachine;
+	CFATFileSystem *pFs = m_bFsMounted ? &m_FileSystem : 0;
 
-	// C-BIOS main BIOS and logo screen
-	msx_load_data (machine, 0, 0, 0x0000, (uint8_t *) cbios_main_rom, (int) cbios_main_rom_size);
-	msx_load_data (machine, 0, 0, 0x8000, (uint8_t *) cbios_logo_rom, (int) cbios_logo_rom_size);
+	if (!Bios_Load (m_pMachine, pFs, machine, sErr, sizeof sErr))
+	{
+		char sBuf[128];
+		snprintf (sBuf, sizeof sBuf, "FATAL: BIOS load failed: %s", sErr);
+		LogLine (sBuf);
 
-	// C-BIOS MSX1 slot map
-	machine->bus.write_io (machine->bus.ref, 0xA8, 0xC0);
+		// The MSX task (which normally owns the screen) has not started and
+		// the file log is RAM-only, so without this the failure is a silent
+		// blank screen. Draw the reason straight into the framebuffer.
+		const char *pHint = pFs == 0
+			? "Mount the SD data partition (emmc1-2)"
+			: "Copy the C-BIOS ROMs into BIOS/ on the SD card";
+		Overlay_ShowError ("BIOS LOAD FAILED", sErr, pHint);
+		return FALSE;
+	}
+
+	WriteLog ("App", "Stage 10: C-BIOS loaded from SD BIOS/");
+	LogLine ("C-BIOS loaded from SD (BIOS/)");
+	return TRUE;
 }
 
 // Load one of the embedded 32K cartridges into slot 1, subslot 0.
@@ -180,6 +194,10 @@ static void msx_load_cart (MSX_Machine *machine, int nCart)
 
 	switch (nCart)
 	{
+	case CartMsxDiag:
+		pRom = msxdiag_rom;
+		nRomSize = msxdiag_rom_size;
+		break;
 	default:
 		pRom = msxdiag_rom;
 		nRomSize = msxdiag_rom_size;
@@ -194,6 +212,402 @@ static void msx_load_cart (MSX_Machine *machine, int nCart)
 	memset (machine->slots[1].subslots[0].data, 0, SLOT_MAX_SIZE);
 	msx_load_data (machine, 1, 0, 0x4000, (uint8_t *) pRom, 16384);
 	msx_load_data (machine, 1, 0, 0x8000, (uint8_t *) pRom + 16384, 16384);
+}
+
+// Load the ROM file selected by the overlay file browser into slot 1,
+// subslot 0. MegaROM images (128 KiB and up, or an explicit mapper) are
+// handed to the core's mapper engine with the image buffer ownership; plain
+// ROMs are copied into the slot's 0x4000/0x8000 windows. Runs on core 0.
+boolean CKernel::LoadCartRomFile (MSX_Machine *machine)
+{
+	if (machine == 0)
+	{
+		return FALSE;
+	}
+	if (!m_bFsMounted)
+	{
+		LogLine ("ROM: no SD filesystem; cannot load");
+		return FALSE;
+	}
+	if (m_sRomPath[0] == '\0')
+	{
+		LogLine ("ROM: no file selected");
+		return FALSE;
+	}
+
+	unsigned hFile = m_FileSystem.FileOpen (m_sRomPath);
+	if (hFile == 0)
+	{
+		char sBuf[300];
+		snprintf (sBuf, sizeof (sBuf), "ROM: cannot open %s", m_sRomPath);
+		LogLine (sBuf);
+		return FALSE;
+	}
+
+	// Grow-as-needed read (start 512 KiB, cap 16 MiB).
+	unsigned nCap = 512 * 1024;
+	uint8_t *pImg = (uint8_t *) malloc (nCap);
+	if (pImg == 0)
+	{
+		m_FileSystem.FileClose (hFile);
+		LogLine ("ROM: out of memory");
+		return FALSE;
+	}
+
+	unsigned nRead = 0;
+	for (;;)
+	{
+		if (nRead == nCap)
+		{
+			if (nCap >= 16 * 1024 * 1024)
+			{
+				break;
+			}
+			unsigned nNew = nCap * 2;
+			uint8_t *pNew = (uint8_t *) malloc (nNew);
+			if (pNew == 0)
+			{
+				break;
+			}
+			memcpy (pNew, pImg, nRead);
+			free (pImg);
+			pImg = pNew;
+			nCap = nNew;
+		}
+
+		unsigned n = m_FileSystem.FileRead (hFile, pImg + nRead, nCap - nRead);
+		if (n == 0 || n == 0xFFFFFFFF)
+		{
+			break;
+		}
+		nRead += n;
+	}
+	m_FileSystem.FileClose (hFile);
+
+	if (nRead == 0)
+	{
+		free (pImg);
+		LogLine ("ROM: empty or unreadable file");
+		return FALSE;
+	}
+
+	// Resolve the mapper. AUTO: let the core's bank-select heuristic guess
+	// (Konami, Konami-SCC, ASCII8, ...); images under 64KB come back NONE.
+	// NOTE: do NOT strip the 16-byte 'AB' header. On MSX that header is the
+	// first bytes of bank 0 / the 0x4000 window itself: the cartridge image
+	// (and its dump file) starts with 'AB' at offset 0, which C-BIOS needs to
+	// see at 0x4000 to recognise the cartridge.
+	int nCfg = m_Config.nCartMapper;
+	MSX_MapperType eMapper;
+	switch (nCfg)
+	{
+	case MsxMapperAscii8:		eMapper = MSX_MAPPER_ASCII8;	break;
+	case MsxMapperKonami:		eMapper = MSX_MAPPER_KONAMI;	break;
+	case MsxMapperKonamiScc:	eMapper = MSX_MAPPER_KONAMI_SCC;	break;
+	case MsxMapperNone:		eMapper = MSX_MAPPER_NONE;	break;
+	default:			eMapper = msx_guess_mapper (pImg, nRead);
+					break;
+	}
+	m_nResolvedMapper = eMapper;
+
+	if (eMapper == MSX_MAPPER_NONE)
+	{
+		// Plain ROM: block 0 -> 0x4000, block 1 -> 0x8000.
+		unsigned nBlk = nRead < 0x4000 ? nRead : 0x4000;
+		msx_load_data (machine, 1, 0, 0x4000, pImg, (int) nBlk);
+		if (nRead > 0x4000)
+		{
+			unsigned nBlk2 = nRead - 0x4000;
+			if (nBlk2 > 0x4000)
+			{
+				nBlk2 = 0x4000;
+			}
+			msx_load_data (machine, 1, 0, 0x8000, pImg + 0x4000,
+				       (int) nBlk2);
+		}
+		free (pImg);
+	}
+	else
+	{
+		// MegaROM: hand the image to the core (it owns the buffer now).
+		msx_load_rom_image (machine, 1, 0, pImg, nRead, eMapper);
+	}
+
+	char sBuf[300];
+	snprintf (sBuf, sizeof (sBuf), "ROM: loaded %s (%u bytes, mapper %s)",
+		  m_sRomPath, nRead, GetCartMapperName ());
+	LogLine (sBuf);
+	return TRUE;
+}
+
+void CKernel::SetRomPath (const char *pPath)
+{
+	if (pPath == 0)
+	{
+		m_sRomPath[0] = '\0';
+		return;
+	}
+	strncpy (m_sRomPath, pPath, sizeof (m_sRomPath) - 1);
+	m_sRomPath[sizeof (m_sRomPath) - 1] = '\0';
+}
+
+const char *CKernel::GetCartMapperName (void) const
+{
+	switch (m_Config.nCartMapper)
+	{
+	case MsxMapperAscii8:		return "ASCII8";
+	case MsxMapperKonami:		return "KONAMI";
+	case MsxMapperKonamiScc:	return "KONAMI-SCC";
+	case MsxMapperNone:		return "NONE";
+	default:
+		// AUTO: report the mapper the heuristic actually chose.
+		switch (m_nResolvedMapper)
+		{
+		case MSX_MAPPER_ASCII8:		return "AUTO:ASCII8";
+		case MSX_MAPPER_KONAMI:		return "AUTO:KONAMI";
+		case MSX_MAPPER_KONAMI_SCC:	return "AUTO:KONAMI-SCC";
+		default:			return "AUTO:NONE";
+		}
+	}
+}
+
+// List a directory on the data partition for the file browser. Directories
+// are always included (with a trailing '/'); files are filtered to the usual
+// MSX ROM extensions. Returns the number of entries (capped at nMax).
+int CKernel::ListRomDirectory (const char *pDir, char (*pNames)[MSX_ROM_PATH_MAX], int nMax)
+{
+	if (!m_bFsMounted || pNames == 0 || nMax <= 0)
+	{
+		return 0;
+	}
+
+	if (pDir == 0)
+	{
+		pDir = "";
+	}
+
+	int nCount = 0;
+	for (unsigned nIndex = 0; nCount < nMax; nIndex++)
+	{
+		char sName[MSX_ROM_PATH_MAX];
+		unsigned nSize = 0;
+		boolean bDir = FALSE;
+		if (!m_FileSystem.ListDir (pDir, nIndex, sName, sizeof (sName),
+					   &nSize, &bDir))
+		{
+			break;
+		}
+
+		if (!bDir)
+		{
+			// Filter to ROM-like files (case-insensitive).
+			const char *pExt = strrchr (sName, '.');
+			if (pExt == 0 || pExt[1] == '\0')
+			{
+				continue;
+			}
+			pExt++;
+			if (   strcasecmp (pExt, "rom") != 0
+			    && strcasecmp (pExt, "bin") != 0
+			    && strcasecmp (pExt, "mx1") != 0
+			    && strcasecmp (pExt, "mx2") != 0
+			    && strcasecmp (pExt, "col") != 0)
+			{
+				continue;
+			}
+		}
+
+		char sFull[MSX_ROM_PATH_MAX];
+		unsigned nDirLen = strlen (pDir);
+		if (nDirLen > 0 && pDir[nDirLen - 1] != '/')
+		{
+			snprintf (sFull, sizeof (sFull), "%s/%s", pDir, sName);
+		}
+		else
+		{
+			snprintf (sFull, sizeof (sFull), "%s%s", pDir, sName);
+		}
+
+		if (bDir)
+		{
+			unsigned nLen = strlen (sFull);
+			if (nLen + 2 < sizeof (sFull))
+			{
+				sFull[nLen] = '/';
+				sFull[nLen + 1] = '\0';
+			}
+		}
+
+		strncpy (pNames[nCount], sFull, MSX_ROM_PATH_MAX - 1);
+		pNames[nCount][MSX_ROM_PATH_MAX - 1] = '\0';
+		nCount++;
+	}
+
+	return nCount;
+}
+
+// --- File browser ----------------------------------------------------------
+
+// Core 1: request a listing for pDir and block until core 0 has produced it.
+// Filesystem access stays on core 0; navigation is pure memory afterwards.
+void CKernel::BrowserSetDir (const char *pDir)
+{
+	strncpy (m_sBrowserReqDir, pDir != 0 ? pDir : "",
+		 sizeof (m_sBrowserReqDir) - 1);
+	m_sBrowserReqDir[sizeof (m_sBrowserReqDir) - 1] = '\0';
+	m_bBrowserReqDone = FALSE;
+	m_nBrowserReq = 1;
+	while (!m_bBrowserReqDone)
+	{
+		// spin: core 0 lists the directory (short)
+	}
+}
+
+// Core 1: open the browser on the remembered directory (root first time).
+void CKernel::BrowserOpen (void)
+{
+	BrowserSetDir (m_sBrowserDir);
+	m_bBrowserOpen = TRUE;
+}
+
+void CKernel::BrowserMove (int nDelta)
+{
+	if (nDelta != 0 && m_nBrowserCount > 0)
+	{
+		m_nBrowserSel += nDelta;
+		if (m_nBrowserSel < 0)
+		{
+			m_nBrowserSel = 0;
+		}
+		if (m_nBrowserSel >= m_nBrowserCount)
+		{
+			m_nBrowserSel = m_nBrowserCount - 1;
+		}
+	}
+}
+
+// Core 0: fill the browser list for m_sBrowserReqDir.
+boolean CKernel::ClaimBrowserList (void)
+{
+	if (m_nBrowserReq != 1)
+	{
+		return FALSE;
+	}
+	m_nBrowserReq = 0;
+
+	strncpy (m_sBrowserDir, m_sBrowserReqDir, sizeof (m_sBrowserDir) - 1);
+	m_sBrowserDir[sizeof (m_sBrowserDir) - 1] = '\0';
+
+	m_nBrowserCount = 0;
+	if (m_sBrowserDir[0] != '\0')
+	{
+		strncpy (m_aBrowserNames[0], "..", MSX_ROM_PATH_MAX - 1);
+		m_aBrowserNames[0][MSX_ROM_PATH_MAX - 1] = '\0';
+		m_nBrowserCount = 1;
+	}
+
+	int nBase = m_nBrowserCount;
+	int n = ListRomDirectory (m_sBrowserDir,
+				  &m_aBrowserNames[nBase],
+				  MSX_BROWSE_MAX - nBase);
+	if (n > 0)
+	{
+		m_nBrowserCount += n;
+	}
+
+	// Case-insensitive insertion sort of the real entries (".." stays first).
+	for (int i = nBase + 1; i < m_nBrowserCount; i++)
+	{
+		char sKey[MSX_ROM_PATH_MAX];
+		strncpy (sKey, m_aBrowserNames[i], sizeof (sKey) - 1);
+		sKey[sizeof (sKey) - 1] = '\0';
+		int j = i - 1;
+		while (j >= nBase && strcasecmp (m_aBrowserNames[j], sKey) > 0)
+		{
+			strncpy (m_aBrowserNames[j + 1], m_aBrowserNames[j],
+				 MSX_ROM_PATH_MAX - 1);
+			j--;
+		}
+		strncpy (m_aBrowserNames[j + 1], sKey, MSX_ROM_PATH_MAX - 1);
+		m_aBrowserNames[j + 1][MSX_ROM_PATH_MAX - 1] = '\0';
+	}
+
+	m_nBrowserSel = 0;
+	return TRUE;
+}
+
+const char *CKernel::BrowserGetDisplay (int nIdx) const
+{
+	if (nIdx < 0 || nIdx >= m_nBrowserCount)
+	{
+		return "";
+	}
+	const char *pFull = m_aBrowserNames[nIdx];
+	if (strcmp (pFull, "..") == 0)
+	{
+		return "..";
+	}
+	const char *pBase = strrchr (pFull, '/');
+	if (pBase != 0 && pBase[1] != '\0')
+	{
+		return pBase + 1;
+	}
+	return pFull;
+}
+
+// Core 1: act on the highlighted entry.
+int CKernel::BrowserEnter (void)
+{
+	if (m_nBrowserCount <= 0 || m_nBrowserSel < 0 ||
+	    m_nBrowserSel >= m_nBrowserCount)
+	{
+		return 0;
+	}
+
+	const char *pName = m_aBrowserNames[m_nBrowserSel];
+
+	char sClean[MSX_ROM_PATH_MAX];
+	strncpy (sClean, pName, sizeof (sClean) - 1);
+	sClean[sizeof (sClean) - 1] = '\0';
+
+	if (strcmp (sClean, "..") == 0)
+	{
+		char sDir[MSX_ROM_PATH_MAX];
+		strncpy (sDir, m_sBrowserDir, sizeof (sDir) - 1);
+		sDir[sizeof (sDir) - 1] = '\0';
+		unsigned nLen = strlen (sDir);
+		if (nLen > 0 && sDir[nLen - 1] == '/')
+		{
+			sDir[--nLen] = '\0';
+		}
+		char *pSlash = strrchr (sDir, '/');
+		if (pSlash == 0)
+		{
+			sDir[0] = '\0';
+		}
+		else
+		{
+			*pSlash = '\0';
+		}
+		BrowserSetDir (sDir);
+		return 2;
+	}
+
+	unsigned nLen = strlen (sClean);
+	if (nLen > 0 && sClean[nLen - 1] == '/')
+	{
+		sClean[--nLen] = '\0';
+		BrowserSetDir (sClean);
+		return 2;
+	}
+
+	// A file: select it and boot.
+	SetRomPath (sClean);
+	SetCurrentCart (CartRomFile);
+	m_bBrowserOpen = FALSE;
+	m_bOverlayOpen = FALSE;
+	RequestReset ();
+	return 1;
 }
 
 // Diagnostic bridge: core logs CHKRAM trace through this C function pointer
@@ -241,6 +655,12 @@ CKernel::CKernel (void):
 	, m_bOverlayOpen (FALSE)
 	, m_nOverlaySel (0)
 	, m_nCurrentCart (CartSlots)
+	, m_nResolvedMapper (MSX_MAPPER_NONE)
+	, m_bBrowserOpen (FALSE)
+	, m_nBrowserSel (0)
+	, m_nBrowserCount (0)
+	, m_nBrowserReq (0)
+	, m_bBrowserReqDone (FALSE)
 	, m_nAudioDest (MSX_OUTPUT_AUTO)
 	, m_nAudioDestReq (-1)
 	, m_pSound (0)
@@ -253,6 +673,10 @@ CKernel::CKernel (void):
 	, m_bResetDone (FALSE)
 {
 	diag_uart ('9');	// all member ctors (incl. m_VCHIQ) completed
+
+	m_sRomPath[0] = '\0';
+	m_sBrowserDir[0] = '\0';
+	m_sBrowserReqDir[0] = '\0';
 
 	UiQueue_Init (&m_UiQueue);
 
@@ -490,15 +914,23 @@ TShutdownMode CKernel::Run (void)
 		LogLine (sBuf);
 	}
 
-	msx_load_cbios (m_pMachine);
-	WriteLog ("App", "Stage 10: C-BIOS loaded");
-	LogLine ("C-BIOS loaded successfully");
+	if (!LoadBios ())
+	{
+		return ShutdownHalt;
+	}
 
 	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		// Live mode: the cartridges are the real ones on the RPMC board.
 		AttachMsxbus (m_pMachine);
 		LogLine ("MSXBUS: live cartridges attached (SLOTS)");
+	}
+	else if (m_nCurrentCart == CartRomFile)
+	{
+		if (!LoadCartRomFile (m_pMachine))
+		{
+			LogLine ("ROM: load failed; booting without a cartridge");
+		}
 	}
 	else
 	{
@@ -573,6 +1005,13 @@ TShutdownMode CKernel::Run (void)
 		{
 			DoReset ();
 			FinishCore0Reset ();
+		}
+
+		// File-browser listing request from core 1 (overlay). The
+		// filesystem must only be touched here, on core 0.
+		if (ClaimBrowserList ())
+		{
+			FinishBrowserList ();
 		}
 
 		// Audio output switch armed from the overlay menu (core 1).
@@ -869,10 +1308,20 @@ void CKernel::DoReset (void)
 	m_pMachine->diag_log_count = 0;
 	m_pMachine->diag_log_budget = 200;
 
-	msx_load_cbios (m_pMachine);
+	if (!LoadBios ())
+	{
+		return;
+	}
 	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		AttachMsxbus (m_pMachine);
+	}
+	else if (m_nCurrentCart == CartRomFile)
+	{
+		if (!LoadCartRomFile (m_pMachine))
+		{
+			LogLine ("ROM: load failed; booting without a cartridge");
+		}
 	}
 	else
 	{
@@ -1062,13 +1511,23 @@ void CKernel::LoadMsxConfig (void)
 		break;
 	}
 
-	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s diag=%s mode=%d size=%u rddelay=%d",
+	const char *pDumpMap = "linear";
+	switch (m_Config.nDumpMapper)
+	{
+	case MsxBusDumpKonami:	  pDumpMap = "konami";	  break;
+	case MsxBusDumpKonamiScc: pDumpMap = "konamiscc"; break;
+	case MsxBusDumpAscii8:	  pDumpMap = "ascii8";	  break;
+	default:		  break;
+	}
+
+	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s diag=%s mode=%d size=%u rddelay=%d dumpmapper=%s",
 		  bRead ? 1 : 0, MsxLogModeName (m_Config.nLogMode),
 		  bBus ? " (UART locked off)" : "",
 		  m_Config.bMsxbusEnable ? "on" : "off",
 		  m_Config.bMsxbusDump ? "on" : "off",
 		  m_Config.bDiagDump ? "on" : "off",
-		  m_Config.nMsxbusMode, m_Config.nDumpBytes, m_Config.nMsxbusReadDelay);
+		  m_Config.nMsxbusMode, m_Config.nDumpBytes, m_Config.nMsxbusReadDelay,
+		  pDumpMap);
 }
 
 // Flush the captured log to boot.log on the FAT partition (best effort).
@@ -1177,9 +1636,11 @@ void CKernel::MsxbusBringUp (void)
 	WriteLog ("msxbus", "%s", sBuf);
 }
 
-// Milestone A test: dump both cartridge slots to CART1.ROM / CART3.ROM, so a
-// cartridge can be verified on the PC (the expected "AB" header at 0x4000 and
-// the md5 against the known ROM).
+// Boot cartridge dump: write both connectors to CART1.ROM / CART3.ROM on the
+// data partition so a cartridge can be verified on the PC (the expected "AB"
+// header at 0x4000 and the md5 against the known ROM). msxbus.dumpmapper picks
+// the walk: linear (legacy, <=32 KiB only) or a banked walk that switches each
+// 8 KiB bank into the mapper window (correct for any MegaROM, auto-sized).
 void CKernel::DumpCartridges (void)
 {
 	MsxbusBringUp ();
@@ -1193,10 +1654,29 @@ void CKernel::DumpCartridges (void)
 	static const char *s_aNames[MsxBusSlotCount] = { "CART1.ROM", "CART3.ROM" };
 	static const unsigned char s_aSlotLed[MsxBusSlotCount] = { 0x20, 0x40 };
 
+	// Banked dump window: (bank register, read base). Linear (0) keeps the
+	// legacy 0x4000+i read, which is only correct for <=32 KiB carts.
+	uint16_t nBankReg = 0, nBankBase = 0;
+	const char *pMapperName = "linear";
+	switch (m_Config.nDumpMapper)
+	{
+	case MsxBusDumpKonami:
+		nBankReg = 0x8000; nBankBase = 0x8000; pMapperName = "konami";
+		break;
+	case MsxBusDumpKonamiScc:
+		nBankReg = 0x5000; nBankBase = 0x4000; pMapperName = "konamiscc";
+		break;
+	case MsxBusDumpAscii8:
+		nBankReg = 0x6000; nBankBase = 0x4000; pMapperName = "ascii8";
+		break;
+	default:
+		break;
+	}
+
 	for (int nSlot = 0; nSlot < MsxBusSlotCount; nSlot++)
 	{
-		unsigned nBytes = m_Config.nDumpBytes;
-		unsigned char *pBuf = new unsigned char[nBytes];
+		unsigned nCap = m_Config.nDumpBytes;
+		unsigned char *pBuf = new unsigned char[nCap];
 		if (pBuf == 0)
 		{
 			WriteLog ("msxbus", "dump %s: out of memory", s_aNames[nSlot]);
@@ -1204,19 +1684,29 @@ void CKernel::DumpCartridges (void)
 		}
 
 		MsxBus_Leds (0x80 | s_aSlotLed[nSlot]);
-		for (unsigned i = 0; i < nBytes; i++)
+
+		unsigned nBytes = nCap;
+		if (nBankReg != 0)
 		{
-			pBuf[i] = MsxBus_Read (nSlot, (uint16_t) (0x4000u + i));
+			nBytes = CartDump_Banked (MsxBus_Read, MsxBus_Write, nSlot,
+						  nBankReg, nBankBase, pBuf, nCap);
+		}
+		else
+		{
+			for (unsigned i = 0; i < nBytes; i++)
+			{
+				pBuf[i] = MsxBus_Read (nSlot, (uint16_t) (0x4000u + i));
+			}
 		}
 
 		snprintf (sBuf, sizeof (sBuf),
-			"MSXBUS: %s %u bytes [%02X %02X %02X %02X %02X %02X %02X %02X ...]",
-			s_aNames[nSlot], nBytes,
+			"MSXBUS: %s %u bytes (%s) [%02X %02X %02X %02X %02X %02X %02X %02X ...]",
+			s_aNames[nSlot], nBytes, pMapperName,
 			pBuf[0], pBuf[1], pBuf[2], pBuf[3],
 			pBuf[4], pBuf[5], pBuf[6], pBuf[7]);
 		WriteLog ("msxbus", "%s", sBuf);
 
-		if (m_bFsMounted)
+		if (m_bFsMounted && nBytes > 0)
 		{
 			unsigned hFile = m_FileSystem.FileCreate (s_aNames[nSlot]);
 			if (hFile != 0)
@@ -1230,7 +1720,7 @@ void CKernel::DumpCartridges (void)
 				WriteLog ("msxbus", "%s: FileCreate failed", s_aNames[nSlot]);
 			}
 		}
-		else
+		else if (!m_bFsMounted)
 		{
 			WriteLog ("msxbus", "%s: SD not mounted, dump kept in RAM only", s_aNames[nSlot]);
 		}
@@ -1238,6 +1728,7 @@ void CKernel::DumpCartridges (void)
 		delete[] pBuf;
 	}
 
+	MsxBus_Reset ();	// restore the cart's power-on bank mapping
 	MsxBus_Leds (0x80);
 
 	MsxBusStats Stats;

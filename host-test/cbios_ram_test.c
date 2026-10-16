@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 	msx_load_data(m, 0, 0, 0x8000, (uint8_t *) cbios_logo_rom, (int) cbios_logo_rom_size);
 	m->bus.write_io(m->bus.ref, 0xA8, 0xC0);
 
-	for (int f = 0; f < frames; f++) msx_step_frame(m, 12000);
+	for (int f = 0; f < frames; f++) msx_step_frame(m, MSX_FRAME_TICKS);
 
 	printf("slotReg=%02X active=[%d %d %d %d]\n", m->slotReg,
 	       m->activeSlot[0], m->activeSlot[1], m->activeSlot[2], m->activeSlot[3]);
