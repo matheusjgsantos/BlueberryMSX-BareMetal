@@ -6,30 +6,24 @@ for during development.
 
 ## What this project is
 
-A **bare-metal MSX1 emulator** that runs directly on a Raspberry Pi 3B+
-(Cortex-A53, **AArch32 / 32-bit ARM**) using the
-[Circle](https://github.com/martin-rotter/circle) C++ bare-metal environment.
-No Linux, no OS: Circle is the kernel.
-
-Two images, two stages:
-
-- **`msxboot.img`** (`circle/msxboot/`) — flashed to the SD boot partition.
-  HTTP upload UI (:8080) + TFTP; chain-boots whatever image it receives at
-  `0x8000`.
-- **`msx.img`** (`src/app/`) — the emulator itself. Uploaded over the network to
-  a running msxboot, then chain-booted. Boots C-BIOS straight to the MSX BASIC
-  prompt and renders the TMS9918 VDP (256x192) to the HDMI framebuffer.
+A **bare-metal MSX1 emulator** built with the [Circle](https://github.com/rsta2/circle)
+C++ environment. Release v1.0 runs directly on Raspberry Pi Zero 2 W, Pi 3A+/B+,
+Pi 4, and Pi 400. It boots from a model-selected 32-bit app image, loads C-BIOS
+from SD, and renders the TMS9918 VDP to the HDMI framebuffer.
 
 ## Hard requirements (do not violate)
 
-- Target: **Pi 3B+, `RASPPI=3`, `AARCH=32`** in both Makefiles.
-- Emulator image is **uploaded, never flashed**; it must chain-boot at load
-  address **0x8000**.
+- Targets: **Pi 3 family, `RASPPI=3`, `AARCH=32`** and **Pi 4 family,
+  `RASPPI=4`, `AARCH=32`**. Build separate images and select them in
+  `config.txt` (`msx-pi3.img` / `msx-pi4.img`).
+- Circle static libraries are shared across targets and do not track compiler
+  flag changes. Clean and rebuild Circle libraries and add-ons when switching
+  `RASPPI`, or a Pi 4 image can link the Pi 3 SDHOST backend.
+- The emulator boots directly from the Pi firmware at load address **0x8000**;
+  network upload and chain boot are legacy only.
 - **C-BIOS comes from the SD card.** The ROMs are read at boot from the `BIOS/`
   folder on the data partition (FAT2, `emmc1-2`); the machine halts if they are
   missing. `msx.ini` also lives there. Fonts and palette are still compiled in.
-- Networking is **static IP** `192.168.178.42/24`, gw `192.168.178.1`
-  (`m_acStaticIP` in `kernel.cpp`). HTTP API port is **8080**.
 - The MSX core (`src/core`, `src/chips`, `include`) is **plain C** shared with
   the C++ app. Keep it C (C99), no C++ features, no OS calls.
 
@@ -37,14 +31,13 @@ Two images, two stages:
 
 ```
 BlueberryMSX-BareMetal/
-├── circle/msxboot/        # chain-boot server (Circle app) -> msxboot.img [flashed]
+├── circle/msxboot/        # legacy chain-boot server
 ├── src/
-│   ├── app/               # MSX emulator (Circle app)      -> msx.img    [uploaded]
-│   │   ├── main.cpp       # entry, chain-booted at 0x8000
-│   │   ├── kernel.{h,cpp} # CKernel: init chain, network, HTTP bring-up, Run loop
+│   ├── app/               # direct-boot MSX emulator -> msx.img
+│   │   ├── main.cpp       # entry point at 0x8000
+│   │   ├── kernel.{h,cpp} # CKernel: init chain, C-BIOS and Run loop
 │   │   ├── msx_task.{h,cpp}# cooperative task driving msx_step_frame()
 │   │   ├── vdpblit.{h,cpp}# strong msx_frame_render() -> Circle framebuffer
-│   │   ├── httpapi.{h,cpp}# HTTP API :8080
 │   │   ├── apilog.{h,cpp} # 8 KiB log ring buffer
 │   │   ├── teelog.h       # UART + ring tee logger (CTeeLogDevice)
 │   │   ├── syscalls.cpp   # newlib syscall stubs
@@ -55,35 +48,40 @@ BlueberryMSX-BareMetal/
 ├── include/               # bus.h, msx.h, msx_types.h (C API)
 ├── Docs/                  # PROJECT_STATUS.md, TMS9918_MSX1_VDP.md, cbios-0.29a/
 ├── Machines -> ...        # symlink to machine definitions (external project)
-└── sd_update/             # SD staging (config.txt + kernel image) — keep fresh
+└── release/               # versioned release bundles; preserve old versions
 ```
 
-## Build & deploy
+## Build and deploy
 
-Prereqs: Circle checkout at `/data/Projects/MSX/circle`; `arm-none-eabi`
-toolchain with **hard-float multilib newlib** (see pitfall #1).
+Prerequisites: Circle at `../BlueberryMSX/circle` and `arm-none-eabi` with
+hard-float multilib newlib (see pitfall #1). For each model family, configure
+and rebuild Circle for its matching target, then build the app with that same
+`RASPPI`. Clean/rebuild when switching targets because Circle archives are
+shared and Make does not track architecture-define changes.
+
+For example, from the Circle checkout for Pi 4:
 
 ```sh
-make -C src/app          # -> src/app/msx.img  (+ msx.elf/.lst/.map)
-make -C circle/msxboot   # -> circle/msxboot/msxboot.img
-
-# Deploy: copy msxboot.img to SD boot partition, config.txt:
-#   arm_64bit=0
-#   enable_uart=1
-#   kernel=msxboot.img
-# Power-cycle, then upload the emulator image:
-tftp -m binary 192.168.178.42 -c put src/app/msx.img
-# (or use the HTTP UI at http://192.168.178.42:8080)
+./configure -r 4 --multicore -f
+./makeall clean
+./makeall
+for lib in addon/SDCard addon/linux addon/vc4/vchiq addon/vc4/sound; do
+    make -C "$lib" clean
+    make -C "$lib"
+done
+make -C ../../BlueberryMSX-BareMetal/src/app clean RASPPI=4
+make -C ../../BlueberryMSX-BareMetal/src/app RASPPI=4
 ```
 
-`msx.img` is a **raw binary** (`objcopy -O binary`), not an ELF — msxboot passes
-the received bytes straight to `EnableChainBoot()`. Verify with `file msx.elf`
-(ELF32 ARM, entry 0x8000); the `.img` will report as `data`.
+Repeat for Pi 3 using `./configure -r 3 --multicore -f` and `RASPPI=3`; copy
+the output to `msx-pi3.img` (`msx.img` compatibility alias). The Pi 4 output is
+`msx-pi4.img`. `release/<ver>/config.txt` selects the correct image by model.
 
-## HTTP API (port 8080)
-
-`/` index · `/status` JSON · `/log` ring buffer · `/command?cmd=pause|resume|step|reset`
-· `/regs` CPU/VDP register dump · `/mem?addr=0x...&size=N` hex dump.
+An SD card has two FAT32 partitions: partition 1 is boot (Pi firmware, DTBs,
+`config.txt` and app images); partition 2 is data (`msx.ini`, `BIOS/`, ROMs,
+and runtime dumps). Circle's `boot/` folder contains Pi boot support files;
+building `src/app` produces the raw `msx.img` application, not Pi firmware.
+See `README.md` for exact copy locations and v1.0 release deployment commands.
 
 ## Pitfalls (already hit — do not rediscover)
 
@@ -111,31 +109,19 @@ the received bytes straight to `EnableChainBoot()`. Verify with `file msx.elf`
 4. **No C++ standard library headers** in the Circle toolchain. Use `<stdlib.h>`,
    `<string.h>`, `<stdio.h>` — not `<cstdlib>`/`<cstring>`/`<cstdio>`.
 
-5. **`THTTPStatus` enum names have no "Status" prefix:** `HTTPOK` (200),
-   `HTTPBadRequest` (400), `HTTPNotFound` (404). There is no `StatusOK`.
-
-6. **CLogger API:** `m_Logger.Write (pSource, TLogSeverity, fmt, ...)` with
-   severities `LogError` / `LogWarning` / `LogNotice`. There is **no**
-   `.Error()`/`.WriteLine()` convenience method.
-
-7. **`HTTP_PORT` macro clash:** Circle's `<circle/net/http.h>` defines
-   `HTTP_PORT 80`. The app uses its own `MSX_HTTP_PORT 8080`. Never redefine or
-   rely on `HTTP_PORT`.
-
-8. **Prebuilt `.o` files in source trees are x86-64 host artifacts.** The app
+5. **Prebuilt `.o` files in source trees are x86-64 host artifacts.** The app
    Makefile has explicit ARM compile rules for the C sources
    (`msx_core.o: ../core/msx.c`, `r800.o`, `tms9918.o`). Don't link stray `.o`
    files; delete them if they reappear.
 
 ## Emulator pacing & boot facts
 
-- Frame cadence: `VDP_FRAME_INSTR 12000` Z80 instructions per VDP frame (~60 Hz),
-  `FRAME_SLEEP_MS 16`, `HEARTBEAT_FRAMES 120` (`msx_task.cpp`). The VDP sync IRQ
-  is fired on this fixed instruction cadence (not wall-clock) so it keeps ticking
-  while the Z80 HALTs.
-- `msx_step_frame(machine, vdp_frame_instr)` runs exactly that many instructions,
-  then fires the sync IRQ and the `msx_frame_render()` hook once. It is the only
-  execution entry point used by the app (there is no blocking run loop).
+- Frame cadence is time-driven: `MSX_FRAME_TICKS=357954` R800 master ticks
+  (21477270/60) per 60 Hz frame. The R800 is created with `CPU_ENABLE_M1`; do not
+  replace this with a fixed instruction budget.
+- `msx_step_frame(machine, frame_ticks)` executes until the emulated master-time
+  budget expires, then fires the sync IRQ and render hook. HALT advances the
+  emulated time safely.
 - Boot sequence (`kernel.cpp`): SD data partition mounted → `LoadMsxConfig()`
   → `msx_create()` → `LoadBios()` reads the machine's ROM set from `BIOS/` on
   the data partition and maps it onto the slots (RAM in slot 3, BIOS in slot 0)
@@ -148,5 +134,7 @@ the received bytes straight to `EnableChainBoot()`. Verify with `file msx.elf`
 - Circle code style in the app: tabs, `ClassName (args)` with a space before
   parens, `m_` member prefix, `bOK` chained init pattern in `CKernel::Initialize`.
 - Core C code: 4-space indent, `snake_case`, no comments unless asked.
-- After any change: rebuild with `make -C src/app` (and `make -C circle/msxboot`
-  if boot-server code changed) and confirm `msx.img` is produced.
+- After app changes, rebuild and verify the intended target. Rebuild Circle
+  libraries for each `RASPPI` value when switching between Pi 3 and Pi 4; see
+  the dual-target commands in `README.md`. The old HTTP/TFTP boot-server build
+  is legacy and is not part of the release workflow.

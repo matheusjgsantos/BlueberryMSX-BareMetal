@@ -1,12 +1,11 @@
 # BlueberryMSX-BareMetal — Project Status
 
-Bare-metal MSX1 emulator for the Raspberry Pi 3B+ (Cortex-A53, AArch32), built
-on the [Circle](https://github.com/martin-rotter/circle) C++ bare-metal
-environment. The C-BIOS ROMs are read at boot from the `BIOS/` folder on the SD
-data partition (the machine halts if missing); the kernel boots straight to the
-MSX BASIC prompt and renders the TMS9918 VDP screen to the Pi's HDMI
-framebuffer. There is no networking at runtime (the former HTTP control API was
-removed on Sep 19 2026 — see Known Issues).
+Bare-metal MSX1 emulator for Raspberry Pi Zero 2 W, 3A+/B+, 4, and 400, built
+with the [Circle](https://github.com/rsta2/circle) C++ bare-metal environment.
+Release v1.0 provides separate 32-bit Circle images for the Pi 3 and Pi 4
+families. C-BIOS is loaded from `BIOS/` on the SD data partition; the kernel
+boots directly to MSX BASIC and renders the TMS9918 VDP to the HDMI framebuffer.
+There is no networking at runtime.
 
 ## Provenance
 
@@ -25,10 +24,10 @@ This bare-metal port is based on the code in
 
 ## Architecture (direct boot)
 
-**Primary — direct boot:** **`msx.img`** (`src/app/`) is copied to the boot
-partition and named in `config.txt` as the kernel. It is linked for `0x8000`,
-the address where the Pi firmware loads a 32-bit kernel image, so it boots
-standalone with no second stage.
+**Primary — direct boot:** the Pi firmware loads the model-selected
+`msx-pi3.img` or `msx-pi4.img` from the boot partition as the kernel. Each is
+linked for `0x8000`, so it boots standalone with no second stage. `msx.img` is
+kept as a Pi 3 compatibility alias.
 
 **Legacy — two-stage chain boot:** **`msxboot.img`** (`circle/msxboot/`) can
 still be named as the kernel; it starts an HTTP upload UI on **:8080** plus a
@@ -37,85 +36,62 @@ TFTP server, waits for an image to be uploaded, then **chain-boots it at
 sequence hangs during USB teardown (see Known Issues) and direct boot makes it
 unnecessary.
 
-At runtime the SD data partition (FAT2, `emmc1-2`) is mounted read-only: C-BIOS
-is loaded from `BIOS/` there, and the overlay's `ROM FROM FILE` browser loads
-ROM images from the partition. This superseded the earlier fully-linked build
-(C-BIOS, fonts, palette used to be linked into `msx.img`); the embedded
-fallback ROMs were removed in v0.11.
+At runtime the SD data partition (FAT2, Circle device `emmc1-2`) supplies
+`msx.ini`, C-BIOS from `BIOS/`, and ROM images for the overlay's `ROM FROM FILE`
+browser. Cartridge dumps and optional diagnostics are also written there, not
+to the boot partition. C-BIOS is no longer embedded in `msx.img` (v0.11 onward).
 
 ## Objective / Roadmap
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 | Done | Circle kernel boots on Pi 3B+, UART console + log ring buffer |
-| 1 | Done | Framebuffer via Circle `CScreenDevice`/`CBcmFrameBuffer` |
+| 0 | Done | Circle kernel boots on Zero 2, Pi 3 family, Pi 4, and Pi 400 |
+| 1 | Done | Framebuffer via Circle `CScreenDevice`/`CBcmFrameBuffer` on supported targets |
 | 2 | Done | TMS9918 real MSX1 VDP protocol + renderer, wired into the frame loop (`msx_step_frame`) |
 | 2b | Done (legacy) | Chain-boot flow: msxboot serves/uploads `msx.img`, boots at 0x8000 — superseded by direct boot |
 | 2c | Removed | HTTP debug/control API — removed from `msx.img` with all networking (Sep 19 2026); re-addable from git history |
 | 2d | Done | Boot from USB thumb drive; kernel log mirrored to `BOOT.LOG` on the UMS log partition (`bootdev=umsd`, msxboot only) |
 | 2e | Shelved | Clean shutdown → chain-boot handover; blocked by msxboot USB-teardown hang, no longer needed with direct boot |
-| 2f | Testing | Direct boot: `msx.img` on the boot partition, `kernel=msx.img` in `config.txt` |
-| 3 | Later | Sprites, keyboard input, PSG sound/audio; verify screens 1/2 via BASIC `SCREEN` |
+| 2f | Done | Direct boot via model-selected Pi 3/Pi 4 app images |
+| 3 | Partial | USB keyboard and PSG implemented; MSX2/2+ and V9938 support remain future work |
 
 See `TMS9918_MSX1_VDP.md` for the VDP ground truth and renderer design.
 
 ## Build
 
-Prereqs: a Circle checkout at `/data/Projects/MSX/circle` (sibling of this
-project) and an `arm-none-eabi` toolchain **with hard-float multilib newlib**
-(see `skill.md` → "Toolchain / newlib").
+Prerequisites: Circle at `../BlueberryMSX/circle` and an `arm-none-eabi`
+toolchain with hard-float multilib newlib. Build Circle and the app with
+matching `RASPPI=3` or `RASPPI=4`. Circle's static libraries are shared between
+targets, so clean and rebuild them when switching target; see `README.md` for
+the complete Pi 3/Pi 4 build sequence.
 
 ```sh
-# MSX emulator image  ->  src/app/msx.img   (+ msx.elf, msx.lst, msx.map)
-make -C src/app
-
-# Chain-boot server    ->  circle/msxboot/msxboot.img
-make -C circle/msxboot
+# After configuring and rebuilding Circle for the chosen target:
+make -C src/app clean RASPPI=4
+make -C src/app RASPPI=4
 ```
 
-Both Makefiles set `RASPPI=3`, `AARCH=32` and `CIRCLEHOME ?= ../../../circle`.
+The resulting `src/app/msx.img` is the direct-boot application. Release v1.0
+ships the Pi 3 build as `msx-pi3.img` and the Pi 4 build as `msx-pi4.img`;
+`config.txt` selects the matching image for each board family.
 
 ## Deploy / Run
 
-The boot medium is a **USB thumb drive** (SanDisk U3 Cruzer Micro, ~1.9 GB);
-there is no SD card in the Pi's slot. Layout:
+The SD card uses two FAT32 partitions, in order:
 
-| Partition | Size | FS | Host mount | Contents |
-|-----------|------|----|------------|----------|
-| p1 | 486 M | FAT32 | `/mnt/sdcard` | standard RPi boot partition (`bootcode.bin`, `start.elf`, `kernel7.img`, `config.txt`, `cmdline.txt`, **`msx.img`**, `msxboot.img` legacy) |
-| p2 | 1.4 G | FAT32 | `/mnt/logs` | log partition — `BOOT.LOG` written by msxboot at runtime (legacy path only) |
+| Partition | Circle device | Contents |
+|-----------|---------------|----------|
+| 1 (boot) | firmware boot volume | matching Raspberry Pi firmware/DTBs, `config.txt`, `msx-pi3.img`, `msx-pi4.img`, and Pi 4 armstub |
+| 2 (data) | `emmc1-2` | `msx.ini`, `BIOS/`, optional ROM files and runtime dumps |
 
-1. Build and stage the emulator image:
-   ```sh
-   cp src/app/msx.img /mnt/sdcard/
-   ```
-   `config.txt`:
-   ```
-   arm_64bit=0
-   enable_uart=1
-   kernel=msx.img
-   hdmi_force_hotplug=1
-   disable_splash=1
-   hdmi_group=1
-   hdmi_mode=4
-   hdmi_drive=2
-   ```
-   `cmdline.txt` (Circle reads this as its command line):
-   ```
-   width=640 height=480
-   logdev=ttyS1 loglevel=4 bootdev=umsd
-   ```
-   - `logdev`/`loglevel` — serial console device and verbosity.
-   - `bootdev` — used by msxboot's `BOOT.LOG` mount only; ignored by `msx.img`.
+Copy the boot payload files to partition 1 and copy `msx.ini` plus the whole
+`BIOS/` folder to the root of partition 2. ROM images can be placed anywhere on
+partition 2 for the file browser. Keep board-matching Pi firmware files on the
+boot partition. See `README.md` for exact release-copy commands.
 
-2. Power-cycle the Pi. Expected serial (ttyS1, 115200):
-   `BlueberryMSX: Circle MSX emulator compiled ...`,
-   `C-BIOS loaded: [0x0000]=...`; the MSX BASIC prompt appears on HDMI.
-
-**Legacy chain boot:** stage `circle/msxboot/msxboot.img` instead, set
-`kernel=msxboot.img`, power-cycle, then upload `msx.img` via the HTTP UI at
-`http://<ip>:8080` (or TFTP — filename must start with "kernel" and end in
-".img"); msxboot chain-boots it at `0x8000`.
+Do not write runtime dumps or emulator data to partition 1. The C-BIOS set is
+required; if the data volume or BIOS files cannot be loaded, the emulator shows
+an error instead of starting the MSX machine.
 
 ## Boot logging (BOOT.LOG, msxboot legacy path only)
 
@@ -189,7 +165,7 @@ Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
 - `/data/Projects/MSX/circle` — Circle environment checkout.
 - `/data/Projects/MSX/openmsx-20.0` — openMSX reference for pixel mapping.
 
-## Known Issues / Next Steps
+## Historical debugging notes (pre-v1.0)
 
 - **Fixed (Sep 19 2026):** direct boot stopped after `netdev: Net device not
   available` + a truncated `kernel: SHDN: logger off` line — `msx.img`
@@ -201,9 +177,8 @@ Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
 - **Shelved:** msxboot shutdown hangs right after `kernel: SHDN: logger off`
   (probe build md5 `142823e0`, Sep 18 2026 — banner confirmed on hardware, no
   further output; disassembly proves the `~CLogger` probes are in the binary).
-  Chain boot is no longer the deployment path, so this is parked; direct boot
-  (Phase 2f) is being verified instead.
+  Chain boot is no longer the deployment path; direct boot is the release path.
 - `sd_update/` staging is stale (holds an old `kernel7l.img` + its config).
-- Sprites, keyboard input and PSG audio are not yet implemented (Phase 3).
-- Verify screens 1/2 (Graphics I / II) via BASIC `SCREEN` commands once screen 0
-  (text) is confirmed stable on hardware.
+- MSX1/C-BIOS is the supported machine configuration. MSX2/2+ BIOS files are
+  bundled, but the required secondary-slot register and V9938 VDP are not yet
+  implemented.

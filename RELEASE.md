@@ -1,21 +1,25 @@
 # BlueberryMSX-BareMetal — Release Notes
 
-Changelog of deployable SD-card images. Each version lives in its own
-`release/<ver>/` folder and owns a **complete card bundle**
-(`config.txt`, `msx.ini`, `msx.img`, `kernel7l.img`,
-`bcm2710-rpi-zero-2-w.dtb`, `bootloader_canary.img`, `config_linux.bak`).
-`sd_update/` and stray `/data` copies are retired: `release/<ver>/` is the only
-place an image is published or flashed from.
+Changelog and deployment payloads for the bare-metal emulator. Each version is
+kept in its own `release/<ver>/` folder; do not delete older releases. Version
+1.0 carries separate 32-bit Circle application images for Pi 3-family boards
+(`msx-pi3.img`) and Pi 4/400 (`msx-pi4.img`), selected by `config.txt`.
+`msx.img` is retained as a Pi 3 compatibility alias. Circle/Raspberry Pi boot
+firmware files are not built by the MSX app; use the matching firmware files
+from the Circle `boot/` directory or the Raspberry Pi firmware distribution.
 
-Deploy: copy the whole folder to the card - `config.txt`, `msx.img`,
-`kernel7l.img`, the `.dtb` and the bootloader go on the **boot** partition
-(FAT1); `msx.ini` **and the `BIOS/` folder** go on the **data** partition
-(FAT2, `emmc1-2`). The emulator must never write the boot partition.
+The card has two FAT32 partitions. Copy `config.txt`, both `msx-pi*.img` images,
+`msx.img`, the Pi 4 armstub and model DTBs to partition 1 (boot), alongside the
+matching Pi firmware files. Copy `msx.ini` and `BIOS/` to partition 2 (data,
+Circle device `emmc1-2`); ROM files may also live there. The emulator must never
+write its logs, dumps, or content to the boot partition.
 
-Record every release here with its `msx.img` md5 and size.
+Record the default `msx.img` md5 and size in the table. For dual-image releases,
+also record the Pi 3 and Pi 4 image hashes and sizes in the release section.
 
 | Version | Date | Tag / base commit | `msx.img` md5 | Size | Focus |
 |---------|------|-------------------|---------------|------|-------|
+| v1.0 | 2026-10-16 | release commit | `1a071d7ccefca570c95dbfe6824038b9` | 533,072 | Dual Pi 3/Pi 4 release; hardware-verified on Zero 2, Pi 3A+/B+, Pi 4 and Pi 400 |
 | v0.1 | 2026-10-08 | tag `v0.1` (`10699e7`) | — (no card bundle) | — | AY-8910 audio, HDMI+JACK, direct boot, host tests |
 | v0.2 | 2026-10-11 | tag `v0.2` (`1f4e1d0`) | `aa55cec87e2f0dd45a5fb7dff026aad8` | 602,760 | RPMC bus bring-up + cartridge dump (Milestone A); `release/` layout |
 | v0.3 | 2026-10-12 | `4e64ecc` | `620e3feafb5ab0a4a82927c782821571` | 605,584 | Live MegaFlashROM bus + read cache + SLOTS menu (Milestone B) |
@@ -31,9 +35,32 @@ Record every release here with its `msx.img` md5 and size.
 | v0.13 | 2026-10-15 | working tree | `ebc6e417337c4a33818b25c76b291a64` | 532,496 | **Konami / Konami-SCC emulated mappers + AUTO detection** (Gradius, Salamander, Nemesis 3) |
 | v0.14 | 2026-10-15 | working tree | `c112657a8ffe9560551295df4a121545` | 533,008 | **Bank-aware cart dump** (`msxbus.dumpmapper`) — correct dumps of >32 KiB MegaROMs |
 
-Bundle file list is identical across releases (`config.txt`, `kernel7l.img`,
-`bcm2710-rpi-zero-2-w.dtb` are unchanged; `config.txt` md5
-`981608755b496b2cc76b8a530c1e7e6b`).
+Historical v0.x bundles retain their original file sets. The v1.0 bundle adds
+`msx-pi3.img` and `msx-pi4.img`, and its `config.txt` selects by model.
+
+---
+
+## v1.0 — 2026-10-16 (Pi 3 and Pi 4/400 support)
+
+**Hardware verified:** Raspberry Pi Zero 2 W, Pi 3A+/B+, Pi 4, and Pi 400.
+`config.txt` selects the Pi 3 image for `[pi02]` and `[pi3]`, and the Pi 4 image
+for `[pi4]`/`[cm4]`. The Pi 4 binary was rebuilt with Circle and the app
+consistently using `RASPPI=4`; this selects Circle's EMMC controller rather
+than the Pi 1–3 SDHOST backend, so the FAT2 data partition and its BIOS files
+are available at runtime.
+
+| Image | MD5 | Size |
+|-------|-----|------|
+| `msx-pi3.img` (also `msx.img`) | `1a071d7ccefca570c95dbfe6824038b9` | 533,072 B |
+| `msx-pi4.img` | `e5e605c61b923df9667a1ee14c91605b` | 578,960 B |
+
+The Pi 4 image's SHA-256 is `f0c318c2bcf142aba5af5cd8ed8180f29b9f20095363daaac8424d05cba1f69a`.
+The release config forces HDMI mode 4 and sets the corrected `hdmi_drive=2`.
+`msx.ini` is set for play (`diag=off`, `msxbus.dump=off`).
+
+Build both targets by cleaning and rebuilding the shared Circle libraries for
+each `RASPPI` value before building the corresponding app image. See the
+dual-target build instructions in `README.md`.
 
 ---
 
@@ -403,13 +430,18 @@ tests"). No card bundle in the repo.
 
 ### Maintenance
 
-When cutting a release:
+When cutting a dual-target release:
 
-1. Build: `make -C src/app` (produces `msx.img`).
-2. `mkdir release/<ver>` (or copy the previous bundle) and copy in the new
-   `msx.img`; adjust `msx.ini` for the release.
-3. Record the version, date, commit, `msx.img` md5 and size in the table above,
-   with a short changelog entry.
+1. For each target, configure Circle (`./configure -r 3 --multicore -f` or
+   `./configure -r 4 --multicore -f`), clean/rebuild Circle and the SDCard,
+   Linux-emulation, and VCHIQ libraries, then build the app with the same
+   `RASPPI` value. Clean/rebuild between targets; shared Circle archives do not
+   track changes in target compiler flags. See `README.md` for commands.
+2. Copy the exact builds to `msx-pi3.img` and `msx-pi4.img`; keep `msx.img` as
+   the Pi 3 alias. Copy the previous release bundle to `release/<ver>/` and
+   update `config.txt`/`msx.ini` as needed.
+3. Record both image checksums and sizes, the default alias checksum, version,
+   date, and a short release summary here.
 
 Note: `msx.img` embeds `__DATE__`/`__TIME__` (the boot log line in
 `kernel.cpp`), so the md5 is **not reproducible** — a rebuild of identical
