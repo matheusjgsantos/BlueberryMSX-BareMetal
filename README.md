@@ -52,6 +52,34 @@ sync
 and `msx-pi4.img` on Pi 4 and Pi 400. `msx.img` is a Pi 3 compatibility alias.
 After copying, safely unmount both partitions and boot the Pi.
 
+### Alternative: write prebuilt partition images
+
+The `sd_card/` directory contains prebuilt FAT32 partition images:
+
+- `1st-part.gz` — Boot partition (firmware, `config.txt`, kernel images, DTBs)
+- `2nd-part.gz` — Data partition (`msx.ini`, `BIOS/`, optional content)
+
+These are compressed partition images. **Ignore any other files in `sd_card/`.**
+
+To write them directly to your SD card, identify the correct device and
+partitions (e.g. `/dev/sdX1` for partition 1, `/dev/sdX2` for partition 2).
+Writing to the wrong device will destroy data.
+
+```sh
+# Unmount partitions first
+sudo umount /dev/sdX1 /dev/sdX2
+
+# Write boot partition (1st)
+gunzip -c sd_card/1st-part.gz | sudo dd of=/dev/sdX1 bs=4M status=progress conv=fsync
+
+# Write data partition (2nd)
+gunzip -c sd_card/2nd-part.gz | sudo dd of=/dev/sdX2 bs=4M status=progress conv=fsync
+
+sync
+```
+
+After writing, safely unmount both partitions and boot the Pi.
+
 ## Build both Pi targets
 
 The app sources are under `src/`; the entry point and Circle application are in
