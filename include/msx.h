@@ -3,6 +3,7 @@
 
 #include "msx_types.h"
 #include "bus.h"
+#include "msx_host.h"
 
 #define NUM_SLOTS 4
 #define NUM_SUBSLOTS 4
@@ -177,6 +178,12 @@ extern "C" {
 
 MSX_Machine* msx_create();
 void msx_destroy(MSX_Machine *machine);
+
+/* Install the host expansion/diagnostic callbacks as one unit. Existing
+ * direct MSX_Machine callback assignment remains supported for compatibility.
+ * Passing NULL clears the host callbacks and diagnostic budget. */
+void msx_set_host_callbacks(MSX_Machine *machine,
+                            const MSX_HostCallbacks *callbacks);
 /* Non-blocking: run the CPU for one video frame's worth of R800 master-clock
  * time (frame_ticks, see MSX_FRAME_TICKS) and fire the sync IRQ + render hook
  * once. For cooperative schedulers (e.g. Circle). Returns the number of

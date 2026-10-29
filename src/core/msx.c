@@ -496,6 +496,34 @@ static void dummy_trap(void *ref, UInt8 val) { (void)ref; (void)val; }
 static void dummy_watch_mem(void *ref, UInt16 addr, UInt8 val) { (void)ref; (void)addr; (void)val; }
 static void dummy_watch_io(void *ref, UInt16 port, UInt8 val) { (void)ref; (void)port; (void)val; }
 
+void msx_set_host_callbacks(MSX_Machine *machine,
+                            const MSX_HostCallbacks *callbacks) {
+    if (!machine) return;
+
+    if (!callbacks) {
+        machine->bus_ref = NULL;
+        machine->bus_read = NULL;
+        machine->bus_write = NULL;
+        machine->bus_read_io = NULL;
+        machine->bus_write_io = NULL;
+        machine->diag_log = NULL;
+        machine->diag_user = NULL;
+        machine->diag_log_count = 0;
+        machine->diag_log_budget = 0;
+        return;
+    }
+
+    machine->bus_ref = callbacks->ref;
+    machine->bus_read = callbacks->bus_read;
+    machine->bus_write = callbacks->bus_write;
+    machine->bus_read_io = callbacks->bus_read_io;
+    machine->bus_write_io = callbacks->bus_write_io;
+    machine->diag_log = callbacks->diag_log;
+    machine->diag_user = callbacks->diag_ref;
+    machine->diag_log_count = 0;
+    machine->diag_log_budget = callbacks->diag_log_budget;
+}
+
 MSX_Machine* msx_create() {
     MSX_Machine *machine = (MSX_Machine*)calloc(1, sizeof(MSX_Machine));
     if (!machine) return NULL;
