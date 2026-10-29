@@ -314,6 +314,11 @@ public:
 	CUSBKeyboardDevice *GetKeyboard (void) const { return m_pKeyboard; }
 
 private:
+	// Install the core host-services table (bus + diagnostics) on a freshly
+	// created machine. The bus callbacks stay dormant until AttachMsxbus
+	// routes primary slots to the physical board.
+	void InstallHostCallbacks (MSX_Machine *pMachine);
+
 	static void KeyStatusHandlerRaw (unsigned char ucModifiers,
 					const unsigned char RawKeys[6],
 					void *pArg);

@@ -610,10 +610,10 @@ int CKernel::BrowserEnter (void)
 	return 1;
 }
 
-// Diagnostic bridge: core logs CHKRAM trace through this C function pointer
-// (set on MSX_Machine.diag_log). The CKernel is passed as diag_user so we
-// can reach its DiagLog() accessor. Budget (diag_log_budget) is enforced
-// by the core so this is never called after the budget is exhausted.
+// Diagnostic bridge: the core logs through this C function pointer, installed
+// through msx_set_host_callbacks() with the CKernel as diag_ref. The core
+// enforces diag_log_budget, so this is never called after the budget is
+// exhausted.
 extern "C" void msx_diag_cb (const char *line, void *opaque)
 {
 	CKernel *k = (CKernel *) opaque;
@@ -904,10 +904,7 @@ TShutdownMode CKernel::Run (void)
 		LogLine ("FATAL: msx_create() failed");
 		return ShutdownHalt;
 	}
-	m_pMachine->diag_log       = msx_diag_cb;
-	m_pMachine->diag_user      = this;
-	m_pMachine->diag_log_count = 0;
-	m_pMachine->diag_log_budget = 200;   // cap: ~30 CHKRAM tests + I/O trace
+	InstallHostCallbacks (m_pMachine);
 	{
 		char sBuf[96];
 		snprintf (sBuf, sizeof(sBuf), "msx_create() succeeded at %p", (void*)m_pMachine);
@@ -1303,10 +1300,7 @@ void CKernel::DoReset (void)
 		return;
 	}
 
-	m_pMachine->diag_log       = msx_diag_cb;
-	m_pMachine->diag_user      = this;
-	m_pMachine->diag_log_count = 0;
-	m_pMachine->diag_log_budget = 200;
+	InstallHostCallbacks (m_pMachine);
 
 	if (!LoadBios ())
 	{
@@ -1574,6 +1568,31 @@ static void MsxbusCoreWriteIo (void *pRef, UInt16 nPort, UInt8 nVal)
 	MsxBus_WriteIo ((uint16_t) nPort, (uint8_t) nVal);
 }
 
+// Install the core's host-services table as one unit (include/msx_host.h).
+// Bus callbacks are always present but stay dormant until AttachMsxbus routes
+// a primary slot to the RPMC board. The diagnostic budget matches v1.0 (200
+// lines: ~30 CHKRAM tests plus the I/O trace).
+void CKernel::InstallHostCallbacks (MSX_Machine *pMachine)
+{
+	if (pMachine == 0)
+	{
+		return;
+	}
+
+	MSX_HostCallbacks callbacks;
+	memset (&callbacks, 0, sizeof callbacks);
+	callbacks.ref             = this;
+	callbacks.bus_read        = MsxbusCoreRead;
+	callbacks.bus_write       = MsxbusCoreWrite;
+	callbacks.bus_read_io     = MsxbusCoreReadIo;
+	callbacks.bus_write_io    = MsxbusCoreWriteIo;
+	callbacks.diag_log        = msx_diag_cb;
+	callbacks.diag_ref        = this;
+	callbacks.diag_log_budget = 200;
+
+	msx_set_host_callbacks (pMachine, &callbacks);
+}
+
 // Hook the live RPMC bus into the emulated machine: every access to the
 // mapped primary slots is served by the physical cartridges, and any port the
 // emulator does not own goes to the board (music modules, SCC, FM...).
@@ -1584,11 +1603,8 @@ void CKernel::AttachMsxbus (MSX_Machine *pMachine)
 		return;
 	}
 
-	pMachine->bus_ref      = this;
-	pMachine->bus_read     = MsxbusCoreRead;
-	pMachine->bus_write    = MsxbusCoreWrite;
-	pMachine->bus_read_io  = MsxbusCoreReadIo;
-	pMachine->bus_write_io = MsxbusCoreWriteIo;
+	// The bus callbacks were installed by InstallHostCallbacks() when the
+	// machine was created; only the slot routing is decided here.
 
 	// Board connector 1 and connector 3 each get one emulated primary slot.
 	// Defaults keep slot 3 free for the system RAM (0xC000-0xFFFF).

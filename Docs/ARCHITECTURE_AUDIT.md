@@ -153,3 +153,14 @@ Before and after each extraction, use the project-required checks:
 
 The current hardware-proven invariants are recorded in the parent MSX
 `AGENTS.md` and must not be weakened by this refactor.
+
+## Progress log
+
+- 2026-10-29: audit committed (`c264015`).
+- 2026-10-29: host callback table added (`0cf3608`): `include/msx_host.h`,
+  `msx_set_host_callbacks()`, `host-test/host_callbacks_test.c`.
+- 2026-10-29: the Circle app now installs that table in `CKernel::Run()` and
+  `CKernel::DoReset()` through `InstallHostCallbacks()`; `AttachMsxbus()` only
+  performs slot routing. Host tests pass; Pi 3 and Pi 4 images built and
+  packaged under `test-images/2026-10-29-hostcallbacks/` for hardware
+  verification.
