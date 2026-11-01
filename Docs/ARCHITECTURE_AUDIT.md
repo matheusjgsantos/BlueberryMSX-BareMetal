@@ -187,3 +187,6 @@ The current hardware-proven invariants are recorded in the parent MSX
   status lines are now hardware-proven on the boot path. Still open before a
   merge: the MSX1 regression checklist (cart/MegaROM, physical RPMC bus,
   reset, audio) and Pi 4 hardware verification.
+- 2026-11-01: `msx-pi4.img` from the same bundle (580,048 B) also boots and
+  runs correctly on the Pi 4. Both targets of the branch are now hardware
+  proven at boot; only the MSX1 regression checklist remains before merge.
