@@ -289,3 +289,8 @@ The current hardware-proven invariants are recorded in the parent MSX
   582608 B (`c4c8b099...`), hardware verification pending. Next: input seam
   (PPI/keyboard + joystick ports), then the machine-profile layer with
   `MSX_Memory` ownership.
+- 2026-11-01: audio-seam images hardware-verified on the Pi 3A+ and Pi 4.
+  Sound is delivered correctly on both output paths (HDMI and the phone jack)
+  and the audio regression checklist passed, i.e. the sub-frame write log
+  behaves exactly as it did inside `msx.c`. Next: input seam (PPI/keyboard +
+  joystick ports).

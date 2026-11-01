@@ -1,7 +1,8 @@
 # Test images: audio device seam (2026-11-01)
 
 Branch: `main` (integration line); checkpoint `feature/modular-emulation-architecture`
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-01** (Pi 3A+ and Pi 4: PSG audio correct on
+HDMI and on the 3.5 mm phone jack; audio regression checklist passed)
 
 Fifth extraction step. Behavior should be identical to the video-seam images in
 `../2026-11-01-video-seam/` (hardware-verified); the machine now drives the PSG
