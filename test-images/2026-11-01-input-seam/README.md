@@ -1,7 +1,7 @@
 # Test images: input device seam (2026-11-01)
 
 Branch: `main`  
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-01** (keyboard input passed on Pi 3A+ and Pi 4)
 
 Sixth extraction step. The MSX1 PPI keyboard matrix is now behind
 `MSX_Input`; port-A slot selection remains machine memory policy and is

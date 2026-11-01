@@ -306,3 +306,7 @@ The current hardware-proven invariants are recorded in the parent MSX
    pass. Images in `test-images/2026-11-01-input-seam/`: Pi 3 537232 B
    (`d2dff0ea...`), Pi 4 583376 B (`54b19822...`), hardware verification
    pending. Next: machine-profile layer and `MSX_Memory` ownership.
+- 2026-11-01: input-seam images hardware-verified. Keyboard input passed on
+  the Pi 3A+ and Pi 4, including the PPI matrix path; no regression observed.
+  The first six device seams are now hardware-verified. Next: machine-profile
+  layer and `MSX_Memory` ownership.
