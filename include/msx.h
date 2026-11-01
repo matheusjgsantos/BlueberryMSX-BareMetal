@@ -6,6 +6,7 @@
 #include "msx_host.h"
 #include "msx_cpu.h"
 #include "msx_memory.h"
+#include "msx_video.h"
 
 typedef struct {
     MSX_Bus bus;
@@ -15,6 +16,10 @@ typedef struct {
     /* Compatibility alias: msx_cpu_native_handle(cpu), i.e. the R800* the
      * Circle app and old host tests still read registers from. */
     void *z80;
+    /* Video device behind the seam (include/msx_video.h). */
+    MSX_Video video;
+    /* Compatibility alias: machine->video.dev, i.e. the TMS9918* the Circle
+     * renderer (vdpblit.cpp, msx_task.cpp) and older tests still use. */
     void *vdp;
     void *sound;
     void *ppi;

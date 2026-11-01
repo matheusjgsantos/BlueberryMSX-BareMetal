@@ -1,7 +1,7 @@
 #include <msx.h>
 #include <msx_mapper.h>
 #include "../../src/chips/z80/R800.h"
-#include "../../src/chips/vdp/tms9918.h"
+#include <msx_video.h>
 #include "../../src/chips/sound/psg.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -329,7 +329,7 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
     if (machine->bus_read_io && !io_is_internal(port))
         return machine->bus_read_io(machine->bus_ref, port);
     if (port >= 0x98 && port <= 0x9F) {
-        v = tms9918_read_reg((TMS9918*)machine->vdp, port);
+        v = msx_video_read_io(&machine->video, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
         if (port == 0x99) msx_cpu_clear_irq(machine->cpu);
     }
@@ -357,7 +357,7 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
     }
     if (port >= 0x98 && port <= 0x9F) {
-        tms9918_write_reg((TMS9918*)machine->vdp, port, val);
+        msx_video_write_io(&machine->video, port, val);
         return;
     }
     if (port == 0xA0 || port == 0xA1) {
@@ -500,18 +500,20 @@ MSX_Machine* msx_create() {
     }
     machine->z80 = msx_cpu_native_handle(machine->cpu);
 
-    machine->vdp = tms9918_create();
-    if (!machine->vdp) {
+    if (msx_video_init_tms9918(&machine->video) != 0) {
         fprintf(stderr, "Failed to create TMS9918 VDP\n");
         msx_cpu_destroy(machine->cpu);
         free(machine);
         return NULL;
     }
+    // Compatibility alias: the Circle app (vdpblit, msx_task) still reads the
+    // concrete device pointer; machine->video is the machine-facing handle.
+    machine->vdp = machine->video.dev;
 
     machine->sound = psg_create();
     if (!machine->sound) {
         fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
-        tms9918_destroy((TMS9918*)machine->vdp);
+        msx_video_destroy(&machine->video);
         msx_cpu_destroy(machine->cpu);
         free(machine);
         return NULL;
@@ -533,7 +535,7 @@ void msx_destroy(MSX_Machine *machine) {
             if (machine->slots[s].subslots[t].pRomImage)
                 free(machine->slots[s].subslots[t].pRomImage);
     if (machine->cpu) msx_cpu_destroy(machine->cpu);
-    if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
+    msx_video_destroy(&machine->video);
     if (machine->sound) psg_destroy((PSG*)machine->sound);
     free(machine);
     printf("MSX Machine destroyed\n");
@@ -673,7 +675,6 @@ void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
  * time-stamp PSG writes within the frame.) */
 int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     MSX_CPU *cpu = machine->cpu;
-    TMS9918 *vdp = (TMS9918 *)machine->vdp;
     UInt32 start = msx_cpu_get_time(cpu);
     unsigned n = 0;
 
@@ -685,9 +686,9 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     }
     s_instrDone = s_instrTotal;
 
-    tms9918_gen_sync_irq(vdp);
-    msx_frame_render(vdp);
-    if (vdp->irq) {
+    msx_video_sync_irq(&machine->video);
+    msx_frame_render(machine->vdp);
+    if (msx_video_irq_pending(&machine->video)) {
         msx_cpu_set_irq(cpu);
         /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
          * serial log: tells us the IRQ is being latched, the IM mode,

@@ -84,6 +84,11 @@ The following seams already exist and should be preserved rather than replaced:
    policy (is-mapped, window read, register write, AUTO guess) for one
    `MSX_SubSlot`. `src/core/msx.c` keeps address routing and the physical
    RPMC bus only, which is the piece a non-MSX memory map will replace.
+8. `include/msx_video.h` is the video device seam (`read_io`, `write_io`,
+   `sync_irq`, `irq_pending`, `destroy` + attach). `src/core/msx_video_tms9918.c`
+   is the MSX1 adapter over `src/chips/vdp/tms9918.c`; `msx.c` no longer
+   includes the chip header and `machine->vdp` is only a compatibility alias
+   to `machine->video.dev` for the Circle renderer and old tests.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -246,3 +251,15 @@ The current hardware-proven invariants are recorded in the parent MSX
   `main` = integration line (this step), `feature/modular-emulation-architecture`
   = d2e887e checkpoint. Next extraction: the video device seam (TMS9918 behind
   an ops table) so the MSX port map stops being hardcoded in `msx.c`.
+- 2026-11-01: video device seam added. `include/msx_video.h` defines the ops
+  table and handle; `src/core/msx_video_tms9918.c` adapts the TMS9918 chip
+  model to it and owns the device lifecycle. `src/core/msx.c` drives video
+  only through the seam (port 0x98-0x9F routing stays in the machine) and the
+  frame loop sequences sync-IRQ -> render hook -> `msx_video_irq_pending()` ->
+  CPU IRQ, unchanged in order. `machine->video` is the handle, `machine->vdp`
+  the compatibility alias. `host-test/video_seam_test.c` proves the seam takes
+  a foreign device, that the TMS9918 adapter matches the raw chip byte for
+  byte, and that the machine alias is wired. All host tests pass. Images in
+  `test-images/2026-11-01-video-seam/`: Pi 3 535248 B (`a883ef18...`), Pi 4
+  581264 B (`70548a0e...`), hardware verification pending. Next: audio (PSG +
+  sub-frame log) and input (PPI/keyboard) seams.
