@@ -164,3 +164,20 @@ The current hardware-proven invariants are recorded in the parent MSX
   performs slot routing. Host tests pass; Pi 3 and Pi 4 images built and
   packaged under `test-images/2026-10-29-hostcallbacks/` for hardware
   verification.
+- 2026-11-01: those images failed on hardware (blank screen, white cursor,
+  Pi 3A+). Root cause: they were linked against a mixed Pi 3/Pi 4 Circle
+  archive set left over from an incomplete `RASPPI` switch, not the seam.
+  Evidence: a clean `main` (v1.0 source) build with clean Pi 3 libraries is
+  533,072 bytes, exactly the v1.0 size, while the shipped image was 540,752.
+- 2026-11-01: seam lifetime split. The core forwards unclaimed I/O ports to
+  `bus_read_io`/`bus_write_io` whenever those pointers are installed,
+  independent of slot routing, so the bus transport must be installed only
+  after `MsxbusBringUp()`. Added `msx_set_bus_callbacks()` (bus only,
+  diagnostics untouched); `InstallHostCallbacks()` is diagnostic-only and
+  `AttachMsxbus()` calls the new `InstallBusCallbacks()`. Host test extended:
+  detaching the bus stops port forwarding and keeps the diagnostic budget.
+- 2026-11-01: `CKernel::BootStatus()` draws `boot: ...` lines on the
+  framebuffer until the first emulated frame, so a boot stall is visible
+  without a UART. Clean Pi 3/Pi 4 branch images and a v1.0-source control are
+  packaged under `test-images/2026-11-01-clean-build/` (hardware verification
+  pending).

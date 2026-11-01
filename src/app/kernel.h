@@ -315,9 +315,14 @@ public:
 
 private:
 	// Install the core host-services table (bus + diagnostics) on a freshly
-	// created machine. The bus callbacks stay dormant until AttachMsxbus
-	// routes primary slots to the physical board.
+	// created machine. The bus transport is installed separately, once the
+	// physical RPMC bus is up (InstallBusCallbacks).
 	void InstallHostCallbacks (MSX_Machine *pMachine);
+	void InstallBusCallbacks (MSX_Machine *pMachine);
+
+	// Draw one boot progress line on the framebuffer (overwritten by the
+	// first emulated frame). Used to localize a boot stall without a UART.
+	void BootStatus (const char *pText);
 
 	static void KeyStatusHandlerRaw (unsigned char ucModifiers,
 					const unsigned char RawKeys[6],

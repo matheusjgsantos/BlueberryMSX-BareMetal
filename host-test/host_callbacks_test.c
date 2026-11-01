@@ -63,10 +63,12 @@ int main(void) {
     callbacks.bus_write_io = fake_bus_write_io;
     callbacks.diag_log = fake_diag;
     callbacks.diag_ref = &host;
-    callbacks.diag_log_budget = 1;
+    callbacks.diag_log_budget = 2;
 
     MSX_Machine *machine = msx_create();
     assert(machine != NULL);
+
+    /* A host that provides everything at once installs bus and diagnostics. */
     msx_set_host_callbacks(machine, &callbacks);
 
     /* Route page 1 to physical slot 1, then exercise memory and I/O paths. */
@@ -83,10 +85,36 @@ int main(void) {
     assert(host.io_reads == 1 && host.io_writes == 1);
     assert(host.last_addr == 0x30 && host.last_value == 0xC3);
 
-    msx_diag(machine, "host callback %u", 7u);
-    msx_diag(machine, "budgeted out");
+    /* Detaching the expansion bus must stop forwarding unmapped ports even
+     * though the diagnostic sink stays installed. The machine answers the
+     * port itself instead (0xFF for an unclaimed port). This is the v1.0
+     * behavior when msxbus is off: no bus, no GPIO access from port I/O. */
+    msx_set_bus_callbacks(machine, NULL);
+    assert(machine->bus_ref == NULL);
+    assert(machine->bus_read_io == NULL);
+    assert(machine->diag_log == fake_diag);
+
+    assert(machine->bus.read_io(machine, 0x30) == 0xFF);
+    machine->bus.write_io(machine, 0x30, 0x11);
+    assert(host.io_reads == 1 && host.io_writes == 1);
+
+    /* Diagnostics keep their budget; re-attaching the bus does not reset it. */
+    msx_diag(machine, "first %u", 1u);
     assert(host.diagnostics == 1);
-    assert(strcmp(host.last_line, "host callback 7") == 0);
+
+    msx_set_bus_callbacks(machine, &callbacks);
+    assert(machine->bus_read_io == fake_bus_read_io);
+    assert(machine->diag_log_count == 1);
+
+    msx_diag(machine, "second %u", 2u);
+    msx_diag(machine, "budgeted out");
+    assert(host.diagnostics == 2);
+    assert(strcmp(host.last_line, "second 2") == 0);
+
+    /* The bus is live again for unmapped ports. */
+    assert(machine->bus.read_io(machine, 0x31) == 0xA5);
+    machine->bus.write_io(machine, 0x31, 0x7E);
+    assert(host.io_reads == 2 && host.io_writes == 2);
 
     msx_set_host_callbacks(machine, NULL);
     assert(machine->bus_ref == NULL);

@@ -831,6 +831,14 @@ boolean CKernel::Initialize (void)
 
 TShutdownMode CKernel::Run (void)
 {
+	{
+		char sBoot[128];
+		snprintf (sBoot, sizeof sBoot,
+			  "BlueberryMSX boot: RASPPI=%d build %s %s",
+			  RASPPI, __DATE__, __TIME__);
+		BootStatus (sBoot);
+	}
+
 	// msx.ini must be applied before anything else logs or touches the
 	// RPMC bus: on a msxbus machine the UART shares GPIO 14/15 with
 	// IORQ/MREQ, so logging mode and the bus are the same decision.
@@ -869,6 +877,7 @@ TShutdownMode CKernel::Run (void)
 	}
 
 	WriteLog ("App", "Stage 7: VDP blit initialized");
+	BootStatus ("boot: video boot status ready");
 
 	// PSG sound: CVCHIQSoundBaseDevice routes through the firmware audio
 	// service to whichever output is connected (headphone jack or HDMI);
@@ -905,6 +914,7 @@ TShutdownMode CKernel::Run (void)
 		return ShutdownHalt;
 	}
 	InstallHostCallbacks (m_pMachine);
+	BootStatus ("boot: machine created");
 	{
 		char sBuf[96];
 		snprintf (sBuf, sizeof(sBuf), "msx_create() succeeded at %p", (void*)m_pMachine);
@@ -915,6 +925,7 @@ TShutdownMode CKernel::Run (void)
 	{
 		return ShutdownHalt;
 	}
+	BootStatus ("boot: C-BIOS loaded");
 
 	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
@@ -943,6 +954,7 @@ TShutdownMode CKernel::Run (void)
 	}
 
 	WriteLog ("App", "Stage 11: cartridge loaded");
+	BootStatus ("boot: cartridge ready");
 
 	{
 		char sBuf[96];
@@ -980,6 +992,7 @@ TShutdownMode CKernel::Run (void)
 	WriteLog ("App", "Stage 13: Creating MSX task");
 	m_pMsxTask = new CMsxTask (this);
 	WriteLog ("App", "Stage 14: MSX task created");
+	BootStatus ("boot: releasing emulation core");
 
 	// Release core 1 into the frame loop: it has been spinning on this
 	// flag since CMultiCoreSupport::Initialize(). The barrier publishes
@@ -1568,10 +1581,11 @@ static void MsxbusCoreWriteIo (void *pRef, UInt16 nPort, UInt8 nVal)
 	MsxBus_WriteIo ((uint16_t) nPort, (uint8_t) nVal);
 }
 
-// Install the core's host-services table as one unit (include/msx_host.h).
-// Bus callbacks are always present but stay dormant until AttachMsxbus routes
-// a primary slot to the RPMC board. The diagnostic budget matches v1.0 (200
-// lines: ~30 CHKRAM tests plus the I/O trace).
+// Install the core's host services on a freshly created machine. Only the
+// diagnostic sink is installed here: unclaimed I/O ports are forwarded to the
+// bus callbacks whenever they are set, so the expansion bus must not be hooked
+// up before MsxbusBringUp()/AttachMsxbus(). The diagnostic budget matches v1.0
+// (200 lines: ~30 CHKRAM tests plus the I/O trace).
 void CKernel::InstallHostCallbacks (MSX_Machine *pMachine)
 {
 	if (pMachine == 0)
@@ -1582,15 +1596,41 @@ void CKernel::InstallHostCallbacks (MSX_Machine *pMachine)
 	MSX_HostCallbacks callbacks;
 	memset (&callbacks, 0, sizeof callbacks);
 	callbacks.ref             = this;
-	callbacks.bus_read        = MsxbusCoreRead;
-	callbacks.bus_write       = MsxbusCoreWrite;
-	callbacks.bus_read_io     = MsxbusCoreReadIo;
-	callbacks.bus_write_io    = MsxbusCoreWriteIo;
 	callbacks.diag_log        = msx_diag_cb;
 	callbacks.diag_ref        = this;
 	callbacks.diag_log_budget = 200;
 
 	msx_set_host_callbacks (pMachine, &callbacks);
+}
+
+// Attach the live RPMC bus transport once the GPIO bus is initialized. Kept
+// separate from InstallHostCallbacks(): the bus callbacks receive every
+// non-internal I/O port, so installing them earlier would send boot-time port
+// accesses to unconfigured GPIO pins.
+void CKernel::InstallBusCallbacks (MSX_Machine *pMachine)
+{
+	if (pMachine == 0)
+	{
+		return;
+	}
+
+	MSX_HostCallbacks callbacks;
+	memset (&callbacks, 0, sizeof callbacks);
+	callbacks.ref          = this;
+	callbacks.bus_read     = MsxbusCoreRead;
+	callbacks.bus_write    = MsxbusCoreWrite;
+	callbacks.bus_read_io  = MsxbusCoreReadIo;
+	callbacks.bus_write_io = MsxbusCoreWriteIo;
+
+	msx_set_bus_callbacks (pMachine, &callbacks);
+}
+
+// Long-lived boot progress on the framebuffer, so a boot stall is visible
+// without a UART adapter. The emulator's first frame overwrites these lines.
+void CKernel::BootStatus (const char *pText)
+{
+	m_Screen.Write (pText, strlen (pText));
+	m_Screen.Write ("\n", 1);
 }
 
 // Hook the live RPMC bus into the emulated machine: every access to the
@@ -1603,8 +1643,8 @@ void CKernel::AttachMsxbus (MSX_Machine *pMachine)
 		return;
 	}
 
-	// The bus callbacks were installed by InstallHostCallbacks() when the
-	// machine was created; only the slot routing is decided here.
+	// The bus is up by now (MsxbusBringUp ran before the machine was built).
+	InstallBusCallbacks (pMachine);
 
 	// Board connector 1 and connector 3 each get one emulated primary slot.
 	// Defaults keep slot 3 free for the system RAM (0xC000-0xFFFF).

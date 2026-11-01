@@ -1,8 +1,17 @@
-# Test images: host-callback seam (2026-10-29)
+# Test images: host-callback seam (2026-10-29) — SUPERSEDED
+
+> **Do not use these images.** They were linked against a contaminated Circle
+> library set left over from a Pi 4 build (mixed Pi 3/Pi 4 objects in the shared
+> archives), which is the likely cause of the blank screen with a white cursor
+> on the Pi 3A+. A clean rebuild of the same sources produces the v1.0 size
+> (533,072 bytes) instead of the 540,752 bytes shipped here.
+>
+> Use `../2026-11-01-clean-build/` instead; it also contains a v1.0-source
+> control image for A/B testing.
 
 Branch: `feature/modular-emulation-architecture`
 Commit: `0cf3608` + app wiring (this commit)
-Status: **hardware verification pending**
+Status: **superseded, do not test**
 
 These are test kernels, not a release. They are built from the modularization
 branch on top of the v1.0 source and contain one runtime change: the Circle app

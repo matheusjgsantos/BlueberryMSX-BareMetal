@@ -184,6 +184,16 @@ void msx_destroy(MSX_Machine *machine);
  * Passing NULL clears the host callbacks and diagnostic budget. */
 void msx_set_host_callbacks(MSX_Machine *machine,
                             const MSX_HostCallbacks *callbacks);
+
+/* Install or clear only the expansion-bus transport (bus_ref plus the four
+ * bus callbacks), leaving the diagnostic sink and its budget untouched.
+ *
+ * Unclaimed I/O ports are forwarded to bus_read_io/bus_write_io whenever those
+ * pointers are installed, independent of any slot routing. A host must
+ * therefore install them only once the physical bus is initialized - never at
+ * machine creation. Passing NULL detaches the bus again. */
+void msx_set_bus_callbacks(MSX_Machine *machine,
+                           const MSX_HostCallbacks *callbacks);
 /* Non-blocking: run the CPU for one video frame's worth of R800 master-clock
  * time (frame_ticks, see MSX_FRAME_TICKS) and fire the sync IRQ + render hook
  * once. For cooperative schedulers (e.g. Circle). Returns the number of
