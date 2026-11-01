@@ -1,7 +1,8 @@
 # Test images: MegaROM mapper module (2026-11-01)
 
-Branch: `feature/modular-emulation-architecture`
-Status: **hardware verification pending**
+Branch: `feature/modular-emulation-architecture` (now integrated into `main`)
+Status: **hardware verified 2026-11-01** (Pi 3A+ and Pi 4, regression
+checklist below reported passing -- no difference from the CPU-seam images)
 
 Third extraction step. Behavior is intended to be identical to
 `../2026-11-01-cpu-seam/` (which is hardware-verified on Pi 3A+ and Pi 4); the

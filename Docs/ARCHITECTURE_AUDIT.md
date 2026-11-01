@@ -235,3 +235,14 @@ The current hardware-proven invariants are recorded in the parent MSX
   Deliberately deferred: moving the slot array behind an `MSX_Memory` handle
   (needs app/test accessors and belongs with machine profiles) and splitting
   the I/O decode (belongs with the device interfaces).
+- 2026-11-01: mapper-module images hardware-verified. `msx-pi3.img`
+  (534736 B `b4d2dfdc...`) and `msx-pi4.img` (580688 B `f2359a86...`) from
+  `test-images/2026-11-01-mapper-module/` pass the MSX1 regression checklist
+  on the Pi 3A+ and Pi 4: C-BIOS BASIC/keyboard, 32 KB ROMs, Konami-SCC and
+  ASCII8/16 MegaROMs, `ROM FROM FILE` vs physical slot, cart writes, reset,
+  PSG audio and the overlay/browser/F-keys all behave as before. The bank
+  decode and the memory router are independent now with no behavior change.
+  Branch layout at this point: `stable` = 10d9a83 (v1.0 rollback line),
+  `main` = integration line (this step), `feature/modular-emulation-architecture`
+  = d2e887e checkpoint. Next extraction: the video device seam (TMS9918 behind
+  an ops table) so the MSX port map stops being hardcoded in `msx.c`.
