@@ -206,3 +206,11 @@ The current hardware-proven invariants are recorded in the parent MSX
   instructions through the seam match direct R800 execution (PC and clock
   identical at every step checked) and the M1 option maps correctly; all
   existing host tests still pass.
+- 2026-11-01: the CPU-seam images in `test-images/2026-11-01-cpu-seam/`
+  (Pi 3 534544 B `c55e151d...`, Pi 4 580496 B `56550ac7...`) passed the
+  MSX1 regression checklist on hardware (Pi 3A+ and Pi 4): C-BIOS BASIC and
+  keyboard, 32 KB ROMs, Konami-SCC and ASCII8/16 MegaROMs, `ROM FROM FILE`
+  vs physical slot, cart writes, reset, PSG audio, overlay/browser/F-keys
+  all behave as in v1.0. No regression from replacing the direct R800 calls
+  with the seam. The branch is mergeable; remaining work is further
+  extraction (memory/I/O bus routing), not a fix.

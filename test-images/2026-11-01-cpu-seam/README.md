@@ -1,7 +1,8 @@
 # Test images: CPU/clock seam (2026-11-01)
 
 Branch: `feature/modular-emulation-architecture`
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-01** (Pi 3A+ and Pi 4, regression
+checklist below reported passing -- no difference from v1.0 observed)
 
 Second extraction step after the host-callback seam. Behavior is intended to be
 identical to `../2026-11-01-clean-build/` (which is boot-verified on Pi 3A+ and
