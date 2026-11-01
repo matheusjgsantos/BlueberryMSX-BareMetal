@@ -1,7 +1,9 @@
 # Test images: host-callback seam, clean build (2026-11-01)
 
 Branch: `feature/modular-emulation-architecture`
-Status: **hardware verification pending**
+Status: **Pi 3A+ boot verified 2026-11-01** (`msx-pi3.img`,
+`fdb30362aa38e2bfc1e6898f90acf16b`); full MSX1 regression checklist and the
+Pi 4 image are still pending.
 
 > Supersedes `../2026-10-29-hostcallbacks/`. Those images were linked against a
 > contaminated Circle library set left over from a Pi 4 build, which is the

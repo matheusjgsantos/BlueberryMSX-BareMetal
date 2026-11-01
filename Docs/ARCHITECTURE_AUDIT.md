@@ -181,3 +181,9 @@ The current hardware-proven invariants are recorded in the parent MSX
   without a UART. Clean Pi 3/Pi 4 branch images and a v1.0-source control are
   packaged under `test-images/2026-11-01-clean-build/` (hardware verification
   pending).
+- 2026-11-01: `msx-pi3.img` from `2026-11-01-clean-build/` booted correctly on
+  the Pi 3A+, confirming the blank screen was the mixed-target archive
+  contamination and not the seam. The bus/diagnostic split and the `boot:`
+  status lines are now hardware-proven on the boot path. Still open before a
+  merge: the MSX1 regression checklist (cart/MegaROM, physical RPMC bus,
+  reset, audio) and Pi 4 hardware verification.
