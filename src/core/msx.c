@@ -2,7 +2,7 @@
 #include <msx_mapper.h>
 #include "../../src/chips/z80/R800.h"
 #include <msx_video.h>
-#include "../../src/chips/sound/psg.h"
+#include <msx_audio.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -249,29 +249,17 @@ unsigned g_psg_writes = 0;
 unsigned g_psg_last_reg = 0;
 unsigned g_psg_last_val = 0;
 
-/* Sub-frame PSG register write log: blueMSX R3 syncs every AY write into the
- * audio stream at its exact output sample (AY8910.c updateRegister ->
- * mixerSync), and openMSX timestamps writes against the CPU clock. The R800
- * core has no cycle counter, so each write records the fraction of the
- * frame's instruction budget executed so far (msx_step_frame), and
- * msx_psg_render() replays the batch by restoring the state saved at the
- * frame's first write and re-applying the writes at those positions.
- * Without this, every write retroactively shaped the WHOLE video frame
- * (~16.6 ms), which audibly roughens fast passages vs. the references. */
-typedef struct { UInt16 frac16; UInt8 reg; UInt8 val; } PsgWriteLogEntry;
-#define PSG_WRITE_LOG_MAX 256
-static PsgWriteLogEntry s_psgLog[PSG_WRITE_LOG_MAX];
-static unsigned s_psgLogCount;
-static int s_psgLogOverflow;
-static PSG s_psgStart;
-static const void *s_psgStartOwner;
+/* Frame position of the running instruction, used to timestamp sound writes.
+ * msx_step_frame() sets these; the audio device records the fraction with each
+ * write so it can render the frame segment by segment (see
+ * include/msx_audio.h and src/core/msx_audio_psg.c). */
 static unsigned s_instrDone;
 static unsigned s_instrTotal;
 
-static void psg_log_clear(void) {
-    s_psgLogCount = 0;
-    s_psgLogOverflow = 0;
-    s_psgStartOwner = 0;
+/* 0..65535 = how far into the frame the CPU is right now. */
+static UInt16 s_frame_frac16(void) {
+    if (s_instrTotal == 0) return 0;
+    return (UInt16)((unsigned long long)s_instrDone * 65536u / s_instrTotal);
 }
 
 int g_tms_trace = 0;  /* VDP-level trace (tms9918.c) */
@@ -333,7 +321,7 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
         // Reading the VDP status register (0x99) clears the sync IRQ line.
         if (port == 0x99) msx_cpu_clear_irq(machine->cpu);
     }
-    else if (port == 0xA2) v = psg_read((PSG*)machine->sound, psg_get_reg_latch((PSG*)machine->sound));
+    else if (port == 0xA2) v = msx_audio_read_io(&machine->audio, port);
     else if (port == 0xA0 || port == 0xA1) v = 0xFF;
     else if (port == 0xA8) v = machine->slotReg;
     else if (port == 0xA9) v = ppi_read_b(machine);
@@ -361,31 +349,15 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
         return;
     }
     if (port == 0xA0 || port == 0xA1) {
-        PSG *psg = (PSG*)machine->sound;
-        if (!psg) return;
-        if (port == 0xA0) {
-            psg_set_reg_latch(psg, val);
-        } else {
-            /* Record the write's in-frame position first (the live apply
-             * below keeps 0xA2 read-back correct during the frame; the
-             * batch render replays from the saved start state). */
-            if (s_psgLogCount == 0) {
-                s_psgStart = *psg;
-                s_psgStartOwner = machine->sound;
-            }
-            if (s_psgLogCount < PSG_WRITE_LOG_MAX && s_instrTotal > 0) {
-                PsgWriteLogEntry *e = &s_psgLog[s_psgLogCount++];
-                e->frac16 = (UInt16) ((unsigned long long) s_instrDone
-                                      * 65536u / s_instrTotal);
-                e->reg = psg_get_reg_latch(psg);
-                e->val = val;
-            } else {
-                s_psgLogOverflow = 1;
-            }
-            psg_write(psg, psg_get_reg_latch(psg), val);
-        }
+        /* Timestamp the write against the frame so the device can render it
+         * at the right sample; without a frame budget there is no position to
+         * record, so apply it immediately (whole-frame behaviour). */
+        if (s_instrTotal > 0)
+            msx_audio_write_io_at(&machine->audio, port, val, s_frame_frac16());
+        else
+            msx_audio_write_io(&machine->audio, port, val);
         g_psg_writes++;
-        g_psg_last_reg = psg_get_reg_latch(psg);
+        g_psg_last_reg = msx_audio_latched_register(&machine->audio);
         g_psg_last_val = val;
         return;
     }
@@ -510,33 +482,33 @@ MSX_Machine* msx_create() {
     // concrete device pointer; machine->video is the machine-facing handle.
     machine->vdp = machine->video.dev;
 
-    machine->sound = psg_create();
-    if (!machine->sound) {
+    if (msx_audio_init_psg(&machine->audio) != 0) {
         fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
         msx_video_destroy(&machine->video);
         msx_cpu_destroy(machine->cpu);
         free(machine);
         return NULL;
     }
+    /* Compatibility alias: diagnostics and older tests read the chip pointer
+     * directly; machine->audio is the machine-facing handle. */
+    machine->sound = msx_audio_native(&machine->audio);
 
     machine->ppi = NULL;
     msx_ppi_init(machine);
 
     printf("MSX Machine created with Z80 and TMS9918\n");
-    psg_log_clear();
     return machine;
 }
 
 void msx_destroy(MSX_Machine *machine) {
     if (!machine) return;
-    psg_log_clear();
     for (int s = 0; s < NUM_SLOTS; s++)
         for (int t = 0; t < NUM_SUBSLOTS; t++)
             if (machine->slots[s].subslots[t].pRomImage)
                 free(machine->slots[s].subslots[t].pRomImage);
     if (machine->cpu) msx_cpu_destroy(machine->cpu);
     msx_video_destroy(&machine->video);
-    if (machine->sound) psg_destroy((PSG*)machine->sound);
+    msx_audio_destroy(&machine->audio);
     free(machine);
     printf("MSX Machine destroyed\n");
 }
@@ -706,56 +678,15 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     return (int) n;
 }
 
-/* Render the PSG into nSamples mono samples covering nMasterCycles master
- * clocks (3579545 Hz). Call once per emulated frame from the host loop: the
- * core has no cycle counter, so the host passes the time it actually spent.
- * If the frame logged sub-frame register writes, the batch is rendered in
- * segments with the writes applied at their recorded positions (see the log
- * comment above); otherwise it renders in one psg_render call. */
+/* Render the sound device into nSamples mono samples covering nMasterCycles
+ * master clocks (3579545 Hz). Call once per emulated frame from the host loop:
+ * the core has no cycle counter, so the host passes the time it actually
+ * spent. The device replays the frame's timestamped writes itself (see
+ * include/msx_audio.h); this is just the seam forwarder. */
 unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
                         unsigned nMasterCycles)
 {
-    if (!machine || !machine->sound || !out || nSamples == 0) return 0;
-
-    PSG *psg = (PSG*)machine->sound;
-
-    if (s_psgStartOwner != machine->sound) {
-        /* Rebuilt machine: the saved start state no longer exists. */
-        psg_log_clear();
-        s_psgStartOwner = machine->sound;
-    }
-
-    if (s_psgLogCount == 0 || s_psgLogOverflow) {
-        /* No in-frame writes, or the log overflowed: fall back to the old
-         * whole-frame behaviour rather than replaying a partial order. */
-        psg_log_clear();
-        return psg_render(psg, out, nSamples, (UInt32)nMasterCycles);
-    }
-
-    /* Replay from the state saved at the frame's first write. The live chip
-     * keeps its end-of-frame state (already correct for the next frame's
-     * reads); only the 0xA0 latch must survive the struct restore, since
-     * psg_write never touches it. */
-    UInt8 latch = psg->reg_latch;
-    *psg = s_psgStart;
-    psg->reg_latch = latch;
-
-    unsigned n = s_psgLogCount;
-    unsigned sDone = 0;
-    unsigned cDone = 0;
-    for (unsigned k = 0; k < n; k++) {
-        unsigned long long f = s_psgLog[k].frac16;
-        unsigned s1 = (unsigned) ((unsigned long long) nSamples * f >> 16);
-        unsigned c1 = (unsigned) ((unsigned long long) nMasterCycles * f >> 16);
-        if (s1 > sDone) {
-            psg_render(psg, out + sDone, s1 - sDone, (UInt32) (c1 - cDone));
-            sDone = s1;
-            cDone = c1;
-        }
-        psg_write(psg, s_psgLog[k].reg, s_psgLog[k].val);
-    }
-    psg_render(psg, out + sDone, nSamples - sDone,
-               (UInt32) (nMasterCycles - cDone));
-    psg_log_clear();
-    return nSamples;
+    if (!machine || !out || nSamples == 0) return 0;
+    return msx_audio_render(&machine->audio, out, nSamples,
+                            (UInt32)nMasterCycles);
 }

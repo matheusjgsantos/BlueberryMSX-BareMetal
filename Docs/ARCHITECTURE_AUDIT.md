@@ -89,6 +89,13 @@ The following seams already exist and should be preserved rather than replaced:
    is the MSX1 adapter over `src/chips/vdp/tms9918.c`; `msx.c` no longer
    includes the chip header and `machine->vdp` is only a compatibility alias
    to `machine->video.dev` for the Circle renderer and old tests.
+9. `include/msx_audio.h` is the audio device seam (`read_io`, `write_io`,
+   `write_io_at`, `latched_register`, `log_reset`, `render`, `native`,
+   `destroy` + attach). `src/core/msx_audio_psg.c` is the MSX1 adapter over
+   `src/chips/sound/psg.c` and owns both the AY port protocol and the
+   sub-frame write log; `msx.c` no longer includes `psg.h` and `machine->sound`
+   is only a compatibility alias to `msx_audio_native()`. Frame pacing stays
+   in the machine: it passes `frac16` (position in the frame) with each write.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -263,3 +270,22 @@ The current hardware-proven invariants are recorded in the parent MSX
   `test-images/2026-11-01-video-seam/`: Pi 3 535248 B (`a883ef18...`), Pi 4
   581264 B (`70548a0e...`), hardware verification pending. Next: audio (PSG +
   sub-frame log) and input (PPI/keyboard) seams.
+- 2026-11-01: video-seam images hardware-verified on the Pi 3A+ and Pi 4
+  (C-BIOS, sprites, VBlank-synced game speed, MegaROMs, `ROM FROM FILE` vs
+  physical slot, cart writes, reset, audio, UI): no behaviour change from the
+  mapper-module bundle.
+- 2026-11-01: audio device seam added. `include/msx_audio.h` defines the ops
+  table; `src/core/msx_audio_psg.c` adapts the PSG and now owns the sub-frame
+  register write log and its replay (moved out of `msx.c` unchanged in
+  algorithm, now per-machine state instead of static state plus an owner
+  guard). `msx.c` timestamps 0xA0/0xA1 writes with `s_frame_frac16()` and
+  forwards 0xA2 reads through the seam; `msx_psg_render()` is a forwarder.
+  `machine->audio` is the handle, `machine->sound` the compatibility alias.
+  `host-test/audio_seam_test.c` proves foreign-device support, raw-chip
+  equivalence for the port protocol, mid-frame replay (byte-equal to a manual
+  two-segment render, different from a whole-frame render), the >256-write
+  fallback and latch survival. All host tests pass. Images in
+  `test-images/2026-11-01-audio-seam/`: Pi 3 536528 B (`60cf95ae...`), Pi 4
+  582608 B (`c4c8b099...`), hardware verification pending. Next: input seam
+  (PPI/keyboard + joystick ports), then the machine-profile layer with
+  `MSX_Memory` ownership.

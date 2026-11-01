@@ -35,6 +35,7 @@ OBJS = main.o \
 	msx_cpu.o \
 	msx_mapper.o \
 	msx_video_tms9918.o \
+	msx_audio_psg.o \
 	r800.o \
 	tms9918.o \
 	psg.o \
@@ -80,6 +81,10 @@ msx_mapper.o: ../core/msx_mapper.c
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
 msx_video_tms9918.o: ../core/msx_video_tms9918.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+msx_audio_psg.o: ../core/msx_audio_psg.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 

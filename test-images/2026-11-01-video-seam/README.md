@@ -1,7 +1,8 @@
 # Test images: video device seam (2026-11-01)
 
 Branch: `main` (integration line); checkpoint `feature/modular-emulation-architecture`
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-01** (Pi 3A+ and Pi 4, video regression
+checklist passed -- no difference from the mapper-module images)
 
 Fourth extraction step. Behavior should be identical to the mapper-module
 images in `../2026-11-01-mapper-module/` (hardware-verified); the machine now

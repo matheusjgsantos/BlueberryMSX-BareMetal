@@ -7,6 +7,7 @@
 #include "msx_cpu.h"
 #include "msx_memory.h"
 #include "msx_video.h"
+#include "msx_audio.h"
 
 typedef struct {
     MSX_Bus bus;
@@ -21,6 +22,10 @@ typedef struct {
     /* Compatibility alias: machine->video.dev, i.e. the TMS9918* the Circle
      * renderer (vdpblit.cpp, msx_task.cpp) and older tests still use. */
     void *vdp;
+    /* Audio device behind the seam (include/msx_audio.h). */
+    MSX_Audio audio;
+    /* Compatibility alias: machine->audio.dev, i.e. the PSG* diagnostics and
+     * older tests still use. */
     void *sound;
     void *ppi;
     MSX_Slot slots[NUM_SLOTS];

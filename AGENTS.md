@@ -11,8 +11,9 @@ reusable multi-machine emulation platform. The parent rules in
   material; do not commit modularization work to it.
 - `main` is the integration line. It currently carries every verified
   modularization step (host-callback seam, bus/diagnostic split, CPU/clock
-  seam, MegaROM mapper module) and is fast-forwarded from the feature branch
-  after host tests and, for hardware-facing steps, hardware verification.
+  seam, MegaROM mapper module, video device seam, audio device seam) and is
+  fast-forwarded from the feature branch after host tests and, for
+  hardware-facing steps, hardware verification.
 - `feature/modular-emulation-architecture` is kept as a checkpoint of the
   first four verified extractions (tip `d2e887e`, fully contained in `main`).
   Do not delete or rewrite it. New work branches from `main`.
