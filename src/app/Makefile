@@ -32,6 +32,7 @@ OBJS = main.o \
 	biosrom.o \
 	msxdiag_roms.o \
 	msx_core.o \
+	msx_cpu.o \
 	r800.o \
 	tms9918.o \
 	psg.o \
@@ -65,6 +66,10 @@ include $(CIRCLEHOME)/sample/Rules.mk
 # Compile the MSX core C sources with Circle's ARM toolchain into local
 # objects (the .o files in the source tree are host-build artifacts).
 msx_core.o: ../core/msx.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+msx_cpu.o: ../core/msx_cpu.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 

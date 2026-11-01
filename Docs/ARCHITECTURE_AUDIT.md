@@ -75,6 +75,11 @@ The following seams already exist and should be preserved rather than replaced:
    budget and does not own wall-clock sleeping.
 5. The app Makefile compiles the core/chip C sources separately from the C++
    Circle adapter.
+6. `include/msx_cpu.h` gives the machine one CPU handle for creation,
+   single-instruction execution, the master-tick clock, the interrupt line,
+   PC reads and destruction. `src/core/msx_cpu.c` is the current (R800) backend;
+   `MSX_Machine.z80` remains only as a compatibility alias for the Circle app
+   and older tests.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -190,3 +195,14 @@ The current hardware-proven invariants are recorded in the parent MSX
 - 2026-11-01: `msx-pi4.img` from the same bundle (580,048 B) also boots and
   runs correctly on the Pi 4. Both targets of the branch are now hardware
   proven at boot; only the MSX1 regression checklist remains before merge.
+- 2026-11-01: CPU/clock seam added: `include/msx_cpu.h`, `src/core/msx_cpu.c`.
+  The machine now depends on an `MSX_CPU` handle (`msx_cpu_create/execute/
+  get_time/set_irq/clear_irq/get_pc/native_handle`) instead of calling the
+  R800 core directly: `msx_create()` builds it with
+  `MSX_CPU_OPTION_M1`, `msx_step_frame()` paces it by master ticks and raises
+  the IRQ, and `msx_set_bus_callbacks`/destruction are unchanged in behavior.
+  `MSX_Machine.z80` stays as a compatibility alias to the native R800 handle
+  for the Circle app and older tests. New `host-test/cpu_seam_test.c`: 5000
+  instructions through the seam match direct R800 execution (PC and clock
+  identical at every step checked) and the M1 option maps correctly; all
+  existing host tests still pass.

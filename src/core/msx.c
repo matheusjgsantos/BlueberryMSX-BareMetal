@@ -385,7 +385,7 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
     if (port >= 0x98 && port <= 0x9F) {
         v = tms9918_read_reg((TMS9918*)machine->vdp, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
-        if (port == 0x99) r800ClearInt((R800*)machine->z80);
+        if (port == 0x99) msx_cpu_clear_irq(machine->cpu);
     }
     else if (port == 0xA2) v = psg_read((PSG*)machine->sound, psg_get_reg_latch((PSG*)machine->sound));
     else if (port == 0xA0 || port == 0xA1) v = 0xFF;
@@ -488,14 +488,6 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
         machine->bus_write_io(machine->bus_ref, port, val);
 }
 
-static void dummy_patch(void *ref, CpuRegs *regs) { (void)ref; (void)regs; }
-static void dummy_timer(void *ref) { (void)ref; }
-static void dummy_bp(void *ref, UInt16 pc) { (void)ref; (void)pc; }
-static void dummy_debug(void *ref, int cmd, const char *data) { (void)ref; (void)cmd; (void)data; }
-static void dummy_trap(void *ref, UInt8 val) { (void)ref; (void)val; }
-static void dummy_watch_mem(void *ref, UInt16 addr, UInt8 val) { (void)ref; (void)addr; (void)val; }
-static void dummy_watch_io(void *ref, UInt16 port, UInt8 val) { (void)ref; (void)port; (void)val; }
-
 void msx_set_bus_callbacks(MSX_Machine *machine,
                            const MSX_HostCallbacks *callbacks) {
     if (!machine) return;
@@ -546,27 +538,26 @@ MSX_Machine* msx_create() {
         for (int t = 0; t < NUM_SUBSLOTS; t++)
             machine->slots[s].subslots[t].busSlot = -1;
 
-    // Match the reference blueMSX MSX board timing: CPU_ENABLE_M1 adds the
-    // Z80 M1 (opcode fetch) cycle to each instruction's delay so the per
-    // instruction systemTime advance matches blueMSX. Without it the core is
-    // ~1 T-state/instruction too fast. (MSX.c reference sets the same flag.)
-    machine->z80 = r800Create(CPU_ENABLE_M1,
-                              slot_read_mem, slot_write_mem,
-                              slot_read_io, slot_write_io,
-                              dummy_patch, dummy_timer, dummy_bp, dummy_debug,
-                              dummy_trap, dummy_watch_mem, dummy_watch_io,
-                              machine);
-
-    if (!machine->z80) {
-        fprintf(stderr, "Failed to create Z80 CPU\n");
+    // The CPU/clock seam (include/msx_cpu.h). MSX_CPU_OPTION_M1 matches the
+    // reference blueMSX MSX board timing: it adds the Z80 M1 (opcode fetch)
+    // cycle to each instruction's delay so the per-instruction systemTime
+    // advance matches blueMSX. Without it the core is ~1 T-state/instruction
+    // too fast. (MSX.c reference sets the same flag.)
+    static const MSX_CPUBus s_cpuBus = {
+        slot_read_mem, slot_write_mem, slot_read_io, slot_write_io
+    };
+    machine->cpu = msx_cpu_create(MSX_CPU_OPTION_M1, &s_cpuBus, machine);
+    if (!machine->cpu) {
+        fprintf(stderr, "Failed to create CPU\n");
         free(machine);
         return NULL;
     }
+    machine->z80 = msx_cpu_native_handle(machine->cpu);
 
     machine->vdp = tms9918_create();
     if (!machine->vdp) {
         fprintf(stderr, "Failed to create TMS9918 VDP\n");
-        r800Destroy((R800*)machine->z80);
+        msx_cpu_destroy(machine->cpu);
         free(machine);
         return NULL;
     }
@@ -575,7 +566,7 @@ MSX_Machine* msx_create() {
     if (!machine->sound) {
         fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
         tms9918_destroy((TMS9918*)machine->vdp);
-        r800Destroy((R800*)machine->z80);
+        msx_cpu_destroy(machine->cpu);
         free(machine);
         return NULL;
     }
@@ -595,7 +586,7 @@ void msx_destroy(MSX_Machine *machine) {
         for (int t = 0; t < NUM_SUBSLOTS; t++)
             if (machine->slots[s].subslots[t].pRomImage)
                 free(machine->slots[s].subslots[t].pRomImage);
-    if (machine->z80) r800Destroy((R800*)machine->z80);
+    if (machine->cpu) msx_cpu_destroy(machine->cpu);
     if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
     if (machine->sound) psg_destroy((PSG*)machine->sound);
     free(machine);
@@ -774,15 +765,15 @@ void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
  * (s_instrDone/s_instrTotal now carry elapsed/frame *ticks*, used only to
  * time-stamp PSG writes within the frame.) */
 int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
-    R800    *z80 = (R800 *)machine->z80;
+    MSX_CPU *cpu = machine->cpu;
     TMS9918 *vdp = (TMS9918 *)machine->vdp;
-    SystemTime start = r800GetSystemTime(z80);
+    UInt32 start = msx_cpu_get_time(cpu);
     unsigned n = 0;
 
     s_instrTotal = (unsigned) frame_ticks;
-    while ((UInt32)(r800GetSystemTime(z80) - start) < (UInt32) frame_ticks) {
-        s_instrDone = (unsigned)(r800GetSystemTime(z80) - start);
-        r800ExecuteInstruction(z80);
+    while ((UInt32)(msx_cpu_get_time(cpu) - start) < (UInt32) frame_ticks) {
+        s_instrDone = (unsigned)(msx_cpu_get_time(cpu) - start);
+        msx_cpu_execute(cpu);
         n++;
     }
     s_instrDone = s_instrTotal;
@@ -790,16 +781,19 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     tms9918_gen_sync_irq(vdp);
     msx_frame_render(vdp);
     if (vdp->irq) {
-        r800SetInt(z80);
+        msx_cpu_set_irq(cpu);
         /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
          * serial log: tells us the IRQ is being latched, the IM mode,
          * whether interrupts are enabled (IFF1), and where the PC is.
-         * Respect the diag_log budget. */
+         * Respect the diag_log budget. Reads R800 state directly through the
+         * compatibility handle: this is a diagnostic, not machine policy. */
         static int s_irq_log_frame = 0;
-        if ((++s_irq_log_frame % 60) == 0)
+        if ((++s_irq_log_frame % 60) == 0) {
+            R800 *z80 = (R800 *)msx_cpu_native_handle(cpu);
             msx_diag(machine, "IRQ: pending iff1=%u im=%u pc=%04X",
                      z80->regs.iff1, z80->regs.im,
                      z80->regs.PC.W);
+        }
     }
     return (int) n;
 }

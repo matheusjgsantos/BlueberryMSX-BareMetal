@@ -4,6 +4,7 @@
 #include "msx_types.h"
 #include "bus.h"
 #include "msx_host.h"
+#include "msx_cpu.h"
 
 #define NUM_SLOTS 4
 #define NUM_SUBSLOTS 4
@@ -45,6 +46,11 @@ typedef struct {
 
 typedef struct {
     MSX_Bus bus;
+    /* CPU context (include/msx_cpu.h): execution, master-tick clock and the
+     * interrupt line. Machines must use this, not a concrete CPU type. */
+    MSX_CPU *cpu;
+    /* Compatibility alias: msx_cpu_native_handle(cpu), i.e. the R800* the
+     * Circle app and old host tests still read registers from. */
     void *z80;
     void *vdp;
     void *sound;
