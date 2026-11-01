@@ -1,4 +1,5 @@
 #include <msx.h>
+#include <msx_mapper.h>
 #include "../../src/chips/z80/R800.h"
 #include "../../src/chips/vdp/tms9918.h"
 #include "../../src/chips/sound/psg.h"
@@ -176,27 +177,11 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
         if (ss->busSlot >= 0)
             return machine->bus_read
                 ? machine->bus_read(machine->bus_ref, ss->busSlot, addr) : 0xFF;
-        /* MegaROM mappers for emulated ROM subslots. All supported types
-         * (ASCII8, Konami, Konami-SCC) expose four 8KB windows in
-         * 0x4000/0x6000/0x8000/0xA000 selected by ss->bank[0..3]; only the
-         * bank-register write decode differs. */
-        if (ss->mapperType != MSX_MAPPER_NONE &&
-            ss->mapperType != MSX_MAPPER_NOMAPPER &&
-            ss->mapperType != MSX_MAPPER_AUTO &&
-            ss->romSize > 0 && addr >= 0x4000) {
-            int window = (addr - 0x4000) >> 13;
-            if (window < 0 || window > 3) return 0xFF;
-            unsigned bank = ss->bank[window];
-            unsigned page = bank & ss->romMask;
-            unsigned offset = (page << 13) | (addr & 0x1FFF);
-            if (offset < ss->romSize) {
-                if (ss->pRomImage) {
-                    return ss->pRomImage[offset];
-                }
-                return ss->data[offset];
-            }
-            return 0xFF;
-        }
+        /* MegaROM mappers for emulated ROM subslots: src/core/msx_mapper.c
+         * owns the bank decode, this function only routes the address. */
+        if (msx_mapper_is_mapped(ss->mapperType) && ss->romSize > 0 &&
+            addr >= 0x4000)
+            return msx_mapper_read(ss, addr);
         uint8_t *base = ss->data;
         int size = ss->size;
         // Each (slot, subslot) backs a full 64KB address space, indexed by the
@@ -241,51 +226,12 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
                 machine->bus_write(machine->bus_ref, ss->busSlot, addr, val);
             return;
         }
-        /* MegaROM bank-register writes for emulated ROM subslots. Non-bus
-         * mapper writes to any other address are ignored (ROM is read-only). */
-        {
-            int mapped = (ss->mapperType == MSX_MAPPER_ASCII8 ||
-                          ss->mapperType == MSX_MAPPER_ASCII16 ||
-                          ss->mapperType == MSX_MAPPER_KONAMI ||
-                          ss->mapperType == MSX_MAPPER_KONAMI_SCC);
-            if (mapped && ss->romSize > 0) {
-                if (ss->mapperType == MSX_MAPPER_KONAMI_SCC) {
-                    /* bank 1: 0x5000-0x57FF, bank 2: 0x7000-0x77FF,
-                     * bank 3: 0x9000-0x97FF, bank 4: 0xB000-0xB7FF.
-                     * (0x9800-0x9FFF is the SCC register window; with no SCC
-                     * chip present those writes are ignored.) */
-                    if (addr >= 0x5000 && addr < 0xC000 &&
-                        (addr & 0x1800) == 0x1000) {
-                        int window = (addr >> 13) - 2; /* 0x5000->0 .. 0xB000->3 */
-                        if (window >= 0 && window <= 3) {
-                            ss->bank[window] = val & ss->romMask;
-                        }
-                    }
-                    return;
-                }
-                if (ss->mapperType == MSX_MAPPER_KONAMI) {
-                    /* Page 0x4000 is fixed at segment 0; 0x6000/0x8000/0xA000
-                     * select windows 1/2/3 (any address in the page works). */
-                    if (addr >= 0x6000 && addr < 0xC000) {
-                        int window = (addr >> 13) - 2; /* 0x6000->1 .. 0xA000->3 */
-                        if (window >= 0 && window <= 3) {
-                            ss->bank[window] = val & ss->romMask;
-                        }
-                    }
-                    return;
-                }
-                /* ASCII8: 0x6000/w0, 0x6800/w1, 0x7000/w2, 0x7800/w3. */
-                if (addr >= 0x6000 && addr <= 0x67FF) {
-                    ss->bank[0] = val & ss->romMask;
-                } else if (addr >= 0x6800 && addr <= 0x6FFF) {
-                    ss->bank[1] = val & ss->romMask;
-                } else if (addr >= 0x7000 && addr <= 0x77FF) {
-                    ss->bank[2] = val & ss->romMask;
-                } else if (addr >= 0x7800 && addr <= 0x7FFF) {
-                    ss->bank[3] = val & ss->romMask;
-                }
-                return;
-            }
+        /* MegaROM bank-register writes for emulated ROM subslots: the mapper
+         * module decodes the register address. Every other write to a mapped
+         * ROM is ignored (ROM is read-only on real hardware). */
+        if (msx_mapper_is_mapped(ss->mapperType) && ss->romSize > 0) {
+            msx_mapper_write(ss, addr, val);
+            return;
         }
         int size = ss->size;
         // ROM bytes are read-only: ignore writes (matches real hardware, where
@@ -608,48 +554,9 @@ void msx_set_slot(MSX_Machine *machine, int slot, int sslot, uint8_t *data, int 
 }
 
 MSX_MapperType msx_guess_mapper(const uint8_t *pImage, unsigned nSize) {
-    if (!pImage) return MSX_MAPPER_NONE;
-    /* Anything that fits in a single 32KB page pair with no bank selects has
-     * no mapper. Small ROMs (<64KB) are treated as plain even if a stray
-     * 0x32 exists. */
-    if (nSize < 0x10000) return MSX_MAPPER_NONE;
-
-    int nScc = 0, nKonami = 0, nAscii8 = 0, nAscii16 = 0;
-    unsigned i;
-    for (i = 0; i + 3 <= nSize; i++) {
-        if (pImage[i] != 0x32) continue; /* LD (nn),A */
-        unsigned v = (unsigned)pImage[i + 1] | ((unsigned)pImage[i + 2] << 8);
-        switch (v) {
-        case 0x5000: case 0x9000: case 0xB000:
-            nScc++; break;                              /* Konami-SCC only */
-        case 0x4000: case 0x8000: case 0xA000:
-            nKonami++; break;                           /* Konami only */
-        case 0x6800: case 0x7800:
-            nAscii8++; break;                           /* ASCII8 only */
-        case 0x6000:
-            nKonami++; nAscii8++; nAscii16++; break;    /* ambiguous */
-        case 0x7000:
-            nScc++; nAscii8++; nAscii16++; break;       /* ambiguous */
-        case 0x77FF:
-            nAscii16++; break;                          /* ASCII16 marker */
-        default:
-            break;
-        }
-    }
-    /* openMSX biases away from ASCII8 (its marker is weakest). */
-    if (nAscii8 > 0) nAscii8--;
-
-    if (nScc == 0 && nKonami == 0 && nAscii8 == 0 && nAscii16 == 0) {
-        /* No recognizable idiom: fall back to ASCII8 (the common MegaROM). */
-        return MSX_MAPPER_ASCII8;
-    }
-    if (nScc > 0 && nScc >= nKonami && nScc >= nAscii8 && nScc >= nAscii16)
-        return MSX_MAPPER_KONAMI_SCC;
-    if (nKonami > 0 && nKonami >= nAscii8 && nKonami >= nAscii16)
-        return MSX_MAPPER_KONAMI;
-    if (nAscii8 >= nAscii16) return MSX_MAPPER_ASCII8;
-    /* ASCII16 wins, but we approximate it with the shared ASCII8 decode. */
-    return MSX_MAPPER_ASCII8;
+    /* Bank-select heuristic lives with the mapper policy; kept here as the
+     * public (MSX_Machine) entry point so callers do not change. */
+    return msx_mapper_guess(pImage, nSize);
 }
 
 void msx_set_mapper(MSX_Machine *machine, int slot, int sslot, MSX_MapperType type) {

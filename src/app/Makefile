@@ -33,6 +33,7 @@ OBJS = main.o \
 	msxdiag_roms.o \
 	msx_core.o \
 	msx_cpu.o \
+	msx_mapper.o \
 	r800.o \
 	tms9918.o \
 	psg.o \
@@ -70,6 +71,10 @@ msx_core.o: ../core/msx.c
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
 msx_cpu.o: ../core/msx_cpu.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+msx_mapper.o: ../core/msx_mapper.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 

@@ -80,6 +80,10 @@ The following seams already exist and should be preserved rather than replaced:
    PC reads and destruction. `src/core/msx_cpu.c` is the current (R800) backend;
    `MSX_Machine.z80` remains only as a compatibility alias for the Circle app
    and older tests.
+7. `src/core/msx_mapper.c` (`include/msx_mapper.h`) owns the MegaROM bank
+   policy (is-mapped, window read, register write, AUTO guess) for one
+   `MSX_SubSlot`. `src/core/msx.c` keeps address routing and the physical
+   RPMC bus only, which is the piece a non-MSX memory map will replace.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -214,3 +218,20 @@ The current hardware-proven invariants are recorded in the parent MSX
   all behave as in v1.0. No regression from replacing the direct R800 calls
   with the seam. The branch is mergeable; remaining work is further
   extraction (memory/I/O bus routing), not a fix.
+- 2026-11-01: MegaROM mapper policy split out of the memory decoder.
+  `include/msx_memory.h` now holds the slot storage and `MSX_MapperType`
+  (ownership unchanged), and new `include/msx_mapper.h` +
+  `src/core/msx_mapper.c` implement `msx_mapper_is_mapped/read/write/guess`;
+  the CPU memory callbacks in `src/core/msx.c` only select the subslot, route
+  the physical RPMC bus, and delegate ROM windows and bank registers
+  (`msx.c` 853 -> 760 lines). Behavior preserved exactly (Konami fixed
+  `0x4000`, Konami-SCC `0x5000-0xBFFF` decode with the SCC window ignored,
+  ASCII8 registers, ASCII16 via the ASCII8 decode, bank masking, `0xC000+`
+  reading `0xFF`, `LD (nn),A` guess with the openMSX bias). New
+  `host-test/mapper_policy_test.c` covers all four mapper types plus the
+  heuristic directly; konami/ascii8/megarom_bus/cartdump/io_decode and the CPU
+  tests still pass. Images in `test-images/2026-11-01-mapper-module/`:
+  Pi 3 534736 B, Pi 4 580688 B (+192 B each), hardware verification pending.
+  Deliberately deferred: moving the slot array behind an `MSX_Memory` handle
+  (needs app/test accessors and belongs with machine profiles) and splitting
+  the I/O decode (belongs with the device interfaces).
