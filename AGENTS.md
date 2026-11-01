@@ -4,17 +4,22 @@ This project is being extended from a working MSX1 bare-metal emulator into a
 reusable multi-machine emulation platform. The parent rules in
 `/home/opencode/MSX/AGENTS.md` and `/home/opencode/AGENTS.md` remain mandatory.
 
-## Stable branch and working branch
+## Branches (updated 2026-11-01)
 
-- `main` is the stable, hardware-verified release line.
-- Modularization work belongs on `feature/modular-emulation-architecture` or a
-  child feature branch created from it.
-- Do not rewrite, reset, or destabilize `main` while developing this work.
+- `stable` is the known-good backup line: the pre-modularization MSX1 state
+  (commit `10d9a83`, the v1.0 release line). Treat it as read-only rollback
+  material; do not commit modularization work to it.
+- `main` is the integration line. It currently carries every verified
+  modularization step (host-callback seam, bus/diagnostic split, CPU/clock
+  seam, MegaROM mapper module) and is fast-forwarded from the feature branch
+  after host tests and, for hardware-facing steps, hardware verification.
+- `feature/modular-emulation-architecture` is the working branch; child
+  feature branches are created from it or from `main`.
 - Preserve the current v1.0 behavior and release artifacts. Every refactoring
   step must leave a buildable MSX1 fallback.
-- Before merging, run the existing host tests and the appropriate Circle build;
-  hardware-facing changes require hardware verification or an explicit note
-  that hardware verification is still pending.
+- Before fast-forwarding `main`, run the existing host tests and the
+  appropriate Circle build; hardware-facing changes require hardware
+  verification or an explicit note that hardware verification is still pending.
 
 ## Long-term goals
 
