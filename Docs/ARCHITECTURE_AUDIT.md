@@ -95,7 +95,12 @@ The following seams already exist and should be preserved rather than replaced:
    `src/chips/sound/psg.c` and owns both the AY port protocol and the
    sub-frame write log; `msx.c` no longer includes `psg.h` and `machine->sound`
    is only a compatibility alias to `msx_audio_native()`. Frame pacing stays
-   in the machine: it passes `frac16` (position in the frame) with each write.
+    in the machine: it passes `frac16` (position in the frame) with each write.
+10. `include/msx_input.h` is the input device seam (`read_io`, `write_io`,
+    `set_key`, `native`, `destroy` + attach). `src/core/msx_input_ppi.c` owns
+    the MSX1 PPI keyboard matrix and EC mapping; port A's primary-slot effect
+    remains an explicit callback into the machine memory policy. `msx.c` no
+    longer owns the matrix layout.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -289,8 +294,15 @@ The current hardware-proven invariants are recorded in the parent MSX
   582608 B (`c4c8b099...`), hardware verification pending. Next: input seam
   (PPI/keyboard + joystick ports), then the machine-profile layer with
   `MSX_Memory` ownership.
-- 2026-11-01: audio-seam images hardware-verified on the Pi 3A+ and Pi 4.
+ - 2026-11-01: audio-seam images hardware-verified on the Pi 3A+ and Pi 4.
   Sound is delivered correctly on both output paths (HDMI and the phone jack)
   and the audio regression checklist passed, i.e. the sub-frame write log
-  behaves exactly as it did inside `msx.c`. Next: input seam (PPI/keyboard +
-  joystick ports).
+   behaves exactly as it did inside `msx.c`. Next: input seam (PPI/keyboard +
+   joystick ports).
+ - 2026-11-01: input device seam added. `include/msx_input.h` defines the
+   handle/ops table and standard MSX EC codes; `src/core/msx_input_ppi.c`
+   contains the extracted PPI matrix and host-key mapping. `msx.c` retains only
+   machine slot policy and routes 0xA8-0xAB through the seam. All 13 host tests
+   pass. Images in `test-images/2026-11-01-input-seam/`: Pi 3 537232 B
+   (`d2dff0ea...`), Pi 4 583376 B (`54b19822...`), hardware verification
+   pending. Next: machine-profile layer and `MSX_Memory` ownership.
