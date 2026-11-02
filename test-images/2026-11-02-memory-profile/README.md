@@ -1,7 +1,8 @@
 # Test images: MSX memory profile (2026-11-02)
 
 Branch: `main`  
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-02** (Pi 3 and Pi 4 boot correctly; games run
+from physical slots)
 
 This step moves MSX1 slot storage and active-page selection into an embedded
 `MSX_Memory` profile. Existing `machine->slots[]` and

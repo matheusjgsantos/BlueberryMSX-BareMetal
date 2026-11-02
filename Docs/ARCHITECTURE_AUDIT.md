@@ -324,3 +324,8 @@ The current hardware-proven invariants are recorded in the parent MSX
   (`59ace709...`), Pi 4 583312 B (`15faa253...`), hardware verification
   pending. Next: make memory access itself go through a profile ops table,
   then add a flat-memory profile for ColecoVision.
+- 2026-11-02: memory-profile images hardware-verified on Pi 3 and Pi 4.
+  Both images boot correctly and games run from physical slots; no regression
+  observed in the owned `MSX_Memory` storage or compatibility aliases. Next:
+  put memory access behind profile operations, then add a flat-memory profile
+  for ColecoVision.
