@@ -111,6 +111,10 @@ void msx_load_rom_image(MSX_Machine *machine, int slot, int sslot, uint8_t *pIma
 /* Set mapper for an emulated subslot (applied at load/reset time). */
 void msx_set_mapper(MSX_Machine *machine, int slot, int sslot, MSX_MapperType type);
 
+/* MSX1 slot-memory backend attached to MSX_Machine.memory by msx_create().
+ * A different machine profile can swap in its own MSX_MemoryOps. */
+const MSX_MemoryOps *msx_memory_ops_msx(void);
+
 /* Heuristic mapper detection for ROM images, following openMSX's own guesser:
  * scan for LD (nn),A bank-select idioms to the known mapper register windows.
  * Returns MSX_MAPPER_NONE for images smaller than 64KB and a best-guess

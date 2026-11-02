@@ -82,8 +82,10 @@ The following seams already exist and should be preserved rather than replaced:
    and older tests.
 7. `src/core/msx_mapper.c` (`include/msx_mapper.h`) owns the MegaROM bank
    policy (is-mapped, window read, register write, AUTO guess) for one
-   `MSX_SubSlot`. `src/core/msx.c` keeps address routing and the physical
-   RPMC bus only, which is the piece a non-MSX memory map will replace.
+   `MSX_SubSlot`. Address routing itself is now a memory-profile backend:
+   `src/core/msx_memory_msx.c` implements `MSX_MemoryOps` for the MSX slot map
+   and the live RPMC bus, so `msx.c` keeps only the bus entry points and the
+   MegaFlashROM event log.
 8. `include/msx_video.h` is the video device seam (`read_io`, `write_io`,
    `sync_irq`, `irq_pending`, `destroy` + attach). `src/core/msx_video_tms9918.c`
    is the MSX1 adapter over `src/chips/vdp/tms9918.c`; `msx.c` no longer
@@ -101,11 +103,13 @@ The following seams already exist and should be preserved rather than replaced:
     the MSX1 PPI keyboard matrix and EC mapping; port A's primary-slot effect
     remains an explicit callback into the machine memory policy. `msx.c` no
     longer owns the matrix layout.
-11. `include/msx_memory.h` now defines the owned `MSX_Memory` profile: slots,
-    `slotReg`, and `activeSlot[]`. `MSX_Machine` keeps pointer aliases named
-    `slots` and `activeSlot`, plus the legacy scalar `slotReg`, so app code and
-    existing tests remain source-compatible while a future machine profile can
-    attach a different memory object.
+11. `include/msx_memory.h` defines the owned `MSX_Memory` profile: slots,
+    `slotReg`, `activeSlot[]`, and an `MSX_MemoryOps` address-decode table.
+    `MSX_Machine` keeps pointer aliases named `slots` and `activeSlot`, plus
+    the legacy scalar `slotReg`, so app code and existing tests remain
+    source-compatible. `msx_memory_read`/`msx_memory_write` are the machine
+    entry points; `src/core/msx_memory_msx.c` is the MSX1 backend (slots,
+    mapper, RPMC bus), and a flat-memory machine can attach its own ops.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -329,3 +333,15 @@ The current hardware-proven invariants are recorded in the parent MSX
   observed in the owned `MSX_Memory` storage or compatibility aliases. Next:
   put memory access behind profile operations, then add a flat-memory profile
   for ColecoVision.
+- 2026-11-02: memory-profile address ops added. `MSX_MemoryOps` (`read`/`write`
+  per address) now sits on `MSX_Memory`; `msx_memory_read`/`msx_memory_write`
+  are the machine entry points. The MSX slot decoder moved from `msx.c` into
+  `src/core/msx_memory_msx.c` (`msx_memory_ops_msx()`), preserving slot
+  routing, MegaROM mapper dispatch, ROM read-only masking and live RPMC bus
+  forwarding. `msx.c` keeps the CPU bus entry points and the 0xE200/0xE210
+  MegaFlashROM event log. `memory_ops_test.c` proves default attachment,
+  slot/ROM/bus routing, foreign-profile replacement and inert forwarders. All
+  15 host tests pass; images in `test-images/2026-11-02-memory-ops/`: Pi 3
+  537424 B (`20b95a66...`), Pi 4 583632 B (`2740fa1d...`), hardware
+  verification pending. Next: add the flat-memory profile and a minimal
+  machine profile (CPU+memory+video+audio+input), with ColecoVision first.

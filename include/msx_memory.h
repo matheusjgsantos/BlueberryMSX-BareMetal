@@ -57,13 +57,33 @@ typedef struct {
     MSX_SubSlot subslots[NUM_SUBSLOTS];
 } MSX_Slot;
 
+typedef struct MSX_Memory MSX_Memory;
+
+/* Address decoder for one memory profile. `ctx` is supplied by the machine
+ * when the profile is attached, so the MSX backend can use the live RPMC bus
+ * callbacks without the memory object depending on MSX_Machine directly.
+ * A profile that has no ops (or a NULL read/write) is inert: reads return
+ * 0xFF and writes are ignored. */
 typedef struct {
+    const char *name;
+    UInt8 (*read)(MSX_Memory *memory, void *ctx, UInt16 addr);
+    void (*write)(MSX_Memory *memory, void *ctx, UInt16 addr, UInt8 val);
+} MSX_MemoryOps;
+
+struct MSX_Memory {
     MSX_Slot slots[NUM_SLOTS];
     UInt8 slotReg;
     int activeSlot[4];
-} MSX_Memory;
+    /* Address-decode profile. MSX1 uses the slot backend in
+     * src/core/msx_memory_msx.c; a flat-memory machine can attach its own. */
+    const MSX_MemoryOps *ops;
+    void *ctx;
+};
 
 void msx_memory_init(MSX_Memory *memory);
+void msx_memory_set_ops(MSX_Memory *memory, const MSX_MemoryOps *ops, void *ctx);
+UInt8 msx_memory_read(MSX_Memory *memory, UInt16 addr);
+void msx_memory_write(MSX_Memory *memory, UInt16 addr, UInt8 val);
 
 #ifdef __cplusplus
 }

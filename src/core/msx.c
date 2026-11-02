@@ -16,6 +16,7 @@ static void machine_port_a(void *ref, UInt8 val);
 static void machine_memory_attach(MSX_Machine *machine)
 {
     msx_memory_init(&machine->memory);
+    msx_memory_set_ops(&machine->memory, msx_memory_ops_msx(), machine);
     machine->slots = machine->memory.slots;
     machine->activeSlot = machine->memory.activeSlot;
     machine->slotReg = machine->memory.slotReg;
@@ -104,34 +105,7 @@ int msx_slot_event_get(unsigned nIndex, unsigned *nPc, unsigned *nPort, unsigned
 
 static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     MSX_Machine *machine = (MSX_Machine*)ref;
-
-    int region = addr / REGION_SIZE;
-    if (region > 3) region = 3;
-
-    int active = machine->activeSlot[region];
-    int slot = active & 3;
-    int sslot = (active >> 2) & 3;
-
-    if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
-        MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
-        // Live cartridge bus: the whole subslot lives on a real RPMC
-        // connector, so every byte comes from the physical cartridge.
-        if (ss->busSlot >= 0)
-            return machine->bus_read
-                ? machine->bus_read(machine->bus_ref, ss->busSlot, addr) : 0xFF;
-        /* MegaROM mappers for emulated ROM subslots: src/core/msx_mapper.c
-         * owns the bank decode, this function only routes the address. */
-        if (msx_mapper_is_mapped(ss->mapperType) && ss->romSize > 0 &&
-            addr >= 0x4000)
-            return msx_mapper_read(ss, addr);
-        uint8_t *base = ss->data;
-        int size = ss->size;
-        // Each (slot, subslot) backs a full 64KB address space, indexed by the
-        // complete Z80 address (region << 14 | offset). The active slot for the
-        // 16KB region selects which slot's buffer is visible.
-        if (size > 0 && addr < size) return base[addr];
-    }
-    return 0xFF;
+    return msx_memory_read(&machine->memory, addr);
 }
 
 static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
@@ -151,36 +125,9 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
         mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 2, val);
     }
 
-    int region = addr / REGION_SIZE;
-    if (region > 3) region = 3;
-
-    int active = machine->activeSlot[region];
-    int slot = active & 3;
-    int sslot = (active >> 2) & 3;
-
-    if (slot < NUM_SLOTS && sslot < NUM_SUBSLOTS) {
-        MSX_SubSlot *ss = &machine->slots[slot].subslots[sslot];
-        // Live cartridge bus: pass the write to the real cartridge so its
-        // mapper/bank register or on-board RAM sees it (ROM-array writes to
-        // emulated slots stay ignored below).
-        if (ss->busSlot >= 0) {
-            if (machine->bus_write)
-                machine->bus_write(machine->bus_ref, ss->busSlot, addr, val);
-            return;
-        }
-        /* MegaROM bank-register writes for emulated ROM subslots: the mapper
-         * module decodes the register address. Every other write to a mapped
-         * ROM is ignored (ROM is read-only on real hardware). */
-        if (msx_mapper_is_mapped(ss->mapperType) && ss->romSize > 0) {
-            msx_mapper_write(ss, addr, val);
-            return;
-        }
-        int size = ss->size;
-        // ROM bytes are read-only: ignore writes (matches real hardware, where
-        // writing to a ROM region has no effect). This is what lets the BIOS
-        // RAM test (chkram) detect the RAM/ROM boundary and exit its loop.
-        if (size > 0 && addr < size && !ss->rom[addr]) ss->data[addr] = val;
-    }
+    /* Slot routing, live bus and mapper policy live in the attached memory
+     * profile (src/core/msx_memory_msx.c for MSX1). */
+    msx_memory_write(&machine->memory, addr, val);
 }
 
 int g_trace_io = 0;   /* promoted to non-static so host harness can enable */
