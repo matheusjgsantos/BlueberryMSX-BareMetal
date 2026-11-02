@@ -13,6 +13,14 @@
  * so the seam can call it through a function pointer. */
 static void machine_port_a(void *ref, UInt8 val);
 
+static void machine_memory_attach(MSX_Machine *machine)
+{
+    msx_memory_init(&machine->memory);
+    machine->slots = machine->memory.slots;
+    machine->activeSlot = machine->memory.activeSlot;
+    machine->slotReg = machine->memory.slotReg;
+}
+
 void msx_ppi_init(MSX_Machine *machine) {
     if (!machine) return;
     if (msx_input_init_ppi(&machine->input, machine_port_a, machine) != 0) {
@@ -249,7 +257,8 @@ static void machine_port_a(void *ref, UInt8 val) {
     msx_diag(machine, "CKR [A8] PC=%04X val=%02X -> R0=%d R1=%d R2=%d R3=%d",
              (int)pc, (int)val,
              val & 0x03, (val>>2)&0x03, (val>>4)&0x03, (val>>6)&0x03);
-    machine->slotReg = val;
+    machine->memory.slotReg = val;
+    machine->slotReg = machine->memory.slotReg;
     machine->activeSlot[0] = val & 0x03;
     machine->activeSlot[1] = (val >> 2) & 0x03;
     machine->activeSlot[2] = (val >> 4) & 0x03;
@@ -278,7 +287,7 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
     }
     else if (port == 0xA2) v = msx_audio_read_io(&machine->audio, port);
     else if (port == 0xA0 || port == 0xA1) v = 0xFF;
-    else if (port == 0xA8) v = machine->slotReg;
+    else if (port == 0xA8) v = machine->memory.slotReg;
     else if (port == 0xA9) v = msx_input_read_io(&machine->input, port);
     else if (port == 0xAA) v = 0xFF; /* CLo read not expected */
     else if (port == 0xAB) v = 0xFF; /* CHi read not expected */
@@ -385,14 +394,9 @@ MSX_Machine* msx_create() {
     machine->bus.read_io = slot_read_io;
     machine->bus.write_io = slot_write_io;
 
-    // Default: all regions map to slot 0, subslot 0
-    memset(machine->activeSlot, 0, sizeof(machine->activeSlot));
-    machine->slotReg = 0;
-
-    // No slot is bus-backed until msx_slot_set_bus() says so.
-    for (int s = 0; s < NUM_SLOTS; s++)
-        for (int t = 0; t < NUM_SUBSLOTS; t++)
-            machine->slots[s].subslots[t].busSlot = -1;
+    /* The MSX1 memory profile owns slots and page selection. The pointer
+     * fields retain the old machine->slots[] / activeSlot[] interface. */
+    machine_memory_attach(machine);
 
     // The CPU/clock seam (include/msx_cpu.h). MSX_CPU_OPTION_M1 matches the
     // reference blueMSX MSX board timing: it adds the Z80 M1 (opcode fetch)

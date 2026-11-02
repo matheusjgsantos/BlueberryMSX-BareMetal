@@ -101,6 +101,11 @@ The following seams already exist and should be preserved rather than replaced:
     the MSX1 PPI keyboard matrix and EC mapping; port A's primary-slot effect
     remains an explicit callback into the machine memory policy. `msx.c` no
     longer owns the matrix layout.
+11. `include/msx_memory.h` now defines the owned `MSX_Memory` profile: slots,
+    `slotReg`, and `activeSlot[]`. `MSX_Machine` keeps pointer aliases named
+    `slots` and `activeSlot`, plus the legacy scalar `slotReg`, so app code and
+    existing tests remain source-compatible while a future machine profile can
+    attach a different memory object.
 
 These are the first modular interfaces. They need naming, ownership, and state
 documentation before they need replacement.
@@ -310,3 +315,12 @@ The current hardware-proven invariants are recorded in the parent MSX
   the Pi 3A+ and Pi 4, including the PPI matrix path; no regression observed.
   The first six device seams are now hardware-verified. Next: machine-profile
   layer and `MSX_Memory` ownership.
+- 2026-11-02: first machine-profile step added. `MSX_Memory` owns the MSX1
+  slot array and active page selection; `msx.c` attaches it at machine
+  creation, and old `machine->slots[]` / `machine->activeSlot[]` access remains
+  valid through pointers. `memory_profile_test.c` proves ownership, aliases,
+  initialization, slot selection and port readback. All 14 host tests pass;
+  images in `test-images/2026-11-02-memory-profile/`: Pi 3 537168 B
+  (`59ace709...`), Pi 4 583312 B (`15faa253...`), hardware verification
+  pending. Next: make memory access itself go through a profile ops table,
+  then add a flat-memory profile for ColecoVision.

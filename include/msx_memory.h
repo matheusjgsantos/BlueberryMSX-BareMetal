@@ -13,9 +13,11 @@ extern "C" {
  * policy (src/core/msx_mapper.c) can share them without pulling in the whole
  * machine.
  *
- * Ownership note: the slot array currently still lives in MSX_Machine. Moving
- * it behind an MSX_Memory handle is the next step, once the machine profile
- * layer needs to swap in a non-MSX memory map. */
+ * Ownership: MSX_Memory owns the slot array and active page selection. The
+ * MSX_Machine compatibility fields are pointers into this object, so existing
+ * code can continue to use machine->slots[] and machine->activeSlot[]. A
+ * future machine profile can provide a different MSX_Memory instance without
+ * changing the CPU or device seams. */
 
 #define NUM_SLOTS 4
 #define NUM_SUBSLOTS 4
@@ -54,6 +56,14 @@ typedef struct {
 typedef struct {
     MSX_SubSlot subslots[NUM_SUBSLOTS];
 } MSX_Slot;
+
+typedef struct {
+    MSX_Slot slots[NUM_SLOTS];
+    UInt8 slotReg;
+    int activeSlot[4];
+} MSX_Memory;
+
+void msx_memory_init(MSX_Memory *memory);
 
 #ifdef __cplusplus
 }

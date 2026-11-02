@@ -37,6 +37,7 @@ OBJS = main.o \
 	msx_video_tms9918.o \
 	msx_audio_psg.o \
 	msx_input_ppi.o \
+	msx_memory.o \
 	r800.o \
 	tms9918.o \
 	psg.o \
@@ -90,6 +91,10 @@ msx_audio_psg.o: ../core/msx_audio_psg.c
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
 msx_input_ppi.o: ../core/msx_input_ppi.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+msx_memory.o: ../core/msx_memory.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 

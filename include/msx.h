@@ -32,9 +32,12 @@ typedef struct {
     MSX_Input input;
     /* Compatibility alias: msx_input_native(), the PPI state pointer. */
     void *ppi;
-    MSX_Slot slots[NUM_SLOTS];
+    /* Memory profile owns slots and page selection; these pointers preserve
+     * the old machine->slots[] / machine->activeSlot[] source interface. */
+    MSX_Memory memory;
+    MSX_Slot *slots;
     UInt8 slotReg;        // Current slot selection (from port 0xA8)
-    int activeSlot[4];    // Active slot+subslot for each 16KB region
+    int *activeSlot;      // Active slot+subslot for each 16KB region
 
     /* Live RPMC cartridge bus. Set by the app when msxbus is enabled: a
      * subslot whose busSlot >= 0 routes its memory accesses here. The
