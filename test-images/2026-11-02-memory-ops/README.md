@@ -1,7 +1,7 @@
 # Test images: memory-profile address ops (2026-11-02)
 
 Branch: `main`  
-Status: **hardware verification pending**
+Status: **hardware verified 2026-11-02** (full checklist passed on Pi 3A+ and Pi 4)
 
 This step puts memory access behind an address-decode ops table
 (`MSX_MemoryOps`) attached to `MSX_Memory`. The MSX1 slot decoder moved out of

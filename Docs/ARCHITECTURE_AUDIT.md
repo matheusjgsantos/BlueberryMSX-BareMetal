@@ -345,3 +345,9 @@ The current hardware-proven invariants are recorded in the parent MSX
   537424 B (`20b95a66...`), Pi 4 583632 B (`2740fa1d...`), hardware
   verification pending. Next: add the flat-memory profile and a minimal
   machine profile (CPU+memory+video+audio+input), with ColecoVision first.
+- 2026-11-02: memory-ops images hardware-verified on Pi 3A+ and Pi 4. Full
+  checklist passed: C-BIOS/keyboard, 32 KB ROMs, Konami/ASCII8/ASCII16/SCC
+  MegaROMs, `ROM FROM FILE` and physical slots, cart writes/bank switching,
+  reset, PSG audio, video, overlay/browser and F-keys. The ops extraction did
+  not change MSX1 behavior. Next: flat-memory profile and the minimal machine
+  profile layer, with ColecoVision as the first non-MSX target.
