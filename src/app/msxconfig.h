@@ -72,7 +72,7 @@ struct MSXConfig
 	int nMsxbusSlot1;	// emulated primary slot for board connector 1
 	int nMsxbusSlot3;	// emulated primary slot for board connector 3
 	int nMsxbusReadDelay;	// post-WAIT settle iterations for memory reads
-	int nMachine;		// msx.machine: 0=MSX1, 1=MSX2, 2=MSX2+
+	int nMachine;		// machine: 0=MSX1, 1=MSX2, 2=MSX2+, 3=ColecoVision
 	int nCartMapper;	// MsxMapper
 
 	MSXConfig (void)

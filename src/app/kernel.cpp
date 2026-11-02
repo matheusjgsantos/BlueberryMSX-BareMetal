@@ -29,6 +29,20 @@
 
 static const char *FromKernel = "kernel";
 
+// Machine selection (msx.ini "machine=" and the overlay selector) maps onto
+// the portable profile ids. MSX2/MSX2+ still use the MSX1 core until their
+// V9938 and secondary-slot support lands; only ColecoVision opts out.
+static MSX_ProfileId ProfileFromMachine (int nMachine)
+{
+	return nMachine == MsxMachineColecoVision
+		? MSX_PROFILE_COLECOVISION : MSX_PROFILE_MSX1;
+}
+
+static bool IsColecoMachine (int nMachine)
+{
+	return nMachine == MsxMachineColecoVision;
+}
+
 extern "C" void diag_uart (char c);
 
 // HID usage codes for the keys the overlay menu needs. Arrow keys use the
@@ -147,6 +161,57 @@ static int HidKeyToEC (unsigned char ucKey)
 	}
 
 	return -1;
+}
+
+// HID usage -> ColecoVision pad 1. Joystick bits are 0x01 up, 0x02 right,
+// 0x04 down, 0x08 left, 0x10 fire; *pKeypad gets a MSX_COLECO_KEY_* code and
+// *pFire2 the second (right) fire button. Returns FALSE for unmapped keys.
+static bool ColecoHidToPad (unsigned char ucKey, int *pJoystick,
+			    int *pKeypad, int *pFire2)
+{
+	switch (ucKey)
+	{
+	case HID_UP:		*pJoystick |= 0x01; return TRUE;
+	case HID_RIGHT:		*pJoystick |= 0x02; return TRUE;
+	case HID_DOWN:		*pJoystick |= 0x04; return TRUE;
+	case HID_LEFT:		*pJoystick |= 0x08; return TRUE;
+
+	case 0x1D:		/* Z */
+	case 0x2C:		/* space */
+				*pJoystick |= 0x10; return TRUE;
+
+	case 0x1B:		/* X: right-hand fire */
+				*pFire2 = 1; return TRUE;
+
+	case 0x2D:		*pKeypad = MSX_COLECO_KEY_STAR; return TRUE;
+	case 0x2E:		*pKeypad = MSX_COLECO_KEY_HASH; return TRUE;
+
+	/* Number row: 1..9 then 0. */
+	case 0x1E:		*pKeypad = MSX_COLECO_KEY_1; return TRUE;
+	case 0x1F:		*pKeypad = MSX_COLECO_KEY_2; return TRUE;
+	case 0x20:		*pKeypad = MSX_COLECO_KEY_3; return TRUE;
+	case 0x21:		*pKeypad = MSX_COLECO_KEY_4; return TRUE;
+	case 0x22:		*pKeypad = MSX_COLECO_KEY_5; return TRUE;
+	case 0x23:		*pKeypad = MSX_COLECO_KEY_6; return TRUE;
+	case 0x24:		*pKeypad = MSX_COLECO_KEY_7; return TRUE;
+	case 0x25:		*pKeypad = MSX_COLECO_KEY_8; return TRUE;
+	case 0x26:		*pKeypad = MSX_COLECO_KEY_9; return TRUE;
+	case 0x27:		*pKeypad = MSX_COLECO_KEY_0; return TRUE;
+
+	/* Numeric keypad: 1..9 then 0. */
+	case 0x59:		*pKeypad = MSX_COLECO_KEY_1; return TRUE;
+	case 0x5A:		*pKeypad = MSX_COLECO_KEY_2; return TRUE;
+	case 0x5B:		*pKeypad = MSX_COLECO_KEY_3; return TRUE;
+	case 0x5C:		*pKeypad = MSX_COLECO_KEY_4; return TRUE;
+	case 0x5D:		*pKeypad = MSX_COLECO_KEY_5; return TRUE;
+	case 0x5E:		*pKeypad = MSX_COLECO_KEY_6; return TRUE;
+	case 0x5F:		*pKeypad = MSX_COLECO_KEY_7; return TRUE;
+	case 0x60:		*pKeypad = MSX_COLECO_KEY_8; return TRUE;
+	case 0x61:		*pKeypad = MSX_COLECO_KEY_9; return TRUE;
+	case 0x62:		*pKeypad = MSX_COLECO_KEY_0; return TRUE;
+	}
+
+	return FALSE;
 }
 
 // Load the C-BIOS ROM set for the configured machine from BIOS/ on the SD
@@ -289,6 +354,39 @@ boolean CKernel::LoadCartRomFile (MSX_Machine *machine)
 		free (pImg);
 		LogLine ("ROM: empty or unreadable file");
 		return FALSE;
+	}
+
+	// Flat-memory machines (ColecoVision) expose the cartridge as one 32 KiB
+	// read-only window at 0x8000, with no MSX slot or mapper registers. A
+	// power-of-two image smaller than the window is mirrored, which is how the
+	// cartridge port's address decode behaves (an 8/16 KiB ROM repeats through
+	// the whole window). Larger images keep their first 32 KiB; MegaCart
+	// banking is a later device step.
+	if (IsColecoMachine (m_Config.nMachine))
+	{
+		unsigned nLoad = nRead > 0x8000 ? 0x8000 : nRead;
+		m_nResolvedMapper = MSX_MAPPER_NONE;
+
+		if (nLoad < 0x8000 && (nLoad & (nLoad - 1)) == 0)
+		{
+			unsigned nOff;
+			for (nOff = 0; nOff < 0x8000; nOff += nLoad)
+			{
+				msx_flat_load (&machine->flat, 0x10000 + nOff, pImg, nLoad);
+			}
+		}
+		else
+		{
+			msx_flat_load (&machine->flat, 0x10000, pImg, nLoad);
+		}
+		free (pImg);
+
+		char sBuf[300];
+		snprintf (sBuf, sizeof (sBuf),
+			  "COLECO: loaded %s (%u bytes, flat 0x8000 window)",
+			  m_sRomPath, nRead);
+		LogLine (sBuf);
+		return TRUE;
 	}
 
 	// Resolve the mapper. AUTO: let the core's bank-select heuristic guess
@@ -845,18 +943,22 @@ TShutdownMode CKernel::Run (void)
 	LoadMsxConfig ();
 
 	// Optional boot cartridge-dump test (Milestone A). Bus assumed after
-	// this point until the machine is torn down for reboot.
-	if (m_Config.bMsxbusEnable || m_Config.bMsxbusDump)
+	// this point until the machine is torn down for reboot. These are MSX1
+	// slot-bus features: a ColecoVision run must not drive the RPMC GPIOs.
+	if (!IsColecoMachine (m_Config.nMachine))
 	{
-		MsxbusBringUp ();
-	}
-	if (m_Config.bMsxbusDump)
-	{
-		DumpCartridges ();
-	}
-	if (m_Config.bMfrProbe)
-	{
-		ProbeMfrMapper ();
+		if (m_Config.bMsxbusEnable || m_Config.bMsxbusDump)
+		{
+			MsxbusBringUp ();
+		}
+		if (m_Config.bMsxbusDump)
+		{
+			DumpCartridges ();
+		}
+		if (m_Config.bMfrProbe)
+		{
+			ProbeMfrMapper ();
+		}
 	}
 
 	WriteLog (FromKernel, "BlueberryMSX: Circle MSX emulator compiled %s %s", __DATE__, __TIME__);
@@ -906,7 +1008,7 @@ TShutdownMode CKernel::Run (void)
 
 	LogLine ("msx_create() starting...");
 	WriteLog ("App", "Stage 8: msx_create starting");
-	m_pMachine = msx_create ();
+	m_pMachine = msx_create_profile (ProfileFromMachine (m_Config.nMachine));
 	WriteLog ("App", "Stage 9: msx_create returned");
 	if (!m_pMachine)
 	{
@@ -917,7 +1019,10 @@ TShutdownMode CKernel::Run (void)
 	BootStatus ("boot: machine created");
 	{
 		char sBuf[96];
-		snprintf (sBuf, sizeof(sBuf), "msx_create() succeeded at %p", (void*)m_pMachine);
+		snprintf (sBuf, sizeof(sBuf),
+			  "%s machine created at %p",
+			  msx_profile_name (ProfileFromMachine (m_Config.nMachine)),
+			  (void*)m_pMachine);
 		LogLine (sBuf);
 	}
 
@@ -927,7 +1032,24 @@ TShutdownMode CKernel::Run (void)
 	}
 	BootStatus ("boot: C-BIOS loaded");
 
-	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
+	if (IsColecoMachine (m_Config.nMachine))
+	{
+		// ColecoVision: only a cartridge file (0x8000 flat window) can boot;
+		// the built-in MSX diagnostics and the live RPMC slot bus are MSX1
+		// features and are skipped.
+		if (m_nCurrentCart == CartRomFile)
+		{
+			if (!LoadCartRomFile (m_pMachine))
+			{
+				LogLine ("COLECO: ROM load failed; booting BIOS only");
+			}
+		}
+		else
+		{
+			LogLine ("COLECO: no cartridge file selected; booting BIOS only");
+		}
+	}
+	else if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		// Live mode: the cartridges are the real ones on the RPMC board.
 		AttachMsxbus (m_pMachine);
@@ -1167,6 +1289,88 @@ void CKernel::KeyStatusHandlerRaw (unsigned char ucModifiers,
 		return;
 	}
 
+	// ColecoVision has no keyboard matrix: HID keys drive the two hand
+	// controllers instead. The pad state is recomputed from every held key so
+	// a chord (e.g. diagonal plus fire) is the union of its parts.
+	if (msx_machine_profile (machine) != 0
+	    && msx_machine_profile (machine)->input == MSX_PROFILE_INPUT_COLECO)
+	{
+		bool bMenuOpen = pSelf->m_bOverlayOpen != FALSE;
+
+		for (unsigned i = 0; i < nReleased; i++)
+		{
+			pSelf->m_aKeyGuest[aReleased[i]] = 0;
+		}
+
+		// A key held when the menu opened belongs to the menu: drop it so it
+		// cannot stay pressed in the emulated pad.
+		if (bMenuOpen)
+		{
+			for (unsigned k = UI_F11_SLOT; k < UI_KEY_COUNT; k++)
+			{
+				pSelf->m_aKeyGuest[s_aUiHid[k]] = 0;
+			}
+		}
+
+		for (unsigned i = 0; i < nPressed; i++)
+		{
+			unsigned char ucKey = aPressed[i];
+			int nJoy = 0;
+			int nKey = MSX_COLECO_KEY_NONE;
+			int nFire2 = 0;
+
+			if (bMenuOpen && IsMenuKey (ucKey))
+			{
+				continue;
+			}
+			if (ColecoHidToPad (ucKey, &nJoy, &nKey, &nFire2))
+			{
+				pSelf->m_aKeyGuest[ucKey] = 1;
+			}
+		}
+
+		int nJoy = 0;
+		int nKey = MSX_COLECO_KEY_NONE;
+		int nFire2 = 0;
+		for (unsigned k = 0; k < 256; k++)
+		{
+			int nThisJoy = 0;
+			int nThisKey = MSX_COLECO_KEY_NONE;
+			int nThisFire2 = 0;
+
+			if (pSelf->m_aKeyGuest[k] == 0)
+			{
+				continue;
+			}
+			if (!ColecoHidToPad ((unsigned char) k, &nThisJoy,
+					    &nThisKey, &nThisFire2))
+			{
+				continue;
+			}
+			nJoy |= nThisJoy;
+			if (nThisKey != MSX_COLECO_KEY_NONE)
+			{
+				nKey = nThisKey;
+			}
+			if (nThisFire2)
+			{
+				nFire2 = 1;
+			}
+		}
+
+		msx_input_coleco_set_joystick (&machine->input, MSX_COLECO_PAD_1,
+					       (nJoy & 0x01) != 0,
+					       (nJoy & 0x02) != 0,
+					       (nJoy & 0x04) != 0,
+					       (nJoy & 0x08) != 0,
+					       (nJoy & 0x10) != 0);
+		msx_input_coleco_set_keypad (&machine->input, MSX_COLECO_PAD_1,
+					     nKey);
+		msx_input_coleco_set_fire2 (&machine->input, MSX_COLECO_PAD_1,
+					    nFire2);
+		return;
+	}
+
 	static int PrevModifier = MSX_EC_NONE;
 
 	// The USB HID modifier byte only has one bit for SHIFT and one for CTRL,
@@ -1306,7 +1510,7 @@ void CKernel::DoReset (void)
 		msx_destroy (pOld);
 	}
 
-	m_pMachine = msx_create ();
+	m_pMachine = msx_create_profile (ProfileFromMachine (m_Config.nMachine));
 	if (m_pMachine == 0)
 	{
 		LogLine ("FATAL: msx_create() failed during reset");
@@ -1319,7 +1523,17 @@ void CKernel::DoReset (void)
 	{
 		return;
 	}
-	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
+	if (IsColecoMachine (m_Config.nMachine))
+	{
+		if (m_nCurrentCart == CartRomFile)
+		{
+			if (!LoadCartRomFile (m_pMachine))
+			{
+				LogLine ("COLECO: ROM load failed; booting BIOS only");
+			}
+		}
+	}
+	else if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		AttachMsxbus (m_pMachine);
 	}
@@ -1337,7 +1551,9 @@ void CKernel::DoReset (void)
 	m_nFrames = 0;
 
 	char sBuf[96];
-	snprintf (sBuf, sizeof(sBuf), "MSX machine reset on cart %s", GetCartName (m_nCurrentCart));
+	snprintf (sBuf, sizeof(sBuf), "%s machine reset on cart %s",
+		  msx_profile_name (ProfileFromMachine (m_Config.nMachine)),
+		  GetCartName (m_nCurrentCart));
 	LogLine (sBuf);
 }
 
@@ -1359,6 +1575,24 @@ const char *CKernel::GetCartName (int nCart) const
 	}
 
 	return Overlay_CartName (nCart);
+}
+
+const char *CKernel::GetMachineName (void) const
+{
+	return msx_profile_name (ProfileFromMachine (m_Config.nMachine));
+}
+
+// Overlay machine row: cycle through the implemented profiles. MSX2/MSX2+
+// only have the MSX1 profile today, so the toggle is MSX1 <-> ColecoVision.
+// The caller requests a reset; the machine is rebuilt from the new id.
+void CKernel::CycleMachine (void)
+{
+	m_Config.nMachine = IsColecoMachine (m_Config.nMachine)
+		? MsxMachineMSX1 : MsxMachineColecoVision;
+
+	char sBuf[96];
+	snprintf (sBuf, sizeof (sBuf), "UI: machine -> %s", GetMachineName ());
+	LogLine (sBuf);
 }
 
 // Producer side: runs in the USB interrupt context. Only volatile stores, no

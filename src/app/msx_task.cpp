@@ -102,7 +102,7 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			else
 			{
 				// Start the cursor on the cartridge that is actually running.
-				pKernel->SetOverlaySelection (pKernel->GetCurrentCart ());
+				pKernel->SetOverlaySelection (pKernel->GetCurrentCart () + 1);
 				pKernel->SetOverlayOpen (TRUE);
 				pKernel->LogLine ("UI: overlay opened");
 			}
@@ -121,8 +121,11 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				int nSel = pKernel->GetOverlaySelection ();
 				nSel += (nKey == UiKeyDown) ? 1 : -1;
 				if (nSel < 0) nSel = 0;
-				// Rows: 0..TCartIdCount-1 cartridges, TCartIdCount audio.
-				if (nSel > TCartIdCount) nSel = TCartIdCount;
+				// Rows: machine selector, cartridges, then audio.
+				if (nSel >= OVERLAY_ROW_COUNT)
+				{
+					nSel = OVERLAY_ROW_COUNT - 1;
+				}
 				pKernel->SetOverlaySelection (nSel);
 				bChanged = TRUE;
 			}
@@ -132,7 +135,16 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			if (pKernel->IsOverlayOpen ())
 			{
 				int nSel = pKernel->GetOverlaySelection ();
-				if (nSel >= TCartIdCount)
+				if (nSel == OVERLAY_MACHINE_ROW)
+				{
+					pKernel->CycleMachine ();
+					pKernel->LogLine ("UI: machine switched; rebooting");
+					pKernel->SetOverlayOpen (FALSE);
+					pKernel->RequestReset ();
+					bChanged = TRUE;
+					break;
+				}
+				if (nSel == OVERLAY_AUDIO_ROW)
 				{
 				// Audio output row: HDMI+JACK -> jack -> HDMI ->
 				// HDMI+JACK. The menu stays open; core 0 applies
@@ -152,7 +164,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 					bChanged = TRUE;
 					break;
 				}
-				if (nSel == CartRomFile)
+				int nCart = nSel - 1;
+				if (nCart == CartRomFile)
 				{
 					// Open the SD file browser; the menu stays "open"
 					// (IsBrowserOpen covers the screen) and a file
@@ -162,9 +175,9 @@ static bool ServiceUiQueue (CKernel *pKernel)
 					bChanged = TRUE;
 					break;
 				}
-				if (nSel != pKernel->GetCurrentCart ())
+				if (nCart != pKernel->GetCurrentCart ())
 				{
-					pKernel->SetCurrentCart (nSel);
+					pKernel->SetCurrentCart (nCart);
 					pKernel->LogLine ("UI: booting selected cart");
 				}
 				else
@@ -223,6 +236,7 @@ void CMsxTask::Run (void)
 	// even when the selection itself did not move.
 	int nDrawnSel = OVERLAY_NOT_DRAWN;
 	int nDrawnAudio = -1;
+	int nDrawnMachine = -1;
 
 	// File-browser repaint tracking.
 	int nDrawnBrowserSel = -1;
@@ -305,14 +319,20 @@ void CMsxTask::Run (void)
 
 			int nSel = m_pKernel->GetOverlaySelection ();
 			int nAudio = m_pKernel->GetAudioDest ();
-			if (nSel != nDrawnSel || nAudio != nDrawnAudio)
+			int nMachine = m_pKernel->GetMachineType ();
+			if (nSel != nDrawnSel || nAudio != nDrawnAudio
+			    || nMachine != nDrawnMachine)
 			{
 				nDrawnSel = nSel;
 				nDrawnAudio = nAudio;
+				nDrawnMachine = nMachine;
+				char sMachine[40];
 				char sAudio[40];
+				snprintf (sMachine, sizeof (sMachine), "MACHINE: %s",
+					  m_pKernel->GetMachineName ());
 				snprintf (sAudio, sizeof (sAudio), "AUDIO OUT: %s",
 					  m_pKernel->GetAudioDestLabel ());
-				Overlay_Draw (nSel, sAudio);
+				Overlay_Draw (nSel, sMachine, sAudio);
 			}
 			msx_spin_us (OVERLAY_REDRAW_MS * 1000);
 			continue;

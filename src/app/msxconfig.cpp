@@ -142,14 +142,18 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		}
 		else if (!strcasecmp (pKey, "machine"))
 		{
-			if (!strcasecmp (pVal, "msx2+") || !strcasecmp (pVal, "msx2plus")
-			 || !strcasecmp (pVal, "msx2+"))
+			if (!strcasecmp (pVal, "msx2+") || !strcasecmp (pVal, "msx2plus"))
 			{
 				pCfg->nMachine = 2;
 			}
 			else if (!strcasecmp (pVal, "msx2"))
 			{
 				pCfg->nMachine = 1;
+			}
+			else if (!strcasecmp (pVal, "colecovision")
+			      || !strcasecmp (pVal, "coleco"))
+			{
+				pCfg->nMachine = 3;
 			}
 			else /* msx1 */
 			{

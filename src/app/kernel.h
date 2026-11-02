@@ -163,6 +163,14 @@ public:
 	void SetCurrentCart (int nCart);
 	const char *GetCartName (int nCart) const;
 
+	// Machine profile selection (msx.ini "machine=" + overlay row). The
+	// value is the TMsxMachine enum from biosrom.h; MSX2/2+ still boot the
+	// MSX1 profile, ColecoVision selects the flat-memory machine.
+	int  GetMachineType (void) const { return m_Config.nMachine; }
+	void SetMachineType (int nMachine) { m_Config.nMachine = nMachine; }
+	void CycleMachine (void);
+	const char *GetMachineName (void) const;
+
 	// ROM-from-file cartridge (CartRomFile): path on the SD data partition
 	// (e.g. "ROMS/GAME.ROM"). Applied on the next reset/load.
 	#define MSX_ROM_PATH_MAX 260

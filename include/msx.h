@@ -9,8 +9,12 @@
 #include "msx_video.h"
 #include "msx_audio.h"
 #include "msx_input.h"
+#include "msx_profile.h"
 
 typedef struct {
+    /* Machine profile this instance was composed from (include/msx_profile.h).
+     * msx_create() uses MSX1; msx_create_profile() selects another machine. */
+    const MSX_MachineProfile *profile;
     MSX_Bus bus;
     /* CPU context (include/msx_cpu.h): execution, master-tick clock and the
      * interrupt line. Machines must use this, not a concrete CPU type. */
@@ -38,6 +42,11 @@ typedef struct {
     MSX_Slot *slots;
     UInt8 slotReg;        // Current slot selection (from port 0xA8)
     int *activeSlot;      // Active slot+subslot for each 16KB region
+
+    /* Byte store for profiles that do not use the MSX slot model
+     * (ColecoVision). Only initialized when the profile selects flat memory;
+     * the machine's MSX_Memory routes through it via msx_memory_ops_flat(). */
+    MSX_FlatMemory flat;
 
     /* Live RPMC cartridge bus. Set by the app when msxbus is enabled: a
      * subslot whose busSlot >= 0 routes its memory accesses here. The
@@ -67,6 +76,11 @@ extern "C" {
 #endif
 
 MSX_Machine* msx_create();
+/* Compose a machine from a profile descriptor. Currently MSX1 and
+ * ColecoVision; returns NULL for an unknown id or when a device cannot be
+ * created. msx_create() is msx_create_profile(MSX_PROFILE_MSX1). */
+MSX_Machine* msx_create_profile(MSX_ProfileId id);
+const MSX_MachineProfile *msx_machine_profile(const MSX_Machine *machine);
 void msx_destroy(MSX_Machine *machine);
 
 /* Install the host expansion/diagnostic callbacks as one unit. Existing

@@ -113,15 +113,46 @@ boolean Bios_Load (MSX_Machine *pMachine, CFATFileSystem *pFileSystem,
 		return FALSE;
 	}
 
-	if ((int) Machine < 0 || Machine >= MsxMachineUnknown)
-	{
-		SetError (pError, nErrorSize, "unknown machine type");
-		return FALSE;
-	}
-
 	if (pFileSystem == 0)
 	{
 		SetError (pError, nErrorSize, "SD data partition not mounted");
+		return FALSE;
+	}
+
+	// ColecoVision has no C-BIOS set: an 8 KiB BIOS image maps at 0x0000 and
+	// its 1 KiB RAM at 0x6000 (mirrored). The flat map was installed by
+	// msx_create_profile(); here we only fill the storage. Load before the
+	// TMsxMachine range check / s_BiosSets lookup, which has no Coleco entry.
+	if (Machine == MsxMachineColecoVision)
+	{
+		static u8 ColecoBios[SLOT_MAX_SIZE];
+
+		unsigned nSize = LoadRomFile (pFileSystem, "colecovision.rom",
+					      ColecoBios, sizeof ColecoBios);
+		if (nSize == 0)
+		{
+			nSize = LoadRomFile (pFileSystem, "coleco.rom",
+					     ColecoBios, sizeof ColecoBios);
+		}
+		if (nSize == 0)
+		{
+			SetError (pError, nErrorSize,
+				  "missing BIOS/colecovision.rom");
+			return FALSE;
+		}
+		if (nSize > 0x2000)
+		{
+			nSize = 0x2000;
+		}
+
+		msx_flat_load (&pMachine->flat, 0x0000, ColecoBios, nSize);
+		msx_flat_fill (&pMachine->flat, 0x2000, 0x00, 0x0400);
+		return TRUE;
+	}
+
+	if ((int) Machine < 0 || Machine >= MsxMachineUnknown)
+	{
+		SetError (pError, nErrorSize, "unknown machine type");
 		return FALSE;
 	}
 

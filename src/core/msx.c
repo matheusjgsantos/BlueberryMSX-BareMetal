@@ -22,6 +22,37 @@ static void machine_memory_attach(MSX_Machine *machine)
     machine->slotReg = machine->memory.slotReg;
 }
 
+/* Flat-memory machines (ColecoVision) have no MSX slots. The region map is
+ * machine policy and is set up by the profile branch in msx_create_profile();
+ * this only installs the store and the address-decode ops.
+ *
+ * ColecoVision map:
+ *   0x0000-0x1FFF  8 KB BIOS ROM (read-only)
+ *   0x2000-0x5FFF  unmapped expansion space (reads 0xFF, writes ignored)
+ *   0x6000-0x7FFF  1 KB RAM mirrored (the only writable region)
+ *   0x8000-0xFFFF  32 KB cartridge window (read-only)
+ * Storage offsets keep BIOS at 0, RAM at 0x2000 and the cartridge at 0x10000
+ * so firmware and cartridge loads never overlap. */
+static void machine_memory_attach_flat(MSX_Machine *machine)
+{
+    MSX_FlatMemory *flat = &machine->flat;
+
+    msx_flat_init(flat);
+    flat->count = 0;
+    msx_flat_map(flat, 0x0000, 0x1FFF, 0x0000, 0x2000, 1);
+    msx_flat_map(flat, 0x6000, 0x7FFF, 0x2000, 0x0400, 0);
+    msx_flat_map(flat, 0x8000, 0xFFFF, 0x10000, 0x8000, 1);
+    /* Power-on RAM is undefined on real hardware; zero makes BIOS RAM tests
+     * deterministic and matches how the MSX slot backend starts. */
+    msx_flat_fill(flat, 0x2000, 0x00, 0x0400);
+
+    msx_memory_init(&machine->memory);
+    msx_memory_set_ops(&machine->memory, msx_memory_ops_flat(), flat);
+    machine->slots = machine->memory.slots;
+    machine->activeSlot = machine->memory.activeSlot;
+    machine->slotReg = 0;
+}
+
 void msx_ppi_init(MSX_Machine *machine) {
     if (!machine) return;
     if (msx_input_init_ppi(&machine->input, machine_port_a, machine) != 0) {
@@ -111,18 +142,23 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
 static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     MSX_Machine *machine = (MSX_Machine*)ref;
 
-    if (addr == 0xE200)
-    {
-        // C-BIOS itself mirrors the slot register into 0xE200 (PC=0D43/0D48)
-        // many times during boot, so only record writes once the MegaFlashROM
-        // INIT has claimed the machine by setting 0xE210=1.
-        if (s_slotEvtE210)
-            mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 1, val);
-    }
-    else if (addr == 0xE210)
-    {
-        s_slotEvtE210 = val;
-        mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 2, val);
+    /* The MegaFlashROM markers are an MSX1 slot-map diagnostic. A flat-memory
+     * machine happily maps cartridge bytes at 0xE200/0xE210, so only decode
+     * the markers when the MSX slot profile is attached. */
+    if (machine->profile && machine->profile->memory == MSX_PROFILE_MEMORY_SLOTS) {
+        if (addr == 0xE200)
+        {
+            // C-BIOS itself mirrors the slot register into 0xE200 (PC=0D43/0D48)
+            // many times during boot, so only record writes once the MegaFlashROM
+            // INIT has claimed the machine by setting 0xE210=1.
+            if (s_slotEvtE210)
+                mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 1, val);
+        }
+        else if (addr == 0xE210)
+        {
+            s_slotEvtE210 = val;
+            mfr_evt((UInt16)((R800*)machine->z80)->regs.PC.W, 2, val);
+        }
     }
 
     /* Slot routing, live bus and mapper policy live in the attached memory
@@ -219,15 +255,62 @@ static void machine_port_a(void *ref, UInt8 val) {
     }
 }
 
+/* ColecoVision port decode (machine policy; the device adapters still see
+ * their canonical ports):
+ *   0xA0-0xBF  VDP; A0=0 data (0xBE), A0=1 control (0xBF)
+ *   0x80-0x9F  write: hand controllers -> keypad mode
+ *   0xC0-0xDF  write: hand controllers -> joystick mode
+ *   0xE0-0xFF  write: SN76489; read: controller 1 (A1=0) / 2 (A1=1)
+ * Everything else reads 0xFF on a stock machine. */
+static UInt8 machine_flat_read_io(MSX_Machine *machine, UInt16 port)
+{
+    if (port >= 0xA0 && port <= 0xBF) {
+        UInt16 vdp_port = (port & 0x01) ? 0x99 : 0x98;
+        UInt8 v = msx_video_read_io(&machine->video, vdp_port);
+        /* The VDP status read acknowledges the frame interrupt. ColecoVision
+         * wires it to NMI, and the R800 NMI input is edge-triggered, so the
+         * line must be re-armed here for the next frame to generate an edge. */
+        if (vdp_port == 0x99)
+            msx_cpu_clear_nmi(machine->cpu);
+        return v;
+    }
+    if (port >= 0xE0 && port <= 0xFF)
+        return msx_input_read_io(&machine->input, port);
+    return 0xFF;
+}
+
+static void machine_flat_write_io(MSX_Machine *machine, UInt16 port, UInt8 val)
+{
+    if (port >= 0xA0 && port <= 0xBF) {
+        msx_video_write_io(&machine->video, (port & 0x01) ? 0x99 : 0x98, val);
+        return;
+    }
+    if ((port >= 0x80 && port <= 0x9F) || (port >= 0xC0 && port <= 0xDF)) {
+        msx_input_write_io(&machine->input, port, val);
+        return;
+    }
+    if (port >= 0xE0 && port <= 0xFF) {
+        /* SN76489 placeholder: the attached device decides. The AY adapter
+         * ignores these ports, so ColecoVision starts silent until the real
+         * SN76489 device lands. */
+        msx_audio_write_io(&machine->audio, port, val);
+    }
+}
+
 static UInt8 slot_read_io(void *ref, UInt16 port) {
     /* MSX peripherals decode A0-A7; the Z80 also drives A8-A15 on I/O. */
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
     UInt8 v;
-    /* Live bus: unclaimed ports belong to a cartridge. */
-    if (machine->bus_read_io && !io_is_internal(port))
-        return machine->bus_read_io(machine->bus_ref, port);
-    if (port >= 0x98 && port <= 0x9F) {
+
+    if (machine->profile && machine->profile->memory == MSX_PROFILE_MEMORY_FLAT) {
+        v = machine_flat_read_io(machine, port);
+    }
+    else if (machine->bus_read_io && !io_is_internal(port)) {
+        /* Live bus: unclaimed ports belong to a cartridge. */
+        v = machine->bus_read_io(machine->bus_ref, port);
+    }
+    else if (port >= 0x98 && port <= 0x9F) {
         v = msx_video_read_io(&machine->video, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
         if (port == 0x99) msx_cpu_clear_irq(machine->cpu);
@@ -254,6 +337,10 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
         printf("    [IO-W] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, val);
         if (++g_trace_count == TRACE_MAX)
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
+    }
+    if (machine->profile && machine->profile->memory == MSX_PROFILE_MEMORY_FLAT) {
+        machine_flat_write_io(machine, port, val);
+        return;
     }
     if (port >= 0x98 && port <= 0x9F) {
         msx_video_write_io(&machine->video, port, val);
@@ -332,18 +419,35 @@ void msx_set_host_callbacks(MSX_Machine *machine,
 }
 
 MSX_Machine* msx_create() {
+    return msx_create_profile(MSX_PROFILE_MSX1);
+}
+
+const MSX_MachineProfile *msx_machine_profile(const MSX_Machine *machine) {
+    return machine ? machine->profile : NULL;
+}
+
+MSX_Machine* msx_create_profile(MSX_ProfileId id) {
+    const MSX_MachineProfile *profile = msx_profile_get(id);
+    if (!profile) return NULL;
+
     MSX_Machine *machine = (MSX_Machine*)calloc(1, sizeof(MSX_Machine));
     if (!machine) return NULL;
 
+    machine->profile = profile;
     machine->bus.ref = machine;
     machine->bus.read_mem = slot_read_mem;
     machine->bus.write_mem = slot_write_mem;
     machine->bus.read_io = slot_read_io;
     machine->bus.write_io = slot_write_io;
 
-    /* The MSX1 memory profile owns slots and page selection. The pointer
-     * fields retain the old machine->slots[] / activeSlot[] interface. */
-    machine_memory_attach(machine);
+    /* Memory: MSX1 owns slots and page selection; flat profiles install the
+     * region map described in machine_memory_attach_flat(). The pointer fields
+     * retain the old machine->slots[] / activeSlot[] interface for code that
+     * still reads them (only meaningful for the slot profile). */
+    if (profile->memory == MSX_PROFILE_MEMORY_FLAT)
+        machine_memory_attach_flat(machine);
+    else
+        machine_memory_attach(machine);
 
     // The CPU/clock seam (include/msx_cpu.h). MSX_CPU_OPTION_M1 matches the
     // reference blueMSX MSX board timing: it adds the Z80 M1 (opcode fetch)
@@ -383,9 +487,21 @@ MSX_Machine* msx_create() {
     machine->sound = msx_audio_native(&machine->audio);
 
     machine->ppi = NULL;
-    msx_ppi_init(machine);
+    if (profile->input == MSX_PROFILE_INPUT_COLECO) {
+        if (msx_input_init_coleco(&machine->input) != 0) {
+            fprintf(stderr, "Failed to create ColecoVision controllers\n");
+            msx_audio_destroy(&machine->audio);
+            msx_video_destroy(&machine->video);
+            msx_cpu_destroy(machine->cpu);
+            free(machine);
+            return NULL;
+        }
+    }
+    else {
+        msx_ppi_init(machine);
+    }
 
-    printf("MSX Machine created with Z80 and TMS9918\n");
+    printf("%s machine created with Z80 and TMS9918\n", profile->name);
     return machine;
 }
 
@@ -551,18 +667,27 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     msx_video_sync_irq(&machine->video);
     msx_frame_render(machine->vdp);
     if (msx_video_irq_pending(&machine->video)) {
-        msx_cpu_set_irq(cpu);
-        /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
-         * serial log: tells us the IRQ is being latched, the IM mode,
-         * whether interrupts are enabled (IFF1), and where the PC is.
-         * Respect the diag_log budget. Reads R800 state directly through the
-         * compatibility handle: this is a diagnostic, not machine policy. */
-        static int s_irq_log_frame = 0;
-        if ((++s_irq_log_frame % 60) == 0) {
-            R800 *z80 = (R800 *)msx_cpu_native_handle(cpu);
-            msx_diag(machine, "IRQ: pending iff1=%u im=%u pc=%04X",
-                     z80->regs.iff1, z80->regs.im,
-                     z80->regs.PC.W);
+        if (machine->profile &&
+            machine->profile->interrupt_mode == MSX_PROFILE_NMI) {
+            /* ColecoVision wires the VDP interrupt to NMI. R800 NMI is
+             * edge-triggered; machine_flat_read_io() re-arms it when the CPU
+             * acknowledges the VDP status register. */
+            msx_cpu_set_nmi(cpu);
+        }
+        else {
+            msx_cpu_set_irq(cpu);
+            /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
+             * serial log: tells us the IRQ is being latched, the IM mode,
+             * whether interrupts are enabled (IFF1), and where the PC is.
+             * Respect the diag_log budget. Reads R800 state directly through the
+             * compatibility handle: this is a diagnostic, not machine policy. */
+            static int s_irq_log_frame = 0;
+            if ((++s_irq_log_frame % 60) == 0) {
+                R800 *z80 = (R800 *)msx_cpu_native_handle(cpu);
+                msx_diag(machine, "IRQ: pending iff1=%u im=%u pc=%04X",
+                         z80->regs.iff1, z80->regs.im,
+                         z80->regs.PC.W);
+            }
         }
     }
     return (int) n;

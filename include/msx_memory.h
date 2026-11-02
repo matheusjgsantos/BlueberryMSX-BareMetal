@@ -85,6 +85,41 @@ void msx_memory_set_ops(MSX_Memory *memory, const MSX_MemoryOps *ops, void *ctx)
 UInt8 msx_memory_read(MSX_Memory *memory, UInt16 addr);
 void msx_memory_write(MSX_Memory *memory, UInt16 addr, UInt8 val);
 
+/* Flat-memory profile used by machines without the MSX slot model
+ * (ColecoVision first). The profile owns a byte store and a small ordered
+ * region map; a region can alias the same storage with a smaller `size`, which
+ * implements the mirrored BIOS and 1 KB RAM windows without special cases.
+ *
+ * Address hit = first region whose [start,end] contains the address. The byte
+ * is storage[offset + ((addr - start) % size)]; reads outside every region
+ * return 0xFF and writes are ignored. Read-only regions ignore writes. */
+#define MSX_FLAT_STORAGE_SIZE 0x20000
+#define MSX_FLAT_MAX_REGIONS 8
+
+typedef struct {
+    UInt16 start;      /* first address (inclusive) */
+    UInt16 end;        /* last address (inclusive) */
+    UInt32 offset;     /* byte offset into MSX_FlatMemory.storage */
+    UInt32 size;       /* window size; addresses mirror inside it */
+    int readonly;
+} MSX_FlatRegion;
+
+typedef struct {
+    UInt8 storage[MSX_FLAT_STORAGE_SIZE];
+    MSX_FlatRegion regions[MSX_FLAT_MAX_REGIONS];
+    int count;
+} MSX_FlatMemory;
+
+void msx_flat_init(MSX_FlatMemory *flat);
+int msx_flat_map(MSX_FlatMemory *flat, UInt16 start, UInt16 end,
+                 UInt32 offset, UInt32 size, int readonly);
+void msx_flat_load(MSX_FlatMemory *flat, UInt32 offset,
+                   const void *data, UInt32 size);
+void msx_flat_fill(MSX_FlatMemory *flat, UInt32 offset, UInt8 val, UInt32 size);
+UInt8 msx_flat_read(MSX_FlatMemory *flat, UInt16 addr);
+void msx_flat_write(MSX_FlatMemory *flat, UInt16 addr, UInt8 val);
+const MSX_MemoryOps *msx_memory_ops_flat(void);
+
 #ifdef __cplusplus
 }
 #endif

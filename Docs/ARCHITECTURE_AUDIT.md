@@ -351,3 +351,23 @@ The current hardware-proven invariants are recorded in the parent MSX
   reset, PSG audio, video, overlay/browser and F-keys. The ops extraction did
   not change MSX1 behavior. Next: flat-memory profile and the minimal machine
   profile layer, with ColecoVision as the first non-MSX target.
+- 2026-11-02: first non-MSX machine profile added: ColecoVision.
+  `include/msx_profile.h` / `src/core/msx_profile.c` hold machine descriptors
+  (NMI vs IRQ, flat vs slot memory, input backend); `msx_create_profile()`
+  composes the machine and `msx_create()` is exactly MSX1.
+  `src/core/msx_memory_flat.c` adds an ordered region map with mirroring
+  (BIOS `0x0000-0x1FFF`, open bus `0x2000-0x5FFF`, RAM `0x6000-0x7FFF`,
+  cart `0x8000-0xFFFF`), selected through the existing memory-ops seam.
+  `src/core/msx.c` owns the Coleco I/O decode (keypad `0x80-0x9F`,
+  joystick `0xC0-0xDF`, VDP `0xBE/0xBF`, SN76489 placeholder `0xE0-0xFF`
+  write, pads read `0xE0-0xFF`) and NMI frame delivery re-armed on VDP
+  status reads; `src/core/msx_input_coleco.c` implements the two hand
+  controllers; `src/core/msx_cpu.c` gains the NMI seam. App: `machine=`
+  config, overlay `MACHINE:` row, Coleco BIOS from `BIOS/colecovision.rom`,
+  cart-file-only boot (RPMC bus and MSX DIAG skipped), HID key mapping for
+  both pads. All 28 host tests pass (23 standard list, 5 special-case:
+  render pair without `msx.c`, mfr/cbios trio with C++ `cbios_roms.cpp`).
+  Images in `test-images/2026-11-02-colecovision-profile/`: Pi 3 541840 B
+  (`fa8ddcf7...`), Pi 4 588240 B (`47855c66...`), hardware verification
+  pending. Next: SN76489 audio, full Coleco keypad/SAC protocol and a Coleco
+  palette, then the ZX Spectrum profile (Z80 core, its own memory/I-O decode).

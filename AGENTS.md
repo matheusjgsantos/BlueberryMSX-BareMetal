@@ -11,7 +11,8 @@ reusable multi-machine emulation platform. The parent rules in
   material; do not commit modularization work to it.
 - `main` is the integration line. It currently carries every verified
   modularization step (host-callback seam, bus/diagnostic split, CPU/clock
-  seam, MegaROM mapper module, video device seam, audio device seam) and is
+  seam, MegaROM mapper module, video/audio/input device seams, memory profile
+  and memory ops, and the first machine profiles MSX1 + ColecoVision) and is
   fast-forwarded from the feature branch after host tests and, for
   hardware-facing steps, hardware verification.
 - `feature/modular-emulation-architecture` is kept as a checkpoint of the
@@ -93,6 +94,43 @@ and debugging costs have been measured and accepted.
 - Do not alter release directories or publish images from build intermediates.
 - Keep the authoritative reference implementation at
   `../BlueberryMSX/BlueberryMSX-2.0plus/Src` in mind when comparing behavior.
+
+## Machine profiles (2026-11-02)
+
+- `include/msx_profile.h` / `src/core/msx_profile.c` hold machine descriptors
+  (interrupt mode, memory backend, input backend, audio device, VDP ports).
+  `msx_create_profile(id)` composes a machine; `msx_create()` is exactly
+  `msx_create_profile(MSX_PROFILE_MSX1)`. MSX1 remains the default and the
+  verified fallback.
+- Memory routing is per-profile. MSX1 uses `msx_memory_ops_msx()`
+  (`src/core/msx_memory_msx.c`, slots/mapper/RPMC). ColecoVision uses
+  `msx_memory_ops_flat()` (`src/core/msx_memory_flat.c`) over
+  `MSX_Machine.flat` with this map, which must not drift:
+  `0x0000-0x1FFF` 8 KB BIOS ROM (read-only), `0x2000-0x5FFF` open bus
+  (reads `0xFF`), `0x6000-0x7FFF` 1 KB RAM mirrored, `0x8000-0xFFFF` 32 KB
+  cartridge window (read-only, image mirrored when power-of-two and < 32 KB).
+  Storage offsets: BIOS `0x0000`, RAM `0x2000`, cart `0x10000`.
+- ColecoVision I/O decode lives in `src/core/msx.c` as machine policy:
+  `0x80-0x9F` write = keypad mode, `0xC0-0xDF` write = joystick mode,
+  `0xA0-0xBF` VDP (A0=0 data / A0=1 control, so `0xBE/0xBF`), `0xE0-0xFF`
+  write = SN76489 placeholder, `0xE0-0xFF` read = pad 1 (A1=0) / pad 2 (A1=1).
+  The controller adapter is `src/core/msx_input_coleco.c`.
+- ColecoVision uses NMI frame interrupts. `machine_flat_read_io()` re-arms the
+  edge-triggered R800 NMI (`msx_cpu_clear_nmi`) when the CPU reads the VDP
+  status port; do not remove that or only the first frame interrupts.
+- App selection: `msx.ini` `machine=colecovision` (or `coleco`) / `msx1`, and
+  the overlay row `MACHINE:` cycles MSX1 <-> ColecoVision and requests a reset.
+  Coleco BIOS is read from `BIOS/colecovision.rom` (fallback
+  `BIOS/coleco.rom`); it is not in the repository. Coleco runs only a cartridge
+  file (`ROM FROM FILE`, flat window); MSX DIAG/SLOTS and the RPMC bus are
+  skipped for that profile.
+- Deferred, do not pretend they work: real SN76489 audio (the AY adapter is a
+  silent placeholder on Coleco ports), full keypad/Super Action Controller
+  protocol, MegaCart banking, and a Coleco-specific palette (MSX TMS9918
+  palette is reused for bring-up).
+- Host tests: `host-test/flat_memory_test.c` and
+  `host-test/coleco_machine_test.c` (run with the standard core source list in
+  the README/progress log). MSX1 regressions are the existing seam tests.
 
 ## Verification requirements
 

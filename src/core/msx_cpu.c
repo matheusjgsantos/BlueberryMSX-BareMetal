@@ -101,6 +101,18 @@ void msx_cpu_clear_irq(MSX_CPU *cpu)
     r800ClearInt(cpu->r800);
 }
 
+void msx_cpu_set_nmi(MSX_CPU *cpu)
+{
+    if (!cpu || !cpu->r800) return;
+    r800SetNmi(cpu->r800);
+}
+
+void msx_cpu_clear_nmi(MSX_CPU *cpu)
+{
+    if (!cpu || !cpu->r800) return;
+    r800ClearNmi(cpu->r800);
+}
+
 UInt16 msx_cpu_get_pc(const MSX_CPU *cpu)
 {
     if (!cpu || !cpu->r800) return 0;

@@ -15,6 +15,11 @@
 // Number of entries in the menu; must match the cartridge list in kernel.cpp.
 #define OVERLAY_CART_COUNT 3
 
+// Menu rows: machine selector, the cartridge entries, then the audio row.
+#define OVERLAY_MACHINE_ROW 0
+#define OVERLAY_AUDIO_ROW (OVERLAY_CART_COUNT + 1)
+#define OVERLAY_ROW_COUNT (OVERLAY_CART_COUNT + 2)
+
 // Cache the framebuffer geometry. Call once after VDPBlit_Init(). Returns
 // FALSE when the screen target is unusable, in which case the menu is inert.
 boolean Overlay_Init (void);
@@ -22,10 +27,11 @@ boolean Overlay_Init (void);
 // True when the menu can be drawn (i.e. Overlay_Init succeeded).
 boolean Overlay_IsReady (void);
 
-// Draw the menu with nSelected highlighted. pAudioLabel names the current
-// audio output (e.g. "AUDIO OUT: JACK") on the bottom row; NULL draws it
-// empty. No-op when not ready.
-void Overlay_Draw (int nSelected, const char *pAudioLabel);
+// Draw the menu with nSelected highlighted. pMachineLabel names the running
+// machine (e.g. "MACHINE: MSX1"), pAudioLabel the current audio output
+// (e.g. "AUDIO OUT: JACK"). NULL draws the row empty. No-op when not ready.
+void Overlay_Draw (int nSelected, const char *pMachineLabel,
+		   const char *pAudioLabel);
 
 // Draw a full-screen, bordered fatal-error page (title, a detail line and a
 // hint line) straight into the framebuffer. Used for boot failures that must

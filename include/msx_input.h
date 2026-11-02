@@ -164,6 +164,39 @@ void msx_input_write_io(MSX_Input *input, UInt16 port, UInt8 val);
 void msx_input_set_key(MSX_Input *input, int ec, int pressed);
 void *msx_input_native(const MSX_Input *input);
 
+/* ColecoVision hand controllers (two pads, each a joystick plus a 12-key
+ * keypad). The machine decides the mode with a write to 0x80-0x9F (keypad) or
+ * 0xC0-0xDF (joystick) and reads the selected pad from 0xE0-0xFF (A1 = 0 for
+ * pad 1, 1 for pad 2). Both controller reads are active low. */
+#define MSX_COLECO_PAD_1 0
+#define MSX_COLECO_PAD_2 1
+
+/* Keypad codes returned in the low nibble; 0x0F means no key. */
+#define MSX_COLECO_KEY_NONE 0x0F
+#define MSX_COLECO_KEY_0    0x0A
+#define MSX_COLECO_KEY_1    0x0D
+#define MSX_COLECO_KEY_2    0x07
+#define MSX_COLECO_KEY_3    0x0C
+#define MSX_COLECO_KEY_4    0x02
+#define MSX_COLECO_KEY_5    0x03
+#define MSX_COLECO_KEY_6    0x0E
+#define MSX_COLECO_KEY_7    0x05
+#define MSX_COLECO_KEY_8    0x01
+#define MSX_COLECO_KEY_9    0x0B
+#define MSX_COLECO_KEY_STAR 0x09
+#define MSX_COLECO_KEY_HASH 0x06
+
+int msx_input_init_coleco(MSX_Input *input);
+
+/* Set one pad's joystick state (each argument 1 = pressed). */
+void msx_input_coleco_set_joystick(MSX_Input *input, int pad,
+                                   int up, int right, int down, int left,
+                                   int fire);
+/* Set one pad's keypad code (MSX_COLECO_KEY_*), MSX_COLECO_KEY_NONE clears. */
+void msx_input_coleco_set_keypad(MSX_Input *input, int pad, int code);
+/* Right-hand fire button, reported in keypad mode (bit 6, active low). */
+void msx_input_coleco_set_fire2(MSX_Input *input, int pad, int pressed);
+
 #ifdef __cplusplus
 }
 #endif

@@ -45,6 +45,12 @@ UInt32 msx_cpu_get_time(const MSX_CPU *cpu);
 void msx_cpu_set_irq(MSX_CPU *cpu);
 void msx_cpu_clear_irq(MSX_CPU *cpu);
 
+/* Non-maskable interrupt line (edge-triggered in the Z80 family). Machines
+ * whose video device drives NMI (ColecoVision) use this instead of the
+ * maskable IRQ. */
+void msx_cpu_set_nmi(MSX_CPU *cpu);
+void msx_cpu_clear_nmi(MSX_CPU *cpu);
+
 /* Current program counter, for machine-level diagnostics only. */
 UInt16 msx_cpu_get_pc(const MSX_CPU *cpu);
 
