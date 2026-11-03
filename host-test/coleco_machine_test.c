@@ -4,6 +4,7 @@
 
 #include "msx.h"
 #include "R800.h"
+#include "sn76489.h"
 
 #define R800_INT_HIGH 2
 
@@ -204,6 +205,21 @@ static void test_coleco_controllers(void)
     msx_destroy(m);
 }
 
+static void test_coleco_audio_ports(void)
+{
+    MSX_Machine *m = msx_create_profile(MSX_PROFILE_COLECOVISION);
+    SN76489 *sn;
+    assert(m != NULL);
+    sn = (SN76489 *)msx_audio_native(&m->audio);
+    assert(sn != NULL && m->sound == sn);
+
+    /* Every decoded write port is the same SN76489 serial data input. */
+    m->bus.write_io(m, 0xE0, 0x8A); /* tone 0 low nibble */
+    m->bus.write_io(m, 0xFF, 0x12); /* tone 0 upper six bits */
+    assert(sn->reg[0] == 0x12A);
+    msx_destroy(m);
+}
+
 int main(void)
 {
     test_profile_registry();
@@ -212,6 +228,7 @@ int main(void)
     test_coleco_vdp_ports();
     test_coleco_nmi();
     test_coleco_controllers();
-    printf("PASS: machine profiles, ColecoVision map/ports/NMI/controllers\n");
+    test_coleco_audio_ports();
+    printf("PASS: machine profiles, ColecoVision map/ports/NMI/controllers/audio\n");
     return 0;
 }

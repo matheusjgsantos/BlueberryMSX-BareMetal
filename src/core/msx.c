@@ -290,10 +290,11 @@ static void machine_flat_write_io(MSX_Machine *machine, UInt16 port, UInt8 val)
         return;
     }
     if (port >= 0xE0 && port <= 0xFF) {
-        /* SN76489 placeholder: the attached device decides. The AY adapter
-         * ignores these ports, so ColecoVision starts silent until the real
-         * SN76489 device lands. */
-        msx_audio_write_io(&machine->audio, port, val);
+        /* All Coleco SN76489 port addresses alias its serial data input. */
+        if (s_instrTotal > 0)
+            msx_audio_write_io_at(&machine->audio, port, val, s_frame_frac16());
+        else
+            msx_audio_write_io(&machine->audio, port, val);
     }
 }
 
@@ -475,8 +476,11 @@ MSX_Machine* msx_create_profile(MSX_ProfileId id) {
     // concrete device pointer; machine->video is the machine-facing handle.
     machine->vdp = machine->video.dev;
 
-    if (msx_audio_init_psg(&machine->audio) != 0) {
-        fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
+    int audioResult = profile->audio == MSX_PROFILE_AUDIO_SN76489
+        ? msx_audio_init_sn76489(&machine->audio)
+        : msx_audio_init_psg(&machine->audio);
+    if (audioResult != 0) {
+        fprintf(stderr, "Failed to create profile audio device\n");
         msx_video_destroy(&machine->video);
         msx_cpu_destroy(machine->cpu);
         free(machine);

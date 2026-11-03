@@ -373,8 +373,8 @@ Host tests (all passing):
 
 ```sh
 cd /home/opencode/MSX/BlueberryMSX-BareMetal/host-test
-# overlay menu drawing (28 checks), links overlay.cpp against stub framebuffer
-# accessors so no hardware is needed:
+# overlay menu drawing (41 checks), links overlay.cpp against stub framebuffer
+# accessors so no hardware is needed; covers the machine radio group markers:
 g++ -O1 -Wall -Wextra -I../../BlueberryMSX/circle/include -I../src/app \
     -I../src/chips/vdp -o overlay_test overlay_test.cpp ../src/app/overlay.cpp
 ./overlay_test
@@ -975,7 +975,7 @@ forced-sync cleanup is required before the final firmware build.
 | `host-test/render_sprite_test.c` | Sprite mode 1 regression test (40 checks) |
 | `src/app/overlay.cpp` | ROM selection menu drawing (framebuffer + MSX font) |
 | `src/app/ui_queue.h` | IRQ-safe single-producer key queue for UI hotkeys |
-| `host-test/overlay_test.cpp` | Overlay drawing test (28 checks), stub framebuffer |
+| `host-test/overlay_test.cpp` | Overlay drawing test (41 checks), stub framebuffer; includes the machine radio group |
 | `host-test/ui_queue_test.c` | Key queue test (20 checks) |
 | `src/app/hid_keydiff.h` | Usage-based USB HID report diff (slot order independent) |
 | `host-test/hid_keydiff_test.c` | HID key diff test (27 checks), includes the hardware bug |

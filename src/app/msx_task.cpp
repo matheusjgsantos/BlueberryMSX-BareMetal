@@ -102,7 +102,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			else
 			{
 				// Start the cursor on the cartridge that is actually running.
-				pKernel->SetOverlaySelection (pKernel->GetCurrentCart () + 1);
+				pKernel->SetOverlaySelection (
+					OVERLAY_CART_ROW (pKernel->GetCurrentCart ()));
 				pKernel->SetOverlayOpen (TRUE);
 				pKernel->LogLine ("UI: overlay opened");
 			}
@@ -121,7 +122,6 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				int nSel = pKernel->GetOverlaySelection ();
 				nSel += (nKey == UiKeyDown) ? 1 : -1;
 				if (nSel < 0) nSel = 0;
-				// Rows: machine selector, cartridges, then audio.
 				if (nSel >= OVERLAY_ROW_COUNT)
 				{
 					nSel = OVERLAY_ROW_COUNT - 1;
@@ -135,9 +135,19 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			if (pKernel->IsOverlayOpen ())
 			{
 				int nSel = pKernel->GetOverlaySelection ();
-				if (nSel == OVERLAY_MACHINE_ROW)
+				// Machine radio group: the first rows. Enter picks that
+				// machine directly instead of cycling through them.
+				if (nSel >= OVERLAY_MACHINE_ROW &&
+				    nSel < OVERLAY_MACHINE_ROW + OVERLAY_MACHINE_OPTIONS)
 				{
-					pKernel->CycleMachine ();
+					int nOpt = nSel - OVERLAY_MACHINE_ROW;
+					int nMachine = pKernel->GetMachineOptionValue (nOpt);
+					if (nMachine == pKernel->GetMachineType ())
+					{
+						pKernel->LogLine ("UI: machine already selected");
+						break;
+					}
+					pKernel->SelectMachine (nMachine);
 					pKernel->LogLine ("UI: machine switched; rebooting");
 					pKernel->SetOverlayOpen (FALSE);
 					pKernel->RequestReset ();
@@ -164,7 +174,11 @@ static bool ServiceUiQueue (CKernel *pKernel)
 					bChanged = TRUE;
 					break;
 				}
-				int nCart = nSel - 1;
+				int nCart = nSel - OVERLAY_CART_ROW_FIRST;
+				if (nCart < 0 || nCart >= OVERLAY_CART_COUNT)
+				{
+					break;
+				}
 				if (nCart == CartRomFile)
 				{
 					// Open the SD file browser; the menu stays "open"
@@ -320,19 +334,23 @@ void CMsxTask::Run (void)
 			int nSel = m_pKernel->GetOverlaySelection ();
 			int nAudio = m_pKernel->GetAudioDest ();
 			int nMachine = m_pKernel->GetMachineType ();
+			int nMachineSel = m_pKernel->GetMachineOptionSelected ();
 			if (nSel != nDrawnSel || nAudio != nDrawnAudio
 			    || nMachine != nDrawnMachine)
 			{
 				nDrawnSel = nSel;
 				nDrawnAudio = nAudio;
 				nDrawnMachine = nMachine;
-				char sMachine[40];
+				static const char *apMachines[OVERLAY_MACHINE_OPTIONS];
+				for (int i = 0; i < OVERLAY_MACHINE_OPTIONS; i++)
+				{
+					apMachines[i] = m_pKernel->GetMachineOptionLabel (i);
+				}
 				char sAudio[40];
-				snprintf (sMachine, sizeof (sMachine), "MACHINE: %s",
-					  m_pKernel->GetMachineName ());
 				snprintf (sAudio, sizeof (sAudio), "AUDIO OUT: %s",
 					  m_pKernel->GetAudioDestLabel ());
-				Overlay_Draw (nSel, sMachine, sAudio);
+				Overlay_Draw (nSel, apMachines, OVERLAY_MACHINE_OPTIONS,
+					      nMachineSel, sAudio);
 			}
 			msx_spin_us (OVERLAY_REDRAW_MS * 1000);
 			continue;

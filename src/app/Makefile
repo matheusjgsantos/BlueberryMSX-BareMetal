@@ -36,6 +36,7 @@ OBJS = main.o \
 	msx_mapper.o \
 	msx_video_tms9918.o \
 	msx_audio_psg.o \
+	msx_audio_sn76489.o \
 	msx_input_ppi.o \
 	msx_input_coleco.o \
 	msx_memory.o \
@@ -45,6 +46,7 @@ OBJS = main.o \
 	r800.o \
 	tms9918.o \
 	psg.o \
+	sn76489.o \
 	msxbus.o \
 	msxconfig.o
 
@@ -94,6 +96,10 @@ msx_audio_psg.o: ../core/msx_audio_psg.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
+msx_audio_sn76489.o: ../core/msx_audio_sn76489.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
 msx_input_ppi.o: ../core/msx_input_ppi.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
@@ -127,5 +133,9 @@ tms9918.o: ../chips/vdp/tms9918.c
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
 psg.o: ../chips/sound/psg.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+sn76489.o: ../chips/sound/sn76489.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<

@@ -1,7 +1,10 @@
 # Test images: ColecoVision machine profile (2026-11-02)
 
-Branch: `main` (working tree, pending commit)  
-Status: **hardware verification pending** (MSX1 regression + ColecoVision boot)
+Branch: `main` @ `684b6e0`
+Status: **hardware verified 2026-11-02** — Coleco BIOS boots and games run
+from `ROM FROM FILE` (user report). No sound is the *expected* SN76489
+placeholder, not a defect. MSX1 regression checklist for this image: not yet
+reported.
 
 This step adds the first non-MSX machine to the platform: a ColecoVision
 profile on the same Z80 core (R800) and TMS9918 video chip. MSX1 remains the
@@ -19,8 +22,8 @@ in `msx.ini` select between them.
   (`0x0000-0x1FFF` 8 KB BIOS ROM, `0x2000-0x5FFF` open bus,
   `0x6000-0x7FFF` 1 KB RAM mirrored, `0x8000-0xFFFF` 32 KB cart window),
   I/O decode (keypad write `0x80-0x9F`, joystick write `0xC0-0xDF`,
-  VDP `0xA0-0xBF` with control at `0xBE/0xBF`, SN76489 placeholder
-  `0xE0-0xFF` write, pad reads `0xE0-0xFF`), and NMI frame delivery
+  VDP `0xA0-0xBF` with control at `0xBE/0xBF`, SN76489 serial writes
+  `0xE0-0xFF`, pad reads `0xE0-0xFF`), and NMI frame delivery
   (re-armed on VDP status reads).
 - `src/core/msx_input_coleco.c`: two hand controllers (joystick + keypad,
   fire buttons) behind the input seam.
@@ -80,16 +83,25 @@ MSX1 regression (both images, both Pis):
 - [ ] The `MACHINE:` overlay row appears and cycles MSX1 <-> ColecoVision
       (label updates, reset follows).
 
-ColecoVision (both images, both Pis):
+ColecoVision (reported on hardware 2026-11-02):
 
-- [ ] `machine=colecovision` boots the Coleco BIOS (logo / BASIC) on the
+- [x] `machine=colecovision` boots the Coleco BIOS (logo / BASIC) on the
       TMS9918 display with the MSX palette.
-- [ ] A 16 KiB Coleco cart ROM runs from `CARTRIDGE/`.
+- [x] A Coleco cart ROM runs from `ROM FROM FILE`.
 - [ ] Pad 1: arrows + space/Z fire respond in a game.
 - [ ] Pad 2 keypad (digits) and fire (X) respond where the game uses them.
 - [ ] Switching machine in the overlay and back keeps both machines working.
+- [ ] SN76489 audio audible (next step — placeholder is silent by design).
 
-Known deferred (do not test as working): SN76489 audio (silent placeholder),
-full keypad/SAC protocol, MegaCart banking, Coleco-specific palette.
+User report 2026-11-02: "Colecovision BIOS is loading and I can load game from
+ROM files. No sound is being generated." Silence is the expected deferred
+placeholder.
+
+At the time of this build SN76489 audio was a silent placeholder. It is
+implemented in the follow-up image set at `test-images/2026-11-02-sn76489-audio/`,
+which also replaced the cycling `MACHINE:` row with a radio group
+(`(*) MACHINE: MSX1` / `( ) MACHINE: COLECOVISION`, Enter selects).
+Known deferred: full keypad/SAC protocol, MegaCart banking, Coleco-specific
+palette.
 
 Rollback: `release/v1.0/`.

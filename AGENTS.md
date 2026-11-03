@@ -113,24 +113,47 @@ and debugging costs have been measured and accepted.
 - ColecoVision I/O decode lives in `src/core/msx.c` as machine policy:
   `0x80-0x9F` write = keypad mode, `0xC0-0xDF` write = joystick mode,
   `0xA0-0xBF` VDP (A0=0 data / A0=1 control, so `0xBE/0xBF`), `0xE0-0xFF`
-  write = SN76489 placeholder, `0xE0-0xFF` read = pad 1 (A1=0) / pad 2 (A1=1).
-  The controller adapter is `src/core/msx_input_coleco.c`.
+  write = SN76489 serial data input (every address aliases the same chip),
+  `0xE0-0xFF` read = pad 1 (A1=0) / pad 2 (A1=1). The controller adapter is
+  `src/core/msx_input_coleco.c`.
+- ColecoVision audio is a real SN76489AN behind `MSX_AudioOps`:
+  `src/chips/sound/sn76489.{h,c}` (chip core, openMSX `SN76489.cc` model) and
+  `src/core/msx_audio_sn76489.c` (adapter + sub-frame write replay). The
+  profile picks it via `MSX_PROFILE_AUDIO_SN76489`; MSX1 keeps the AY adapter.
+  Do not restore the pre-frame chip struct after the replay: the tone/noise
+  phase and sampler remainder must carry across frames (otherwise every frame
+  restarts the waveform -> 60 Hz phase step, audible roughness).
+  Hardware verified 2026-11-03: Coleco audio is clean and the machine radio
+  group works (user: "sounding perfectly now, and the menu is working").
 - ColecoVision uses NMI frame interrupts. `machine_flat_read_io()` re-arms the
   edge-triggered R800 NMI (`msx_cpu_clear_nmi`) when the CPU reads the VDP
   status port; do not remove that or only the first frame interrupts.
 - App selection: `msx.ini` `machine=colecovision` (or `coleco`) / `msx1`, and
-  the overlay row `MACHINE:` cycles MSX1 <-> ColecoVision and requests a reset.
+  the overlay machine radio group (`OVERLAY_MACHINE_OPTIONS` rows:
+  "(*) MACHINE: MSX1" / "( ) MACHINE: COLECOVISION"): Enter on an option
+  selects that machine and requests a reset, it does not cycle. Adding a
+  profile means adding it to `s_anMachineOptions` in `src/app/kernel.cpp`
+  (the count must stay equal to `OVERLAY_MACHINE_OPTIONS`).
   Coleco BIOS is read from `BIOS/colecovision.rom` (fallback
   `BIOS/coleco.rom`); it is not in the repository. Coleco runs only a cartridge
   file (`ROM FROM FILE`, flat window); MSX DIAG/SLOTS and the RPMC bus are
   skipped for that profile.
-- Deferred, do not pretend they work: real SN76489 audio (the AY adapter is a
-  silent placeholder on Coleco ports), full keypad/Super Action Controller
+- Deferred, do not pretend they work: full keypad/Super Action Controller
   protocol, MegaCart banking, and a Coleco-specific palette (MSX TMS9918
-  palette is reused for bring-up).
-- Host tests: `host-test/flat_memory_test.c` and
-  `host-test/coleco_machine_test.c` (run with the standard core source list in
-  the README/progress log). MSX1 regressions are the existing seam tests.
+  palette is reused for bring-up). ColecoVision is otherwise closed out as of
+  2026-11-03, with the image set above hardware verified.
+- Next target (user decision 2026-11-03): MSX2, then ZX Spectrum, then
+  Amstrad CPC. MSX2 is the first profile that needs a new video device
+  (V9938: 128 KB VRAM, mode 7+ bitmap modes, hardware scroll, sprites, palette,
+  VDP command engine) plus the MSX2 BIOS/BASIC ROM pair, the memory mapper and
+  the RTC; all of it must land behind the existing seams so MSX1 and
+  ColecoVision keep building and running.
+- Host tests: `host-test/flat_memory_test.c`, `host-test/coleco_machine_test.c`,
+  `host-test/sn76489_test.c` (run with the standard core source list in the
+  README/progress log, which now includes `src/core/msx_audio_sn76489.c` and
+  `src/chips/sound/sn76489.c`), and `host-test/overlay_test.cpp` (draws the
+  menu into a stub framebuffer; 41 checks including the machine radio group).
+  MSX1 regressions are the existing seam tests.
 
 ## Verification requirements
 

@@ -29,8 +29,8 @@ typedef struct {
     void *vdp;
     /* Audio device behind the seam (include/msx_audio.h). */
     MSX_Audio audio;
-    /* Compatibility alias: machine->audio.dev, i.e. the PSG* diagnostics and
-     * older tests still use. */
+    /* Compatibility alias: concrete audio chip pointer used by diagnostics
+     * and older tests. */
     void *sound;
     /* Input device behind the seam (include/msx_input.h). */
     MSX_Input input;

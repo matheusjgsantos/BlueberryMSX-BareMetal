@@ -359,7 +359,7 @@ The current hardware-proven invariants are recorded in the parent MSX
   (BIOS `0x0000-0x1FFF`, open bus `0x2000-0x5FFF`, RAM `0x6000-0x7FFF`,
   cart `0x8000-0xFFFF`), selected through the existing memory-ops seam.
   `src/core/msx.c` owns the Coleco I/O decode (keypad `0x80-0x9F`,
-  joystick `0xC0-0xDF`, VDP `0xBE/0xBF`, SN76489 placeholder `0xE0-0xFF`
+  joystick `0xC0-0xDF`, VDP `0xBE/0xBF`, SN76489 serial writes `0xE0-0xFF`
   write, pads read `0xE0-0xFF`) and NMI frame delivery re-armed on VDP
   status reads; `src/core/msx_input_coleco.c` implements the two hand
   controllers; `src/core/msx_cpu.c` gains the NMI seam. App: `machine=`
@@ -368,6 +368,32 @@ The current hardware-proven invariants are recorded in the parent MSX
   both pads. All 28 host tests pass (23 standard list, 5 special-case:
   render pair without `msx.c`, mfr/cbios trio with C++ `cbios_roms.cpp`).
   Images in `test-images/2026-11-02-colecovision-profile/`: Pi 3 541840 B
-  (`fa8ddcf7...`), Pi 4 588240 B (`47855c66...`), hardware verification
-  pending. Next: SN76489 audio, full Coleco keypad/SAC protocol and a Coleco
-  palette, then the ZX Spectrum profile (Z80 core, its own memory/I-O decode).
+  (`fa8ddcf7...`), Pi 4 588240 B (`47855c66...`). Hardware-verified
+  2026-11-02 (user report): Coleco BIOS boots and games run from
+  `ROM FROM FILE`; silence is the expected SN76489 placeholder; the MSX1
+  regression checklist for this image is not yet reported. Follow-up:
+  `src/chips/sound/sn76489.c` implements the openMSX-referenced SN76489AN
+  serial register protocol and timed mono synthesis; the Coleco profile
+  selects it through `MSX_AudioOps`, while MSX1 retains the AY adapter.
+  Pi 3/Pi 4 images and host checks are in
+  `test-images/2026-11-02-sn76489-audio/`. Hardware listening found the SN
+  audio audible but rough, so two defects were fixed in the adapter/core:
+  `sn76489_render` point-sampled each sample instead of boxcar-averaging its
+  native ticks (now matches `psg_advance_avg`), and the adapter restored the
+  pre-frame chip struct after the write replay, discarding the tone/noise phase
+  and sampler remainder so every frame restarted the waveform (a 60 Hz phase
+  step; a 440.4 Hz test tone measured 54..92-sample crossing jitter and
+  420.3 Hz mean pitch before, 54/55 and 440.4 Hz after). `sn76489_test` now
+  compares two adapter frames against one continuous chip render. The overlay
+  machine row became a radio group (`(*) MACHINE: ...` rows, Enter selects the
+  highlighted machine instead of cycling it), with
+  `OVERLAY_MACHINE_OPTIONS`/`OVERLAY_CART_ROW(n)` row macros and
+  `GetMachineOption*()`/`SelectMachine()` in the kernel; `overlay_test` was
+  rebuilt for the new API (41 checks).
+  ColecoVision is closed out: rebuilt images (Pi 3 544080 B, Pi 4 590672 B)
+  were hardware verified 2026-11-03 — user report "sounding perfectly now, and
+  the menu is working" — so audio, the radio group and the MSX1 AY regression
+  all pass on hardware. Still deferred for Coleco: full keypad/SAC protocol,
+  MegaCart banking, Coleco-specific palette.
+  Next target (user decision, 2026-11-03): MSX2. The order changed from the
+  earlier ZX Spectrum-then-CPC plan; ZX Spectrum/CPC stay queued after it.

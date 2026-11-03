@@ -163,13 +163,23 @@ public:
 	void SetCurrentCart (int nCart);
 	const char *GetCartName (int nCart) const;
 
-	// Machine profile selection (msx.ini "machine=" + overlay row). The
-	// value is the TMsxMachine enum from biosrom.h; MSX2/2+ still boot the
-	// MSX1 profile, ColecoVision selects the flat-memory machine.
+	// Machine profile selection (msx.ini "machine=" + overlay radio group).
+	// The value is the TMsxMachine enum from biosrom.h; MSX2/2+ still boot
+	// the MSX1 profile, ColecoVision selects the flat-memory machine.
 	int  GetMachineType (void) const { return m_Config.nMachine; }
 	void SetMachineType (int nMachine) { m_Config.nMachine = nMachine; }
-	void CycleMachine (void);
 	const char *GetMachineName (void) const;
+
+	// Overlay machine radio group: the implemented machines in row order.
+	// GetMachineOptionSelected() is the index of the running machine (an
+	// unimplemented id such as MSX2 maps to the profile it boots, MSX1).
+	int  GetMachineOptionCount (void) const;
+	const char *GetMachineOptionLabel (int nIndex) const;
+	int  GetMachineOptionValue (int nIndex) const;
+	int  GetMachineOptionSelected (void) const;
+	// Select the machine that the next DoReset() builds. The caller
+	// requests the reset.
+	void SelectMachine (int nMachine);
 
 	// ROM-from-file cartridge (CartRomFile): path on the SD data partition
 	// (e.g. "ROMS/GAME.ROM"). Applied on the next reset/load.

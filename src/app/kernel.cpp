@@ -1582,13 +1582,72 @@ const char *CKernel::GetMachineName (void) const
 	return msx_profile_name (ProfileFromMachine (m_Config.nMachine));
 }
 
-// Overlay machine row: cycle through the implemented profiles. MSX2/MSX2+
-// only have the MSX1 profile today, so the toggle is MSX1 <-> ColecoVision.
-// The caller requests a reset; the machine is rebuilt from the new id.
-void CKernel::CycleMachine (void)
+// Overlay machine radio group: the implemented machine profiles in row order.
+// MSX2/MSX2+ are not implemented yet (they boot the MSX1 profile), so the group
+// lists exactly the profiles that exist.
+static const int s_anMachineOptions[] = {
+	MsxMachineMSX1,
+	MsxMachineColecoVision,
+};
+
+static_assert (sizeof (s_anMachineOptions) / sizeof (s_anMachineOptions[0]) ==
+	       OVERLAY_MACHINE_OPTIONS,
+	       "OVERLAY_MACHINE_OPTIONS must match s_anMachineOptions");
+
+int CKernel::GetMachineOptionCount (void) const
 {
-	m_Config.nMachine = IsColecoMachine (m_Config.nMachine)
-		? MsxMachineMSX1 : MsxMachineColecoVision;
+	return (int) (sizeof (s_anMachineOptions) / sizeof (s_anMachineOptions[0]));
+}
+
+const char *CKernel::GetMachineOptionLabel (int nIndex) const
+{
+	if (nIndex < 0 || nIndex >= GetMachineOptionCount ())
+	{
+		return "";
+	}
+
+	return msx_profile_name (ProfileFromMachine (s_anMachineOptions[nIndex]));
+}
+
+int CKernel::GetMachineOptionValue (int nIndex) const
+{
+	if (nIndex < 0 || nIndex >= GetMachineOptionCount ())
+	{
+		return MsxMachineMSX1;
+	}
+
+	return s_anMachineOptions[nIndex];
+}
+
+int CKernel::GetMachineOptionSelected (void) const
+{
+	for (int i = 0; i < GetMachineOptionCount (); i++)
+	{
+		if (s_anMachineOptions[i] == m_Config.nMachine)
+		{
+			return i;
+		}
+	}
+
+	// An id without its own profile (MSX2/MSX2+) boots MSX1; show that
+	// option as the selected one instead of no option at all.
+	for (int i = 0; i < GetMachineOptionCount (); i++)
+	{
+		if (ProfileFromMachine (s_anMachineOptions[i]) ==
+		    ProfileFromMachine (m_Config.nMachine))
+		{
+			return i;
+		}
+	}
+
+	return 0;
+}
+
+// Overlay machine radio group: set the machine the next reset builds. The
+// caller requests the reset; the machine is rebuilt from the new id.
+void CKernel::SelectMachine (int nMachine)
+{
+	m_Config.nMachine = nMachine;
 
 	char sBuf[96];
 	snprintf (sBuf, sizeof (sBuf), "UI: machine -> %s", GetMachineName ());

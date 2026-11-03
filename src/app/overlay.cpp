@@ -9,6 +9,7 @@
 
 #include "msx_font.h"
 
+#include <stdio.h>
 #include <string.h>
 
 // Menu palette (RGB888, converted to the framebuffer depth on the fly).
@@ -30,20 +31,42 @@ static const char *s_apCartNames[OVERLAY_CART_COUNT] = {
 static const char *s_apTitle = "BLUEBERRY MSX";
 static const char *s_apHint = "UP/DOWN SELECT   ENTER BOOT/SET   ESC CLOSE";
 
-// One row: machine selector, cartridge entries, then the audio row.
-static const char *MenuRowLabel (int nRow, const char *pMachineLabel,
+// Machine radio group. The rows are pre-formatted here because the drawn label
+// carries the selected marker; the caller only supplies the option names.
+static char s_aaMachineRowText[OVERLAY_MACHINE_OPTIONS][40];
+
+static const char *MachineRowText (int nOption, const char *const *apLabels,
+				   int nCount, int nSel)
+{
+	if (nOption < 0 || nOption >= OVERLAY_MACHINE_OPTIONS)
+	{
+		return "";
+	}
+
+	const char *pName = (apLabels != 0 && nOption < nCount) ? apLabels[nOption] : "";
+	snprintf (s_aaMachineRowText[nOption], sizeof (s_aaMachineRowText[nOption]),
+		  "%s MACHINE: %s", nOption == nSel ? "(*)" : "( )", pName);
+
+	return s_aaMachineRowText[nOption];
+}
+
+// One row: the machine radio options, cartridge entries, then the audio row.
+static const char *MenuRowLabel (int nRow, const char *const *apMachineLabels,
+				 int nMachineCount, int nMachineSel,
 				 const char *pAudioLabel)
 {
-	if (nRow == OVERLAY_MACHINE_ROW)
+	if (nRow >= OVERLAY_MACHINE_ROW &&
+	    nRow < OVERLAY_MACHINE_ROW + OVERLAY_MACHINE_OPTIONS)
 	{
-		return pMachineLabel;
+		return MachineRowText (nRow - OVERLAY_MACHINE_ROW, apMachineLabels,
+				       nMachineCount, nMachineSel);
 	}
 	if (nRow == OVERLAY_AUDIO_ROW)
 	{
 		return pAudioLabel;
 	}
 
-	int nCart = nRow - 1;
+	int nCart = nRow - OVERLAY_CART_ROW_FIRST;
 	if (nCart >= 0 && nCart < OVERLAY_CART_COUNT)
 	{
 		return s_apCartNames[nCart];
@@ -209,24 +232,20 @@ static int TextWidth (const char *pText, int nScale)
 	return nLen * 8 * nScale;
 }
 
-void Overlay_Draw (int nSelected, const char *pMachineLabel,
-		   const char *pAudioLabel)
+void Overlay_Draw (int nSelected, const char *const *apMachineLabels,
+		   int nMachineCount, int nMachineSel, const char *pAudioLabel)
 {
 	if (!Overlay_IsReady ())
 	{
 		return;
 	}
 
-	if (pMachineLabel == 0)
-	{
-		pMachineLabel = "";
-	}
 	if (pAudioLabel == 0)
 	{
 		pAudioLabel = "";
 	}
 
-	// Rows: machine selector, cartridges, then the audio row.
+	// Rows: machine radio options, cartridges, then the audio row.
 	int nRows = OVERLAY_ROW_COUNT;
 
 	if (nSelected < 0)
@@ -251,7 +270,8 @@ void Overlay_Draw (int nSelected, const char *pMachineLabel,
 	int nItemW = 0;
 	for (int i = 0; i < nRows; i++)
 	{
-		const char *pRow = MenuRowLabel (i, pMachineLabel, pAudioLabel);
+		const char *pRow = MenuRowLabel (i, apMachineLabels, nMachineCount,
+						 nMachineSel, pAudioLabel);
 		int w = TextWidth (pRow, nScale);
 		if (w > nItemW) nItemW = w;
 	}
@@ -299,7 +319,8 @@ void Overlay_Draw (int nSelected, const char *pMachineLabel,
 
 	for (int i = 0; i < nRows; i++)
 	{
-		const char *pRow = MenuRowLabel (i, pMachineLabel, pAudioLabel);
+		const char *pRow = MenuRowLabel (i, apMachineLabels, nMachineCount,
+						 nMachineSel, pAudioLabel);
 		int nRowW = nTextW - nCell;
 		int nRowX = nTextX + nCell / 2;
 		bool bSelected = (i == nSelected);

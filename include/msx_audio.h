@@ -64,6 +64,8 @@ void msx_audio_attach(MSX_Audio *audio, const MSX_AudioOps *ops, void *dev);
 
 /* Create the MSX1 audio device (AY-3-8910 PSG). Returns 0 on success. */
 int msx_audio_init_psg(MSX_Audio *audio);
+/* Create the ColecoVision serial-write SN76489 audio device. */
+int msx_audio_init_sn76489(MSX_Audio *audio);
 
 void msx_audio_destroy(MSX_Audio *audio);
 

@@ -16,9 +16,8 @@ extern "C" {
  *
  * MSX1 is the verified profile. ColecoVision uses the same Z80 core and
  * TMS9918 chip but a flat memory map, NMI instead of IRQ, and the VDP on
- * 0xBE/0xBF. Its SN76489 audio and full hand-controller protocol are separate
- * device steps; the profile currently installs the AY device (silent on the
- * Coleco ports) and a basic controller-1 joystick adapter. */
+ * 0xBE/0xBF. It installs the SN76489 audio adapter and a basic hand-controller
+ * adapter; full keypad/Super Action Controller support remains separate. */
 
 typedef enum {
     MSX_PROFILE_MSX1 = 0,
