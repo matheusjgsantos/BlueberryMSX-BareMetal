@@ -44,6 +44,8 @@ UInt32 msx_cpu_get_time(const MSX_CPU *cpu);
  * CPU acknowledges it through its normal interrupt sequence. */
 void msx_cpu_set_irq(MSX_CPU *cpu);
 void msx_cpu_clear_irq(MSX_CPU *cpu);
+void msx_cpu_set_nmi(MSX_CPU *cpu);
+void msx_cpu_clear_nmi(MSX_CPU *cpu);
 
 /* Current program counter, for machine-level diagnostics only. */
 UInt16 msx_cpu_get_pc(const MSX_CPU *cpu);

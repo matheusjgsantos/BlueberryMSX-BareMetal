@@ -162,6 +162,12 @@ public:
 	int  GetCurrentCart (void) const  { return m_nCurrentCart; }
 	void SetCurrentCart (int nCart);
 	const char *GetCartName (int nCart) const;
+	int  GetMachineType (void) const { return m_Config.nMachine; }
+	int  GetMachineOptionCount (void) const;
+	const char *GetMachineOptionLabel (int nIndex) const;
+	int  GetMachineOptionValue (int nIndex) const;
+	int  GetMachineOptionSelected (void) const;
+	void SelectMachine (int nMachine);
 
 	// ROM-from-file cartridge (CartRomFile): path on the SD data partition
 	// (e.g. "ROMS/GAME.ROM"). Applied on the next reset/load.

@@ -14,6 +14,12 @@
 
 // Number of entries in the menu; must match the cartridge list in kernel.cpp.
 #define OVERLAY_CART_COUNT 3
+#define OVERLAY_MACHINE_OPTIONS 3
+#define OVERLAY_MACHINE_ROW 0
+#define OVERLAY_CART_ROW_FIRST (OVERLAY_MACHINE_ROW + OVERLAY_MACHINE_OPTIONS)
+#define OVERLAY_CART_ROW(n) (OVERLAY_CART_ROW_FIRST + (n))
+#define OVERLAY_AUDIO_ROW (OVERLAY_CART_ROW_FIRST + OVERLAY_CART_COUNT)
+#define OVERLAY_ROW_COUNT (OVERLAY_AUDIO_ROW + 1)
 
 // Cache the framebuffer geometry. Call once after VDPBlit_Init(). Returns
 // FALSE when the screen target is unusable, in which case the menu is inert.
@@ -26,6 +32,9 @@ boolean Overlay_IsReady (void);
 // audio output (e.g. "AUDIO OUT: JACK") on the bottom row; NULL draws it
 // empty. No-op when not ready.
 void Overlay_Draw (int nSelected, const char *pAudioLabel);
+void Overlay_DrawWithMachines (int nSelected, const char *const *apMachineLabels,
+			       int nMachineCount, int nMachineSel,
+			       const char *pAudioLabel);
 
 // Draw a full-screen, bordered fatal-error page (title, a detail line and a
 // hint line) straight into the framebuffer. Used for boot failures that must

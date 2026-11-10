@@ -7,6 +7,12 @@
 #include "msx_cpu.h"
 #include "msx_memory.h"
 
+typedef enum {
+    MSX_MACHINE_MSX1 = 0,
+    MSX_MACHINE_MSX2 = 1,
+    MSX_MACHINE_COLECOVISION = 2
+} MSX_MachineType;
+
 typedef struct {
     MSX_Bus bus;
     /* CPU context (include/msx_cpu.h): execution, master-tick clock and the
@@ -16,8 +22,16 @@ typedef struct {
      * Circle app and old host tests still read registers from. */
     void *z80;
     void *vdp;
+    MSX_MachineType machineType;
+    UInt8 expandedSlotMask;
+    UInt8 subslotReg[NUM_SLOTS];
     void *sound;
     void *ppi;
+    UInt8 *coleco_memory;
+    UInt8 coleco_joystick;
+    UInt8 coleco_keypad;
+    UInt8 coleco_fire2;
+    UInt8 coleco_joystick_mode;
     MSX_Slot slots[NUM_SLOTS];
     UInt8 slotReg;        // Current slot selection (from port 0xA8)
     int activeSlot[4];    // Active slot+subslot for each 16KB region
@@ -146,6 +160,7 @@ extern "C" {
 #endif
 
 MSX_Machine* msx_create();
+MSX_Machine* msx_create_profile(MSX_MachineType type);
 void msx_destroy(MSX_Machine *machine);
 
 /* Install the host expansion/diagnostic callbacks as one unit. Existing
@@ -216,6 +231,19 @@ void msx_diag(MSX_Machine *machine, const char *fmt, ...);
 /* PPI keyboard interface */
 void msx_ppi_init(MSX_Machine *machine);
 void msx_ppi_set_ec(MSX_Machine *machine, int ecCode, int pressed);
+void msx_coleco_set_keypad(MSX_Machine *machine, int code, int pressed);
+#define MSX_COLECO_KEY_0 0x0A
+#define MSX_COLECO_KEY_1 0x0D
+#define MSX_COLECO_KEY_2 0x07
+#define MSX_COLECO_KEY_3 0x0C
+#define MSX_COLECO_KEY_4 0x02
+#define MSX_COLECO_KEY_5 0x03
+#define MSX_COLECO_KEY_6 0x0E
+#define MSX_COLECO_KEY_7 0x05
+#define MSX_COLECO_KEY_8 0x01
+#define MSX_COLECO_KEY_9 0x0B
+#define MSX_COLECO_KEY_STAR 0x09
+#define MSX_COLECO_KEY_HASH 0x06
 
 #ifdef __cplusplus
 }

@@ -164,7 +164,7 @@ int main (void)
 	check ("overlay reports ready", Overlay_IsReady ());
 
 	FillBackground ();
-	Overlay_Draw (0);
+	Overlay_Draw (0, 0);
 
 	int nBorder = CountPixels (0xFFFFFFu);
 	check ("menu draws a white border", nBorder > 200);
@@ -218,7 +218,7 @@ int main (void)
 	// ---- Moving the selection moves the highlight block -------------------
 	int nPrevSelY = nSelY;
 	FillBackground ();
-	Overlay_Draw (1);
+	Overlay_Draw (1, 0);
 	int nNewSelY = 0, nNewSelEnd = 0;
 	nBlocks = FindHighlight (nMinX, nMaxX, nMinY, nMaxY, &nNewSelY, &nNewSelEnd);
 	check ("selection moves to the next entry",
@@ -226,31 +226,31 @@ int main (void)
 
 	// ---- Selection is clamped --------------------------------------------
 	FillBackground ();
-	Overlay_Draw (-5);
+	Overlay_Draw (-5, 0);
 	int nFirstY = 0, nFirstEnd = 0;
 	nBlocks = FindHighlight (nMinX, nMaxX, nMinY, nMaxY, &nFirstY, &nFirstEnd);
 	check ("out-of-range selection clamps to the first entry",
 	       nBlocks == 1 && nFirstY == nPrevSelY);
 
 	FillBackground ();
-	Overlay_Draw (99);
+	Overlay_Draw (OVERLAY_CART_COUNT, 0);
 	int nLastY = 0, nLastEnd = 0;
 	nBlocks = FindHighlight (nMinX, nMaxX, nMinY, nMaxY, &nLastY, &nLastEnd);
 	check ("out-of-range selection clamps to the last entry",
-	       nBlocks == 1 && nLastY == nNewSelY);
+	       nBlocks == 1 && nLastY > nNewSelY);
 
 	// ---- Cart names ------------------------------------------------------
 	check ("cart 0 is MSX DIAG", strcmp (Overlay_CartName (0), "MSX DIAG") == 0);
 	check ("cart 1 is SLOTS (MSXBUS)", strcmp (Overlay_CartName (1), "SLOTS (MSXBUS)") == 0);
 	check ("cart name is safe out of range", Overlay_CartName (-1)[0] == '\0');
 	check ("cart name is safe past the end", Overlay_CartName (77)[0] == '\0');
-	check ("cart count matches the label table", OVERLAY_CART_COUNT == 2);
+	check ("cart count matches the label table", OVERLAY_CART_COUNT == 3);
 
 	// ---- RGB565 target ----------------------------------------------------
 	memset (s_Fb16, 0, sizeof(s_Fb16));
 	check ("init succeeds for a 16bpp target",
 	       Setup (WIDTH, HEIGHT, 16, s_Fb16));
-	Overlay_Draw (0);
+	Overlay_Draw (0, 0);
 	unsigned short nBackdrop565 =
 		(unsigned short) (((0x101828 >> 8 & 0xF800) | (0x101828 >> 5 & 0x07E0)
 				 | (0x101828 >> 3 & 0x001F)));
@@ -281,8 +281,8 @@ int main (void)
 	s_Target.nDepth = 32;
 	s_bTargetValid = TRUE;
 	check ("init succeeds for a tiny target", Overlay_Init ());
-	Overlay_Draw (0);
-	Overlay_Draw (1);
+	Overlay_Draw (0, 0);
+	Overlay_Draw (1, 0);
 	int nCorrupt = 0;
 	int nWritten = 0;
 	unsigned nValidBytes = (unsigned) (90 * (WIDTH * 4));

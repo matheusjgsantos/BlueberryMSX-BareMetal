@@ -151,6 +151,10 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 			{
 				pCfg->nMachine = 1;
 			}
+			else if (!strcasecmp (pVal, "colecovision") || !strcasecmp (pVal, "coleco"))
+			{
+				pCfg->nMachine = 3;
+			}
 			else /* msx1 */
 			{
 				pCfg->nMachine = 0;

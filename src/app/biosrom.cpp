@@ -113,6 +113,31 @@ boolean Bios_Load (MSX_Machine *pMachine, CFATFileSystem *pFileSystem,
 		return FALSE;
 	}
 
+	if (Machine == MsxMachineColecoVision)
+	{
+		if (pFileSystem == 0)
+		{
+			SetError (pError, nErrorSize, "SD data partition not mounted");
+			return FALSE;
+		}
+		static u8 ColecoBios[0x2000];
+		unsigned nSize = LoadRomFile (pFileSystem, "colecovision.rom",
+					      ColecoBios, sizeof ColecoBios);
+		if (nSize == 0)
+			nSize = LoadRomFile (pFileSystem, "coleco.rom", ColecoBios,
+					     sizeof ColecoBios);
+		if (nSize == 0)
+		{
+			SetError (pError, nErrorSize, "Missing BIOS/colecovision.rom");
+			return FALSE;
+		}
+		memset (pMachine->coleco_memory, 0xFF, 0x20000);
+		memcpy (pMachine->coleco_memory, ColecoBios,
+			nSize > 0x2000 ? 0x2000 : nSize);
+		memset (pMachine->coleco_memory + 0x2000, 0, 0x400);
+		return TRUE;
+	}
+
 	if ((int) Machine < 0 || Machine >= MsxMachineUnknown)
 	{
 		SetError (pError, nErrorSize, "unknown machine type");

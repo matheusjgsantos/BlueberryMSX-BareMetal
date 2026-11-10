@@ -2,7 +2,9 @@
 #include <msx_mapper.h>
 #include "../../src/chips/z80/R800.h"
 #include "../../src/chips/vdp/tms9918.h"
+#include "../../src/chips/vdp/v9938.h"
 #include "../../src/chips/sound/psg.h"
+#include "../../src/chips/sound/sn76489.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -60,6 +62,35 @@ static const struct {
 };
 
 void msx_ppi_set_ec(MSX_Machine *machine, int ecCode, int pressed) {
+    if (machine && machine->machineType == MSX_MACHINE_COLECOVISION) {
+        UInt8 bit = 0;
+        switch (ecCode) {
+        case MSX_EC_UP: bit = 0x01; break;
+        case MSX_EC_RIGHT: bit = 0x02; break;
+        case MSX_EC_DOWN: bit = 0x04; break;
+        case MSX_EC_LEFT: bit = 0x08; break;
+        case MSX_EC_SPACE: case MSX_EC_Z: bit = 0x10; break;
+        default: break;
+        }
+        if (bit) {
+            if (pressed) machine->coleco_joystick |= bit;
+            else machine->coleco_joystick &= (UInt8)~bit;
+        }
+        switch (ecCode) {
+        case MSX_EC_0: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_0, pressed); break;
+        case MSX_EC_1: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_1, pressed); break;
+        case MSX_EC_2: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_2, pressed); break;
+        case MSX_EC_3: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_3, pressed); break;
+        case MSX_EC_4: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_4, pressed); break;
+        case MSX_EC_5: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_5, pressed); break;
+        case MSX_EC_6: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_6, pressed); break;
+        case MSX_EC_7: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_7, pressed); break;
+        case MSX_EC_8: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_8, pressed); break;
+        case MSX_EC_9: msx_coleco_set_keypad(machine, MSX_COLECO_KEY_9, pressed); break;
+        default: break;
+        }
+        return;
+    }
     MSX_PPI *ppi;
     unsigned i;
     if (!machine) return;
@@ -75,6 +106,12 @@ void msx_ppi_set_ec(MSX_Machine *machine, int ecCode, int pressed) {
             return;
         }
     }
+}
+
+void msx_coleco_set_keypad(MSX_Machine *machine, int code, int pressed)
+{
+    if (!machine || machine->machineType != MSX_MACHINE_COLECOVISION) return;
+    machine->coleco_keypad = pressed ? (UInt8)(code & 0x0F) : 0x0F;
 }
 
 static UInt8 ppi_read_b(MSX_Machine *machine) {
@@ -101,8 +138,26 @@ static void ppi_write_chi(MSX_Machine *machine, UInt8 val) {
 #if defined(__GNUC__)
 __attribute__((weak))
 #endif
-void msx_frame_render(void *vdp) {
-    (void)vdp;
+void msx_frame_render(void *machine) {
+    (void)machine;
+}
+
+static int active_subslot(const MSX_Machine *machine, unsigned region)
+{
+    int primary = machine->activeSlot[region] & 3;
+    if (machine->expandedSlotMask & (1u << primary)) {
+        unsigned shift = region * 2;
+        int subslot = (machine->subslotReg[primary] >> shift) & 3;
+        return primary | (subslot << 2);
+    }
+    return primary;
+}
+
+static int subslot_register_selected(const MSX_Machine *machine)
+{
+    return machine->machineType == MSX_MACHINE_MSX2
+        && (machine->expandedSlotMask &
+            (1u << (machine->activeSlot[3] & 3))) != 0;
 }
 
 /* Slot/MFR event log (see msx.h). Two independent lists so the flood of
@@ -163,10 +218,23 @@ int msx_slot_event_get(unsigned nIndex, unsigned *nPc, unsigned *nPort, unsigned
 static UInt8 slot_read_mem(void *ref, UInt16 addr) {
     MSX_Machine *machine = (MSX_Machine*)ref;
 
+    if (machine->machineType == MSX_MACHINE_COLECOVISION) {
+        if (addr < 0x2000) return machine->coleco_memory[addr];
+        if (addr >= 0x6000 && addr < 0x8000)
+            return machine->coleco_memory[0x2000 + ((addr - 0x6000) & 0x3FF)];
+        if (addr >= 0x8000) return machine->coleco_memory[0x10000 + (addr & 0x7FFF)];
+        return 0xFF;
+    }
+
+    if (addr == 0xFFFF && subslot_register_selected(machine)) {
+        int primary = machine->activeSlot[3] & 3;
+        return (UInt8)~machine->subslotReg[primary];
+    }
+
     int region = addr / REGION_SIZE;
     if (region > 3) region = 3;
 
-    int active = machine->activeSlot[region];
+    int active = active_subslot(machine, (unsigned)region);
     int slot = active & 3;
     int sslot = (active >> 2) & 3;
 
@@ -195,6 +263,18 @@ static UInt8 slot_read_mem(void *ref, UInt16 addr) {
 static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     MSX_Machine *machine = (MSX_Machine*)ref;
 
+    if (machine->machineType == MSX_MACHINE_COLECOVISION) {
+        if (addr >= 0x6000 && addr < 0x8000)
+            machine->coleco_memory[0x2000 + ((addr - 0x6000) & 0x3FF)] = val;
+        return;
+    }
+
+    if (addr == 0xFFFF && subslot_register_selected(machine)) {
+        int primary = machine->activeSlot[3] & 3;
+        machine->subslotReg[primary] = val;
+        return;
+    }
+
     if (addr == 0xE200)
     {
         // C-BIOS itself mirrors the slot register into 0xE200 (PC=0D43/0D48)
@@ -212,7 +292,7 @@ static void slot_write_mem(void *ref, UInt16 addr, UInt8 val) {
     int region = addr / REGION_SIZE;
     if (region > 3) region = 3;
 
-    int active = machine->activeSlot[region];
+    int active = active_subslot(machine, (unsigned)region);
     int slot = active & 3;
     int sslot = (active >> 2) & 3;
 
@@ -325,11 +405,30 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
     UInt8 v;
+    if (machine->machineType == MSX_MACHINE_COLECOVISION) {
+        if (port >= 0xA0 && port <= 0xBF) {
+            UInt16 vp = (port & 1) ? 0x99 : 0x98;
+            v = tms9918_read_reg((TMS9918*)machine->vdp, vp);
+            if (vp == 0x99) msx_cpu_clear_nmi(machine->cpu);
+        } else if (port >= 0xE0) {
+            if (machine->coleco_joystick_mode) {
+                v = (UInt8)(0x30 | ((~machine->coleco_joystick) & 0x0F));
+                if (!(machine->coleco_joystick & 0x10)) v |= 0x40;
+            } else {
+                v = (UInt8)(0x70 | (machine->coleco_keypad & 0x0F)
+                    | (machine->coleco_fire2 ? 0 : 0x40));
+            }
+        } else v = 0xFF;
+        return v;
+    }
     /* Live bus: unclaimed ports belong to a cartridge. */
     if (machine->bus_read_io && !io_is_internal(port))
         return machine->bus_read_io(machine->bus_ref, port);
     if (port >= 0x98 && port <= 0x9F) {
-        v = tms9918_read_reg((TMS9918*)machine->vdp, port);
+        if (machine->machineType == MSX_MACHINE_MSX2)
+            v = v9938_read_port((V9938*)machine->vdp, port);
+        else
+            v = tms9918_read_reg((TMS9918*)machine->vdp, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
         if (port == 0x99) msx_cpu_clear_irq(machine->cpu);
     }
@@ -351,13 +450,28 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
 static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
     port &= 0xFF;
     MSX_Machine *machine = (MSX_Machine*)ref;
+    if (machine->machineType == MSX_MACHINE_COLECOVISION) {
+        if (port >= 0xA0 && port <= 0xBF)
+            tms9918_write_reg((TMS9918*)machine->vdp,
+                              (port & 1) ? 0x99 : 0x98, val);
+        else if (port >= 0x80 && port <= 0x9F)
+            machine->coleco_joystick_mode = 0;
+        else if (port >= 0xC0 && port <= 0xDF)
+            machine->coleco_joystick_mode = 1;
+        else if (port >= 0xE0)
+            sn76489_write((SN76489*)machine->sound, val);
+        return;
+    }
     if (g_trace_io && io_traced(port) && g_trace_count < TRACE_MAX) {
         printf("    [IO-W] PC=%04X port=%02X val=%02X\n", ((R800*)machine->z80)->regs.PC.W, port, val);
         if (++g_trace_count == TRACE_MAX)
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
     }
     if (port >= 0x98 && port <= 0x9F) {
-        tms9918_write_reg((TMS9918*)machine->vdp, port, val);
+        if (machine->machineType == MSX_MACHINE_MSX2)
+            v9938_write_port((V9938*)machine->vdp, port, val);
+        else
+            tms9918_write_reg((TMS9918*)machine->vdp, port, val);
         return;
     }
     if (port == 0xA0 || port == 0xA1) {
@@ -465,9 +579,21 @@ void msx_set_host_callbacks(MSX_Machine *machine,
     machine->diag_log_budget = callbacks->diag_log_budget;
 }
 
-MSX_Machine* msx_create() {
+MSX_Machine* msx_create_profile(MSX_MachineType type) {
+    if (type != MSX_MACHINE_MSX1 && type != MSX_MACHINE_MSX2 &&
+        type != MSX_MACHINE_COLECOVISION)
+        return NULL;
     MSX_Machine *machine = (MSX_Machine*)calloc(1, sizeof(MSX_Machine));
     if (!machine) return NULL;
+    machine->machineType = type;
+    if (type == MSX_MACHINE_COLECOVISION) {
+        machine->coleco_memory = (UInt8*)calloc(1, 0x20000);
+        if (!machine->coleco_memory) { free(machine); return NULL; }
+        memset(machine->coleco_memory, 0xFF, 0x20000);
+        machine->coleco_keypad = 0x0F;
+        machine->coleco_joystick_mode = 1;
+    }
+    machine->expandedSlotMask = type == MSX_MACHINE_MSX2 ? (1u << 3) : 0;
 
     machine->bus.ref = machine;
     machine->bus.read_mem = slot_read_mem;
@@ -495,34 +621,49 @@ MSX_Machine* msx_create() {
     machine->cpu = msx_cpu_create(MSX_CPU_OPTION_M1, &s_cpuBus, machine);
     if (!machine->cpu) {
         fprintf(stderr, "Failed to create CPU\n");
+        free(machine->coleco_memory);
         free(machine);
         return NULL;
     }
     machine->z80 = msx_cpu_native_handle(machine->cpu);
 
-    machine->vdp = tms9918_create();
+    machine->vdp = type == MSX_MACHINE_MSX2
+        ? (void*)v9938_create() : (void*)tms9918_create();
     if (!machine->vdp) {
-        fprintf(stderr, "Failed to create TMS9918 VDP\n");
+        fprintf(stderr, "Failed to create video device\n");
         msx_cpu_destroy(machine->cpu);
+        free(machine->coleco_memory);
         free(machine);
         return NULL;
     }
 
-    machine->sound = psg_create();
+    machine->sound = type == MSX_MACHINE_COLECOVISION
+        ? (void*)calloc(1, sizeof(SN76489)) : (void*)psg_create();
     if (!machine->sound) {
-        fprintf(stderr, "Failed to create AY-3-8910 PSG\n");
-        tms9918_destroy((TMS9918*)machine->vdp);
+        fprintf(stderr, "Failed to create sound device\n");
+        if (type == MSX_MACHINE_MSX2)
+            v9938_destroy((V9938*)machine->vdp);
+        else
+            tms9918_destroy((TMS9918*)machine->vdp);
         msx_cpu_destroy(machine->cpu);
+        free(machine->coleco_memory);
         free(machine);
         return NULL;
     }
+    if (type == MSX_MACHINE_COLECOVISION)
+        sn76489_reset((SN76489*)machine->sound);
 
     machine->ppi = NULL;
     msx_ppi_init(machine);
 
-    printf("MSX Machine created with Z80 and TMS9918\n");
+    printf("MSX Machine created with Z80 and %s\n",
+           type == MSX_MACHINE_MSX2 ? "V9938" : "TMS9918");
     psg_log_clear();
     return machine;
+}
+
+MSX_Machine* msx_create() {
+    return msx_create_profile(MSX_MACHINE_MSX1);
 }
 
 void msx_destroy(MSX_Machine *machine) {
@@ -533,8 +674,17 @@ void msx_destroy(MSX_Machine *machine) {
             if (machine->slots[s].subslots[t].pRomImage)
                 free(machine->slots[s].subslots[t].pRomImage);
     if (machine->cpu) msx_cpu_destroy(machine->cpu);
-    if (machine->vdp) tms9918_destroy((TMS9918*)machine->vdp);
-    if (machine->sound) psg_destroy((PSG*)machine->sound);
+    if (machine->vdp) {
+        if (machine->machineType == MSX_MACHINE_MSX2)
+            v9938_destroy((V9938*)machine->vdp);
+        else
+            tms9918_destroy((TMS9918*)machine->vdp);
+    }
+    if (machine->sound) {
+        if (machine->machineType == MSX_MACHINE_COLECOVISION) free(machine->sound);
+        else psg_destroy((PSG*)machine->sound);
+    }
+    free(machine->coleco_memory);
     free(machine);
     printf("MSX Machine destroyed\n");
 }
@@ -673,7 +823,6 @@ void msx_slot_set_bus(MSX_Machine *machine, int slot, int sslot, int nBusSlot) {
  * time-stamp PSG writes within the frame.) */
 int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     MSX_CPU *cpu = machine->cpu;
-    TMS9918 *vdp = (TMS9918 *)machine->vdp;
     UInt32 start = msx_cpu_get_time(cpu);
     unsigned n = 0;
 
@@ -685,10 +834,19 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     }
     s_instrDone = s_instrTotal;
 
-    tms9918_gen_sync_irq(vdp);
-    msx_frame_render(vdp);
-    if (vdp->irq) {
-        msx_cpu_set_irq(cpu);
+    if (machine->machineType == MSX_MACHINE_MSX2)
+        v9938_gen_sync_irq((V9938*)machine->vdp);
+    else
+        tms9918_gen_sync_irq((TMS9918*)machine->vdp);
+    msx_frame_render(machine);
+    int irqPending = machine->machineType == MSX_MACHINE_MSX2
+        ? v9938_irq_pending((V9938*)machine->vdp)
+        : ((TMS9918*)machine->vdp)->irq;
+    if (irqPending) {
+        if (machine->machineType == MSX_MACHINE_COLECOVISION)
+            msx_cpu_set_nmi(cpu);
+        else
+            msx_cpu_set_irq(cpu);
         /* Throttled IRQ delivery trace (~1 line / 60 frames) for the bring-up
          * serial log: tells us the IRQ is being latched, the IM mode,
          * whether interrupts are enabled (IFF1), and where the PC is.
@@ -715,6 +873,9 @@ unsigned msx_psg_render(MSX_Machine *machine, Int16 *out, unsigned nSamples,
                         unsigned nMasterCycles)
 {
     if (!machine || !machine->sound || !out || nSamples == 0) return 0;
+    if (machine->machineType == MSX_MACHINE_COLECOVISION)
+        return sn76489_render((SN76489*)machine->sound, out, nSamples,
+                              (UInt32)nMasterCycles);
 
     PSG *psg = (PSG*)machine->sound;
 

@@ -12,7 +12,9 @@
 
 extern "C"
 {
+#include <msx.h>
 #include "tms9918.h"
+#include "v9938.h"
 }
 
 #define MSX_WIDTH	256
@@ -105,14 +107,23 @@ void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize)
 }
 
 // Strong override of the weak hook in msx.c: called once per VDP frame.
-extern "C" void msx_frame_render (void *pVdp)
+extern "C" void msx_frame_render (void *pMachine)
 {
 	if (s_pFrameBuffer == 0)
 	{
 		return;
 	}
 
-	tms9918_render ((TMS9918 *) pVdp, s_TempFrame, MSX_WIDTH * 4);
+	MSX_Machine *pMsx = (MSX_Machine *) pMachine;
+	if (pMsx->machineType == MSX_MACHINE_MSX2)
+	{
+		v9938_render ((V9938 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
+	}
+	else
+	{
+		// Both VDP renderers take pitch in bytes (the target is uint32_t RGB).
+		tms9918_render ((TMS9918 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
+	}
 
 	s_nFrame++;
 

@@ -18,6 +18,7 @@ extern "C"
 {
 #include "R800.h"
 #include "tms9918.h"
+#include "v9938.h"
 }
 
 // Per-frame CPU budget in R800 master-clock ticks (21477270/60). msx_step_frame
@@ -102,7 +103,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			else
 			{
 				// Start the cursor on the cartridge that is actually running.
-				pKernel->SetOverlaySelection (pKernel->GetCurrentCart ());
+				pKernel->SetOverlaySelection (
+					OVERLAY_CART_ROW (pKernel->GetCurrentCart ()));
 				pKernel->SetOverlayOpen (TRUE);
 				pKernel->LogLine ("UI: overlay opened");
 			}
@@ -121,8 +123,7 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				int nSel = pKernel->GetOverlaySelection ();
 				nSel += (nKey == UiKeyDown) ? 1 : -1;
 				if (nSel < 0) nSel = 0;
-				// Rows: 0..TCartIdCount-1 cartridges, TCartIdCount audio.
-				if (nSel > TCartIdCount) nSel = TCartIdCount;
+				if (nSel >= OVERLAY_ROW_COUNT) nSel = OVERLAY_ROW_COUNT - 1;
 				pKernel->SetOverlaySelection (nSel);
 				bChanged = TRUE;
 			}
@@ -132,7 +133,17 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			if (pKernel->IsOverlayOpen ())
 			{
 				int nSel = pKernel->GetOverlaySelection ();
-				if (nSel >= TCartIdCount)
+				if (nSel < OVERLAY_MACHINE_OPTIONS)
+				{
+					int nMachine = pKernel->GetMachineOptionValue (nSel);
+					pKernel->SelectMachine (nMachine);
+					pKernel->SetOverlayOpen (FALSE);
+					pKernel->RequestReset ();
+					pKernel->LogLine ("UI: machine selected; rebooting");
+					bChanged = TRUE;
+					break;
+				}
+				if (nSel == OVERLAY_AUDIO_ROW)
 				{
 				// Audio output row: HDMI+JACK -> jack -> HDMI ->
 				// HDMI+JACK. The menu stays open; core 0 applies
@@ -152,7 +163,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 					bChanged = TRUE;
 					break;
 				}
-				if (nSel == CartRomFile)
+				int nCart = nSel - OVERLAY_CART_ROW_FIRST;
+				if (nCart == CartRomFile)
 				{
 					// Open the SD file browser; the menu stays "open"
 					// (IsBrowserOpen covers the screen) and a file
@@ -162,9 +174,9 @@ static bool ServiceUiQueue (CKernel *pKernel)
 					bChanged = TRUE;
 					break;
 				}
-				if (nSel != pKernel->GetCurrentCart ())
+				if (nCart != pKernel->GetCurrentCart ())
 				{
-					pKernel->SetCurrentCart (nSel);
+					pKernel->SetCurrentCart (nCart);
 					pKernel->LogLine ("UI: booting selected cart");
 				}
 				else
@@ -223,6 +235,7 @@ void CMsxTask::Run (void)
 	// even when the selection itself did not move.
 	int nDrawnSel = OVERLAY_NOT_DRAWN;
 	int nDrawnAudio = -1;
+	int nDrawnMachine = -1;
 
 	// File-browser repaint tracking.
 	int nDrawnBrowserSel = -1;
@@ -305,14 +318,25 @@ void CMsxTask::Run (void)
 
 			int nSel = m_pKernel->GetOverlaySelection ();
 			int nAudio = m_pKernel->GetAudioDest ();
-			if (nSel != nDrawnSel || nAudio != nDrawnAudio)
+			int nMachine = m_pKernel->GetMachineType ();
+			if (nSel != nDrawnSel || nAudio != nDrawnAudio
+			    || nMachine != nDrawnMachine)
 			{
 				nDrawnSel = nSel;
 				nDrawnAudio = nAudio;
+				nDrawnMachine = nMachine;
+				static const char *apMachines[OVERLAY_MACHINE_OPTIONS];
+				for (int i = 0; i < OVERLAY_MACHINE_OPTIONS; i++)
+				{
+					apMachines[i] = m_pKernel->GetMachineOptionLabel (i);
+				}
 				char sAudio[40];
 				snprintf (sAudio, sizeof (sAudio), "AUDIO OUT: %s",
 					  m_pKernel->GetAudioDestLabel ());
-				Overlay_Draw (nSel, sAudio);
+				Overlay_DrawWithMachines (nSel, apMachines,
+						  OVERLAY_MACHINE_OPTIONS,
+						  m_pKernel->GetMachineOptionSelected (),
+						  sAudio);
 			}
 			msx_spin_us (OVERLAY_REDRAW_MS * 1000);
 			continue;
@@ -454,25 +478,49 @@ void CMsxTask::Run (void)
 			m_pKernel->LogLine (sBuf);
 
 			// Direct snapshots: status-port reads would clear the VDP IRQ latch.
-			const TMS9918 *vdp = (const TMS9918 *) machine->vdp;
+			const UInt8 *pVram;
+			unsigned nVramSize, nVramAddress;
+			int nVdpIrq;
+			UInt8 nReg[8];
+			if (machine->machineType == MSX_MACHINE_MSX2)
+			{
+				const V9938 *vdp = (const V9938 *) machine->vdp;
+				memcpy (nReg, vdp->reg, sizeof nReg);
+				pVram = vdp->vram;
+				nVramSize = sizeof vdp->vram;
+				nVramAddress = ((unsigned)(vdp->reg[14] & 7) << 14)
+					| (vdp->address & 0x3FFF);
+				nVdpIrq = vdp->irq;
+			}
+			else
+			{
+				const TMS9918 *vdp = (const TMS9918 *) machine->vdp;
+				memcpy (nReg, vdp->reg, sizeof nReg);
+				pVram = vdp->vram;
+				nVramSize = vdp->vram_size;
+				nVramAddress = vdp->addr;
+				nVdpIrq = vdp->irq;
+			}
 			snprintf (sBuf, sizeof(sBuf),
 				"VDP: R0-7=%02X %02X %02X %02X %02X %02X %02X %02X display=%u inten=%u irq=%d iff1=%u im=%u",
-				vdp->reg[0], vdp->reg[1], vdp->reg[2], vdp->reg[3],
-				vdp->reg[4], vdp->reg[5], vdp->reg[6], vdp->reg[7],
-				(unsigned) ((vdp->reg[1] & 0x40) != 0),
-				(unsigned) ((vdp->reg[1] & 0x20) != 0),
-				vdp->irq, z80->regs.iff1, z80->regs.im);
+				nReg[0], nReg[1], nReg[2], nReg[3],
+				nReg[4], nReg[5], nReg[6], nReg[7],
+				(unsigned) ((nReg[1] & 0x40) != 0),
+				(unsigned) ((nReg[1] & 0x20) != 0),
+				nVdpIrq, z80->regs.iff1, z80->regs.im);
 			m_pKernel->LogLine (sBuf);
 
 			unsigned nNonzero = 0;
 			uint32_t nHash = 2166136261u;
-			for (unsigned i = 0; i < vdp->vram_size; i++)
+			for (unsigned i = 0; i < nVramSize; i++)
 			{
-				if (vdp->vram[i] != 0) nNonzero++;
-				nHash = (nHash ^ vdp->vram[i]) * 16777619u;
+				if (pVram[i] != 0) nNonzero++;
+				nHash = (nHash ^ pVram[i]) * 16777619u;
 			}
 			snprintf (sBuf, sizeof(sBuf), "VRAM: nonzero=%u hash=%08X addr=%04X write=%d",
-				nNonzero, (unsigned) nHash, vdp->addr, vdp->write_mode);
+				nNonzero, (unsigned) nHash, nVramAddress,
+				machine->machineType == MSX_MACHINE_MSX2 ? -1
+					: ((const TMS9918 *)machine->vdp)->write_mode);
 			m_pKernel->LogLine (sBuf);
 			VDPBlit_GetDiagnostics (sBuf, sizeof(sBuf));
 			m_pKernel->LogLine (sBuf);

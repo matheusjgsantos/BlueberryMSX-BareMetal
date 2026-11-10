@@ -88,7 +88,7 @@ struct MSXConfig
 		nMsxbusSlot1 (1),	// connector 1 -> primary slot 1
 		nMsxbusSlot3 (2),	// connector 3 -> primary slot 2 (3 is RAM)
 		nMsxbusReadDelay (16),	// WAIT signals ready; less settle than ref's 100
-		nMachine (0),		// MSX1 (only complete machine type so far)
+		 nMachine (0),		// MSX1 default; 3 selects ColecoVision
 		nCartMapper (MsxMapperAuto)
 	{
 	}

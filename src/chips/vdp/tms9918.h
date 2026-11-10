@@ -20,8 +20,9 @@ extern "C" {
  *           writing register 0 clears them as well. */
 typedef struct {
     uint8_t *vram;
-    UInt16 vram_size;      /* 16384 (16 KB) */
-    uint8_t reg[16];       /* VDP registers 0-15 (0-7 used on MSX1) */
+    UInt32 vram_size;      /* 16384 on TMS9918; 131072 for V9938 legacy modes */
+    UInt8 extended_vram;   /* use V9938 register/table address decoding */
+    uint8_t reg[64];       /* VDP registers 0-15 on TMS; up to 63 on V9938 */
     UInt16 addr;           /* current VRAM latch address */
     int write_mode;        /* 1 = VRAM write, 0 = VRAM read */
     int pending;           /* first byte of a two-byte control command */

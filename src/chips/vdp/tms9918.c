@@ -168,15 +168,18 @@ void tms9918_gen_sync_irq(TMS9918 *vdp) {
 /* ------------------------------------------------------------------ */
 
 static void render_text(const TMS9918 *vdp, uint32_t *out, int pitch,
-                        UInt16 name_ba, int cols, int gpx, int fg, int bg) {
-    const UInt16 mask = vdp->vram_size - 1;
+                        UInt32 name_ba, UInt32 pat_ba,
+                        int cols, int gpx, int fg, int bg) {
+    const UInt32 mask = vdp->vram_size - 1;
     const int rows = 24;
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
             /* Text-mode glyphs come from the fixed TMS9918A ROM font, not VRAM. */
-            UInt8 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
+            UInt8 ch = vdp->vram[(name_ba + (UInt32)(row * cols + col)) & mask];
             for (int py = 0; py < 8; py++) {
-                UInt8 byte = k_msx_font[ch * 8 + py];
+                UInt8 byte = vdp->extended_vram
+                    ? vdp->vram[(pat_ba + ch * 8u + (unsigned)py) & mask]
+                    : k_msx_font[ch * 8 + py];
                 uint32_t *line = out + (row * 8 + py) * pitch;
                 for (int px = 0; px < gpx; px++) {
                     int c = (byte & (0x80u >> px)) ? fg : bg;
@@ -188,10 +191,10 @@ static void render_text(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_graphics1(const TMS9918 *vdp, uint32_t *out, int pitch,
-                             UInt16 name_ba, UInt16 pat_ba, UInt16 col_ba,
+                             UInt32 name_ba, UInt32 pat_ba, UInt32 col_ba,
                              int backdrop) {
     const int cols = 32, rows = 24;
-    const UInt16 mask = vdp->vram_size - 1;
+    const UInt32 mask = vdp->vram_size - 1;
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
             UInt8 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
@@ -214,9 +217,9 @@ static void render_graphics1(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
-                             UInt16 name_ba, int backdrop, int reg3, int reg4) {
+                             UInt32 name_ba, int backdrop, int reg3, int reg4) {
     const int cols = 32, rows = 24;
-    const UInt16 mask = vdp->vram_size - 1;
+    const UInt32 mask = vdp->vram_size - 1;
     /* GRAPHICS 2 window decode, following openMSX VDP::updateColorBase /
      * updatePatternBase.  Each table is a setMask() window whose address is
      *
@@ -225,9 +228,12 @@ static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
      * with indexMask == ~0 << 13, so bits 0-12 come from `index` and bit 13+
      * from the base.  On TMS99XX the color base register R3 leaks into the
      * pattern base, so both windows are built from R3 *and* R4. */
-    const UInt16 col_eff = (UInt16)((((UInt16)reg3 << 6) | 0x003F) & mask);
-    const UInt16 pat_eff = (UInt16)((((UInt16)reg4 << 11) |
-                                     (((UInt16)reg3 & 0x1F) << 6) | 0x003F) & mask);
+    const UInt32 col_eff = vdp->extended_vram
+        ? (((UInt32)vdp->reg[10] << 14) | ((UInt32)reg3 << 6) | 0x3F) & mask
+        : ((((UInt32)reg3 << 6) | 0x003F) & mask);
+    const UInt32 pat_eff = vdp->extended_vram
+        ? (((UInt32)reg4 << 11) | 0x7FF) & mask
+        : ((((UInt32)reg4 << 11) | (((UInt32)reg3 & 0x1F) << 6) | 0x003F) & mask);
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
             /* openMSX renderGraphic2 (CharacterConverter.cc):
@@ -236,11 +242,12 @@ static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
              * The color byte is indexed exactly like the pattern byte, i.e.
              * GRAPHICS 2 keeps one color byte per character *per scanline*, and
              * the three row-groups live in separate 0x800 regions. */
-            UInt16 ch = vdp->vram[(name_ba + (UInt16)(row * cols + col)) & mask];
+            UInt32 ch = vdp->vram[(name_ba + (UInt32)(row * cols + col)) & mask];
             for (int py = 0; py < 8; py++) {
-                UInt16 off = (UInt16)(((UInt16)(row >> 3) << 11) + (UInt16)(ch * 8) + py);
-                UInt8 byte = vdp->vram[((pat_eff & 0xE000) | (pat_eff & off)) & mask];
-                UInt8 color = vdp->vram[((col_eff & 0xE000) | (col_eff & off)) & mask];
+                UInt32 off = (((UInt32)(row >> 3) << 11) + ch * 8 + (unsigned)py);
+                UInt32 tableMask = vdp->extended_vram ? 0x1E000 : 0xE000;
+                UInt8 byte = vdp->vram[((pat_eff & tableMask) | (pat_eff & off)) & mask];
+                UInt8 color = vdp->vram[((col_eff & tableMask) | (col_eff & off)) & mask];
                 int fg = (color >> 4) & 0x0F;   /* high nibble = 1 pixels */
                 int bg = color & 0x0F;          /* low nibble = 0 pixels */
                 if (fg == 0) fg = backdrop;
@@ -256,15 +263,15 @@ static void render_graphics2(const TMS9918 *vdp, uint32_t *out, int pitch,
 }
 
 static void render_multicolor(const TMS9918 *vdp, uint32_t *out, int pitch,
-                              UInt16 name_ba, UInt16 pat_ba, int backdrop) {
-    const UInt16 mask = vdp->vram_size - 1;
+                              UInt32 name_ba, UInt32 pat_ba, int backdrop) {
+    const UInt32 mask = vdp->vram_size - 1;
     for (int line = 0; line < 192; line++) {
         uint32_t *dst = out + line * pitch;
         int nameRow = line / 8;
         int patRow = (line / 4) & 7;
         for (int col = 0; col < 64; col++) {
-            UInt8 ch = vdp->vram[(name_ba + (UInt16)(nameRow * 32 + (col / 2))) & mask];
-            UInt8 byte = vdp->vram[(pat_ba + (UInt16)(ch * 8 + patRow)) & mask];
+            UInt8 ch = vdp->vram[(name_ba + (UInt32)(nameRow * 32 + (col / 2))) & mask];
+            UInt8 byte = vdp->vram[(pat_ba + (UInt32)(ch * 8 + patRow)) & mask];
             int cl = byte & 0x0F;            /* lower nibble = left block */
             int cr = (byte >> 4) & 0x0F;     /* upper nibble = right block */
             if (cl == 0) cl = backdrop;
@@ -311,7 +318,7 @@ static void render_sprites(TMS9918 *vdp, uint32_t *out, int pitch_px) {
         !sprite_mode1(vdp))
         return;
 
-    const UInt16 mask = vdp->vram_size - 1;
+    const UInt32 mask = vdp->vram_size - 1;
     const int size     = (vdp->reg[1] & 0x02) ? 16 : 8;  /* R1.1: 16x16 */
     const int scale    = (vdp->reg[1] & 0x01) ?  2 : 1;  /* R1.0: magnified */
     const int width    = size * scale;                    /* pixels per row */
@@ -320,8 +327,12 @@ static void render_sprites(TMS9918 *vdp, uint32_t *out, int pitch_px) {
      * & indexMask, so the register's low bits fall into the index and only
      * bits 7-12 (attribute) resp. 11-13 (pattern) survive. R11 does not exist
      * on a TMS9918, so the attribute base is (R5 & 0x7F) << 7. */
-    const UInt16 attr_ba = (UInt16)((vdp->reg[5] & 0x7F) << 7);
-    const UInt16 pat_ba  = (UInt16)((vdp->reg[6] & 0x07) << 11);
+    const UInt32 attr_ba = vdp->extended_vram
+        ? (((UInt32)vdp->reg[11] << 15) | ((UInt32)vdp->reg[5] << 7)) & mask
+        : (UInt32)((vdp->reg[5] & 0x7F) << 7);
+    const UInt32 pat_ba = vdp->extended_vram
+        ? ((UInt32)vdp->reg[6] << 11) & mask
+        : (UInt32)((vdp->reg[6] & 0x07) << 11);
 
     /* The sprite list ends at Y = 208 (0xD0). Its length is what ends up in
      * S#0 bits 0-4 when no 5th sprite condition occurred. */
@@ -447,10 +458,16 @@ void tms9918_render(TMS9918 *vdp, uint32_t *out, int pitch) {
      * The register's low bits land in the index (acting as a mask); only the
      * high bits survive & indexMask to become the window base. */
     int is_text = (r1 & 0x10) != 0;   /* M1: 1 = text, 0 = graphics */
-    UInt16 name_ba = is_text ? (UInt16)((vdp->reg[2] & 0x0C) << 10)
-                             : (UInt16)((vdp->reg[2] & 0x0F) << 10);
-    UInt16 col_ba  = (UInt16)(((vdp->reg[3] << 6) | 0x003F) & 0x3FC0);
-    UInt16 pat_ba  = (UInt16)((vdp->reg[4] & 0x07) << 11);
+    UInt32 vram_mask = vdp->vram_size - 1;
+    UInt32 name_ba = vdp->extended_vram
+        ? (((UInt32)vdp->reg[2] << 10) & ~((UInt32)(vdp->reg[25] & 1) << 15)) & vram_mask
+        : (UInt32)((is_text ? (vdp->reg[2] & 0x0C) : (vdp->reg[2] & 0x0F)) << 10);
+    UInt32 col_ba = vdp->extended_vram
+        ? (((UInt32)vdp->reg[10] << 14) | ((UInt32)vdp->reg[3] << 6)) & vram_mask
+        : (((UInt32)vdp->reg[3] << 6) | 0x003F) & 0x3FC0;
+    UInt32 pat_ba = vdp->extended_vram
+        ? ((UInt32)vdp->reg[4] << 11) & vram_mask
+        : (UInt32)((vdp->reg[4] & 0x07) << 11);
 
     /* Mode decode per openMSX DisplayMode:
      *   M1 = R1.4, M2 = R1.3, G2 = R0.1, TEXT2 = R0.2 (with M1 set).
@@ -462,9 +479,9 @@ void tms9918_render(TMS9918 *vdp, uint32_t *out, int pitch) {
     if (is_text) {
         int fg = (vdp->reg[7] >> 4) & 0x0F;
         if (r0 & 0x04)
-            render_text(vdp, out, pitch_px, name_ba, 80, 3, fg, bg);
+            render_text(vdp, out, pitch_px, name_ba, pat_ba, 80, 3, fg, bg);
         else
-            render_text(vdp, out, pitch_px, name_ba, 40, 6, fg, bg);
+            render_text(vdp, out, pitch_px, name_ba, pat_ba, 40, 6, fg, bg);
     } else if (r1 & 0x08) {
         render_multicolor(vdp, out, pitch_px, name_ba, pat_ba, bg);
     } else if (r0 & 0x02) {

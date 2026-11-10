@@ -36,7 +36,9 @@ OBJS = main.o \
 	msx_mapper.o \
 	r800.o \
 	tms9918.o \
+	v9938.o \
 	psg.o \
+	sn76489.o \
 	msxbus.o \
 	msxconfig.o
 
@@ -86,6 +88,14 @@ tms9918.o: ../chips/vdp/tms9918.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
 
+v9938.o: ../chips/vdp/v9938.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
 psg.o: ../chips/sound/psg.c
+	@echo "  CC    $@"
+	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+
+sn76489.o: ../chips/sound/sn76489.c
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<

@@ -34,6 +34,7 @@ enum TMsxMachine
 	MsxMachineMSX1 = 0,
 	MsxMachineMSX2,
 	MsxMachineMSX2Plus,
+	MsxMachineColecoVision,
 	MsxMachineUnknown
 };
 

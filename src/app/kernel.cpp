@@ -291,6 +291,23 @@ boolean CKernel::LoadCartRomFile (MSX_Machine *machine)
 		return FALSE;
 	}
 
+	if (machine->machineType == MSX_MACHINE_COLECOVISION)
+	{
+		unsigned nLoad = nRead > 0x8000 ? 0x8000 : nRead;
+		memset (machine->coleco_memory + 0x10000, 0xFF, 0x8000);
+		if (nLoad < 0x8000 && (nLoad & (nLoad - 1)) == 0)
+		{
+			for (unsigned off = 0; off < 0x8000; off += nLoad)
+				memcpy (machine->coleco_memory + 0x10000 + off, pImg, nLoad);
+		}
+		else
+			memcpy (machine->coleco_memory + 0x10000, pImg, nLoad);
+		free (pImg);
+		m_nResolvedMapper = MSX_MAPPER_NONE;
+		LogLine ("COLECO: cartridge loaded in flat 32 KiB window");
+		return TRUE;
+	}
+
 	// Resolve the mapper. AUTO: let the core's bank-select heuristic guess
 	// (Konami, Konami-SCC, ASCII8, ...); images under 64KB come back NONE.
 	// NOTE: do NOT strip the 16-byte 'AB' header. On MSX that header is the
@@ -846,15 +863,15 @@ TShutdownMode CKernel::Run (void)
 
 	// Optional boot cartridge-dump test (Milestone A). Bus assumed after
 	// this point until the machine is torn down for reboot.
-	if (m_Config.bMsxbusEnable || m_Config.bMsxbusDump)
+	if (m_Config.nMachine != 3 && (m_Config.bMsxbusEnable || m_Config.bMsxbusDump))
 	{
 		MsxbusBringUp ();
 	}
-	if (m_Config.bMsxbusDump)
+	if (m_Config.nMachine != 3 && m_Config.bMsxbusDump)
 	{
 		DumpCartridges ();
 	}
-	if (m_Config.bMfrProbe)
+	if (m_Config.nMachine != 3 && m_Config.bMfrProbe)
 	{
 		ProbeMfrMapper ();
 	}
@@ -906,7 +923,9 @@ TShutdownMode CKernel::Run (void)
 
 	LogLine ("msx_create() starting...");
 	WriteLog ("App", "Stage 8: msx_create starting");
-	m_pMachine = msx_create ();
+	m_pMachine = msx_create_profile (m_Config.nMachine == 0
+		? MSX_MACHINE_MSX1 : (m_Config.nMachine == 3
+		? MSX_MACHINE_COLECOVISION : MSX_MACHINE_MSX2));
 	WriteLog ("App", "Stage 9: msx_create returned");
 	if (!m_pMachine)
 	{
@@ -927,7 +946,14 @@ TShutdownMode CKernel::Run (void)
 	}
 	BootStatus ("boot: C-BIOS loaded");
 
-	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
+	if (m_pMachine->machineType == MSX_MACHINE_COLECOVISION)
+	{
+		if (m_nCurrentCart == CartRomFile && !LoadCartRomFile (m_pMachine))
+			LogLine ("COLECO: cartridge load failed; booting BIOS only");
+		else if (m_nCurrentCart != CartRomFile)
+			LogLine ("COLECO: select ROM FROM FILE to load a game");
+	}
+	else if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		// Live mode: the cartridges are the real ones on the RPMC board.
 		AttachMsxbus (m_pMachine);
@@ -1306,7 +1332,9 @@ void CKernel::DoReset (void)
 		msx_destroy (pOld);
 	}
 
-	m_pMachine = msx_create ();
+	m_pMachine = msx_create_profile (m_Config.nMachine == 0
+		? MSX_MACHINE_MSX1 : (m_Config.nMachine == 3
+		? MSX_MACHINE_COLECOVISION : MSX_MACHINE_MSX2));
 	if (m_pMachine == 0)
 	{
 		LogLine ("FATAL: msx_create() failed during reset");
@@ -1319,7 +1347,11 @@ void CKernel::DoReset (void)
 	{
 		return;
 	}
-	if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
+	if (m_pMachine->machineType == MSX_MACHINE_COLECOVISION)
+	{
+		if (m_nCurrentCart == CartRomFile) LoadCartRomFile (m_pMachine);
+	}
+	else if (m_nCurrentCart == CartSlots && m_Config.bMsxbusEnable)
 	{
 		AttachMsxbus (m_pMachine);
 	}
@@ -1359,6 +1391,41 @@ const char *CKernel::GetCartName (int nCart) const
 	}
 
 	return Overlay_CartName (nCart);
+}
+
+int CKernel::GetMachineOptionCount (void) const
+{
+	return 3;
+}
+
+const char *CKernel::GetMachineOptionLabel (int nIndex) const
+{
+	switch (nIndex)
+	{
+	case 0: return "MSX1 / TMS9918";
+	case 1: return "MSX2 / V9938";
+	case 2: return "ColecoVision";
+	default: return "";
+	}
+}
+
+int CKernel::GetMachineOptionValue (int nIndex) const
+{
+	return nIndex == 1 ? 1 : (nIndex == 2 ? 3 : 0);
+}
+
+int CKernel::GetMachineOptionSelected (void) const
+{
+	return m_Config.nMachine == 3 ? 2 : (m_Config.nMachine == 0 ? 0 : 1);
+}
+
+void CKernel::SelectMachine (int nMachine)
+{
+	if (nMachine != 0 && nMachine != 1 && nMachine != 3)
+	{
+		return;
+	}
+	m_Config.nMachine = nMachine;
 }
 
 // Producer side: runs in the USB interrupt context. Only volatile stores, no
