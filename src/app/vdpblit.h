@@ -44,4 +44,9 @@ typedef void (*VDPBlitDumpFunc) (const unsigned char *pRGB,
                                  void *pUser);
 void VDPBlit_SetDumpHook (VDPBlitDumpFunc pFunc, void *pUser);
 
+// Render the current machine to packed 256x192 RGB888. Call only while the
+// emulation frame loop is stopped (the ALT+F10 core handoff does this).
+boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
+			    unsigned int nCapacity);
+
 #endif

@@ -136,6 +136,23 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		{
 			pCfg->bDiagDump = StrTrue (pVal);
 		}
+		else if (!strcasecmp (pKey, "capture.dir"))
+		{
+			size_t n = strlen (pVal);
+			bool bSafe = n > 0 && n < sizeof pCfg->sCaptureDir
+				&& pVal[0] != '/' && pVal[n - 1] != '/'
+				&& strstr (pVal, "..") == 0;
+			for (size_t i = 0; bSafe && i < n; i++)
+			{
+				unsigned char c = (unsigned char) pVal[i];
+				if (!(isalnum (c) || c == '_' || c == '-' || c == '/'))
+					bSafe = false;
+			}
+			if (bSafe)
+			{
+				strcpy (pCfg->sCaptureDir, pVal);
+			}
+		}
 		else if (!strcasecmp (pKey, "mfrprobe"))
 		{
 			pCfg->bMfrProbe = StrTrue (pVal);

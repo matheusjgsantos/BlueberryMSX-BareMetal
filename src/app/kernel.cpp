@@ -16,6 +16,12 @@
 #include "cartdump.h"
 #include "R800.h"
 
+extern "C" {
+#include <msx.h>
+#include "tms9918.h"
+#include "v9938.h"
+}
+
 #include <circle/string.h>
 #include <circle/usb/usbhid.h>
 #include <circle/machineinfo.h>
@@ -28,6 +34,7 @@
 #include <stdlib.h>
 
 static const char *FromKernel = "kernel";
+static unsigned char s_CaptureRGB[256 * 192 * 3];
 
 extern "C" void diag_uart (char c);
 
@@ -35,6 +42,7 @@ extern "C" void diag_uart (char c);
 // USB HID keyboard page values (see circle/usb/usbhid.h).
 #define HID_F11		0x44
 #define HID_F12		0x45
+#define HID_F10		0x43
 #define HID_RIGHT	0x4F
 #define HID_LEFT	0x50
 #define HID_DOWN	0x51
@@ -688,6 +696,8 @@ CKernel::CKernel (void):
 	, m_bMsxGo (FALSE)
 	, m_bResetArmed (FALSE)
 	, m_bResetDone (FALSE)
+	, m_bCaptureArmed (FALSE)
+	, m_bCaptureDone (FALSE)
 {
 	diag_uart ('9');	// all member ctors (incl. m_VCHIQ) completed
 
@@ -1043,6 +1053,12 @@ TShutdownMode CKernel::Run (void)
 			FinishCore0Reset ();
 		}
 
+		if (ClaimCore0Capture ())
+		{
+			CaptureFrameAndVdp ();
+			FinishCore0Capture ();
+		}
+
 		// File-browser listing request from core 1 (overlay). The
 		// filesystem must only be touched here, on core 0.
 		if (ClaimBrowserList ())
@@ -1087,15 +1103,15 @@ TShutdownMode CKernel::Run (void)
 	return ShutdownHalt;
 }
 
-// USB HID usages that drive the overlay, in the same order as the TUiKey
-// values UiKeyF11..UiKeyEsc (see kernel.h).
+// USB HID usages that drive the overlay, in the same order as TUiKey
+// values UiKeyF10..UiKeyEsc (see kernel.h).
 static const unsigned char s_aUiHid [UI_KEY_COUNT] =
 {
-	HID_F11, HID_F12, HID_UP, HID_DOWN, HID_ENTER, HID_ESC
+	HID_F10, HID_F11, HID_F12, HID_UP, HID_DOWN, HID_ENTER, HID_ESC
 };
 
 // Slots of s_aUiHid that are the ALT hotkeys; the rest are menu navigation.
-enum { UI_F11_SLOT = 0, UI_F12_SLOT = 1 };
+enum { UI_F10_SLOT = 0, UI_F12_SLOT = 2 };
 
 // Auto-repeat filter. A keyboard that repeats on its own (many do when the host
 // does not program a repeat rate) sends a fresh press for every repeat; without
@@ -1156,10 +1172,10 @@ void CKernel::KeyStatusHandlerRaw (unsigned char ucModifiers,
 			}
 
 			// s_aUiHid is ordered like TUiKey, so the slot is the event.
-			int nUiKey = UiKeyF11 + (int) k;
+			int nUiKey = UiKeyF10 + (int) k;
 			if (k <= UI_F12_SLOT)
 			{
-				// ALT+F11 toggles the menu, ALT+F12 reboots.
+				// ALT+F10 captures, ALT+F11 toggles menu, ALT+F12 reboots.
 				if ((ucModifiers & ALT) != 0)
 				{
 					pSelf->PushUiKey (nUiKey);
@@ -1251,7 +1267,7 @@ void CKernel::KeyStatusHandlerRaw (unsigned char ucModifiers,
 	bool bMenuOpen = pSelf->m_bOverlayOpen != FALSE;
 	if (bMenuOpen)
 	{
-		for (unsigned k = UI_F11_SLOT; k < UI_KEY_COUNT; k++)
+		for (unsigned k = UI_F10_SLOT; k < UI_KEY_COUNT; k++)
 		{
 			unsigned char ucKey = s_aUiHid[k];
 			if (pSelf->m_aKeyGuest[ucKey] != 0)
@@ -2103,6 +2119,18 @@ boolean CKernel::ClaimCore0Reset (void)
 	return TRUE;
 }
 
+boolean CKernel::ClaimCore0Capture (void)
+{
+	if (!m_bCaptureArmed)
+	{
+		return FALSE;
+	}
+
+	m_bCaptureArmed = FALSE;
+	DataMemBarrier ();
+	return TRUE;
+}
+
 const char *CKernel::GetAudioDestLabel (void) const
 {
 	switch (m_nAudioDest)
@@ -2204,4 +2232,90 @@ void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsi
 
 	m_FileSystem.FileClose (hFile);
 	LogLine (sName);
+}
+
+void CKernel::CaptureFrameAndVdp (void)
+{
+	if (!m_bFsMounted || m_pMachine == 0)
+	{
+		LogLine ("capture: SD data partition or machine unavailable");
+		return;
+	}
+
+	unsigned nFrame = (unsigned) (m_nFrames & 0x0FFFFFFF);
+
+	char sName[128];
+	snprintf (sName, sizeof sName, "%s/F%07X.VDS", m_Config.sCaptureDir,
+		  nFrame);
+	unsigned hFile = m_FileSystem.FileCreate (sName);
+	if (hFile == 0)
+	{
+		LogLine ("capture: cannot create VDP state (check capture.dir exists)");
+		return;
+	}
+
+	static const char sMagic[8] = {'M','S','X','V','D','P','S','1'};
+	uint32_t aInfo[4];
+	uint8_t aStatus[4] = {0,0,0,0};
+	uint8_t aEmptyPalette[16 * 3] = {0};
+	const uint8_t *pRegisters;
+	const uint8_t *pPalette = aEmptyPalette;
+	const uint8_t *pVRAM;
+	unsigned nVRAM;
+	if (m_pMachine->machineType == MSX_MACHINE_MSX2)
+	{
+		const V9938 *pVdp = (const V9938 *) m_pMachine->vdp;
+		pRegisters = pVdp->reg;
+		memcpy (aStatus, pVdp->status, sizeof aStatus);
+		pPalette = &pVdp->palette[0][0];
+		pVRAM = pVdp->vram;
+		nVRAM = sizeof pVdp->vram;
+	}
+	else
+	{
+		const TMS9918 *pVdp = (const TMS9918 *) m_pMachine->vdp;
+		pRegisters = pVdp->reg;
+		aStatus[0] = (uint8_t) pVdp->status;
+		aStatus[1] = (uint8_t) (pVdp->irq != 0);
+		pVRAM = pVdp->vram;
+		nVRAM = pVdp->vram_size;
+	}
+	aInfo[0] = 1; /* capture format version */
+	aInfo[1] = (uint32_t) m_pMachine->machineType;
+	aInfo[2] = nFrame;
+	aInfo[3] = nVRAM;
+	boolean bOK =
+		m_FileSystem.FileWrite (hFile, (void *) sMagic, sizeof sMagic) == sizeof sMagic
+		&& m_FileSystem.FileWrite (hFile, aInfo, sizeof aInfo) == sizeof aInfo
+		&& m_FileSystem.FileWrite (hFile, (void *) pRegisters, 64) == 64
+		&& m_FileSystem.FileWrite (hFile, aStatus, sizeof aStatus) == sizeof aStatus
+		&& m_FileSystem.FileWrite (hFile, (void *) pPalette, 48) == 48
+		&& m_FileSystem.FileWrite (hFile, (void *) pVRAM, nVRAM) == nVRAM;
+	m_FileSystem.FileClose (hFile);
+	LogLine (bOK ? "capture: VDP state saved" : "capture: VDP state write failed");
+	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB))
+	{
+		char sImageName[128];
+		snprintf (sImageName, sizeof sImageName, "%s/F%07X.PPM",
+			  m_Config.sCaptureDir, nFrame);
+		hFile = m_FileSystem.FileCreate (sImageName);
+		if (hFile == 0)
+		{
+			LogLine ("capture: cannot create PPM image");
+		}
+		else
+		{
+			static const char sPpmHeader[] = "P6\n256 192\n255\n";
+			boolean bImageOK =
+				m_FileSystem.FileWrite (hFile, (void *) sPpmHeader,
+					sizeof sPpmHeader - 1) == sizeof sPpmHeader - 1
+				&& m_FileSystem.FileWrite (hFile, s_CaptureRGB,
+					sizeof s_CaptureRGB) == sizeof s_CaptureRGB;
+			m_FileSystem.FileClose (hFile);
+			LogLine (bImageOK ? "capture: PPM image saved"
+					  : "capture: PPM image write failed");
+		}
+	}
+	else
+		LogLine ("capture: framebuffer unavailable");
 }

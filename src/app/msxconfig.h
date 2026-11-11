@@ -11,6 +11,8 @@
 #ifndef _msx_msxconfig_h
 #define _msx_msxconfig_h
 
+#include <string.h>
+
 class CFATFileSystem;
 
 // Where the log goes. "net" is accepted and currently behaves like "file"
@@ -65,6 +67,7 @@ struct MSXConfig
 	bool bMsxbusEnable;	// hook the bus into emulated slot 0/1 (later)
 	bool bMsxbusDump;	// boot cartridge-dump test (this milestone)
 	bool bDiagDump;		// per-frame PPM + bus counter dumps to the FAT card
+	char sCaptureDir[96];	// ALT+F10 output directory on SD data partition
 	bool bMfrProbe;		// boot MegaFlashROM mapper probe (+ force Konami mode)
 	int nMsxbusMode;	// MsxBusMode
 	unsigned nDumpBytes;	// bytes to dump per connector
@@ -91,6 +94,7 @@ struct MSXConfig
 		 nMachine (0),		// MSX1 default; 3 selects ColecoVision
 		nCartMapper (MsxMapperAuto)
 	{
+		strcpy (sCaptureDir, "MSX/CAPTURE");
 	}
 };
 

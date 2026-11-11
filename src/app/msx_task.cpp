@@ -94,6 +94,18 @@ static bool ServiceUiQueue (CKernel *pKernel)
 
 		switch (nKey)
 		{
+		case UiKeyF10:
+			pKernel->ArmCore0Capture ();
+			DataMemBarrier ();
+			while (!pKernel->IsCore0CaptureDone ())
+			{
+				DataMemBarrier ();
+			}
+			pKernel->ClearCore0CaptureDone ();
+			pKernel->LogLine ("UI: frame and VDP state captured");
+			bChanged = TRUE;
+			break;
+
 		case UiKeyF11:
 			if (pKernel->IsOverlayOpen ())
 			{

@@ -31,6 +31,30 @@ static VDPBlitDumpFunc s_pDumpFunc = 0;
 static void *s_pDumpUser = 0;
 static unsigned long s_nFrame = 0;
 
+static void RenderMachine (MSX_Machine *pMsx)
+{
+	if (pMsx->machineType == MSX_MACHINE_MSX2)
+		v9938_render ((V9938 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
+	else
+		tms9918_render ((TMS9918 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
+}
+
+boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
+			    unsigned int nCapacity)
+{
+	if (pMachine == 0 || pRGB == 0 || nCapacity < MSX_WIDTH * MSX_HEIGHT * 3)
+		return FALSE;
+	RenderMachine ((MSX_Machine *) pMachine);
+	for (unsigned long p = 0; p < MSX_WIDTH * MSX_HEIGHT; p++)
+	{
+		uint32_t v = s_TempFrame[p];
+		pRGB[p * 3 + 0] = (unsigned char) (v >> 16);
+		pRGB[p * 3 + 1] = (unsigned char) (v >> 8);
+		pRGB[p * 3 + 2] = (unsigned char) v;
+	}
+	return TRUE;
+}
+
 void VDPBlit_Init (CScreenDevice *pScreen)
 {
 	CBcmFrameBuffer *pFb = pScreen->GetFrameBuffer ();
@@ -115,15 +139,7 @@ extern "C" void msx_frame_render (void *pMachine)
 	}
 
 	MSX_Machine *pMsx = (MSX_Machine *) pMachine;
-	if (pMsx->machineType == MSX_MACHINE_MSX2)
-	{
-		v9938_render ((V9938 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
-	}
-	else
-	{
-		// Both VDP renderers take pitch in bytes (the target is uint32_t RGB).
-		tms9918_render ((TMS9918 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
-	}
+	RenderMachine (pMsx);
 
 	s_nFrame++;
 

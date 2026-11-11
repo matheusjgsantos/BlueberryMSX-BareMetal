@@ -28,9 +28,10 @@ typedef struct {
     uint16_t transferRowX, transferRowN;
     int16_t transferStepX, transferStepY;
     uint16_t transferRemainingX, transferRemainingY;
-    uint8_t transferArmed;
+    uint16_t transferRowWidth;
     uint8_t transferActive;
     uint8_t transferData;
+    uint8_t transferColorPending;
 } V9938;
 
 V9938* v9938_create(void);

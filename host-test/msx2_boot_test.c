@@ -48,11 +48,16 @@ int main(void)
 
     R800 *cpu = (R800 *)machine->z80;
     V9938 *vdp = (V9938 *)machine->vdp;
-    printf("MSX2 C-BIOS boot: PC=%04X SP=%04X VDP R0=%02X R1=%02X R14=%02X\n",
+    printf("MSX2 C-BIOS boot: PC=%04X SP=%04X VDP R0=%02X R1=%02X R14=%02X "
+           "R46=%02X S2=%02X transfer=%u cmd=%02X rem=%u,%u pos=%u,%u\n",
            cpu->regs.PC.W, cpu->regs.SP.W,
-           vdp->reg[0], vdp->reg[1], vdp->reg[14]);
-    if (cpu->regs.PC.W == 0 || machine->machineType != MSX_MACHINE_MSX2) {
-        fprintf(stderr, "MSX2 boot did not make progress\n");
+            vdp->reg[0], vdp->reg[1], vdp->reg[14], vdp->reg[46],
+            vdp->status[2], vdp->transferActive, vdp->transferCommand,
+            vdp->transferRemainingX, vdp->transferRemainingY,
+            vdp->transferRowX, vdp->transferRowN);
+    if (cpu->regs.PC.W == 0 || machine->machineType != MSX_MACHINE_MSX2 ||
+        vdp->transferActive || !(vdp->reg[1] & 0x40)) {
+        fprintf(stderr, "MSX2 boot did not finish VDP logo initialization\n");
         msx_destroy(machine);
         return 1;
     }

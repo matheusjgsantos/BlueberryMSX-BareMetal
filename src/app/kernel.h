@@ -67,6 +67,7 @@ enum TCartId
 enum TUiKey
 {
 	UiKeyNone = 0,
+	UiKeyF10,		// ALT+F10: capture frame and VDP state
 	UiKeyF11,		// ALT+F11: toggle the ROM menu
 	UiKeyF12,		// ALT+F12: reboot the machine
 	UiKeyUp,
@@ -75,8 +76,8 @@ enum TUiKey
 	UiKeyEsc
 };
 
-// Number of keys tracked by the auto-repeat filter: UiKeyF11..UiKeyEsc.
-#define UI_KEY_COUNT 6
+	// Number of keys tracked by the auto-repeat filter: UiKeyF10..UiKeyEsc.
+#define UI_KEY_COUNT 7
 
 // Task-level USB plug-and-play pass interval. 250 ms is fast enough for hot
 // plug and cheap enough to leave the console and the MSX task alone.
@@ -150,6 +151,11 @@ public:
 	void FinishCore0Reset (void)      { m_bResetDone = TRUE; }
 	boolean IsCore0ResetDone (void) const { return m_bResetDone; }
 	void ClearCore0ResetDone (void)   { m_bResetDone = FALSE; }
+	void ArmCore0Capture (void)       { m_bCaptureArmed = TRUE; }
+	boolean ClaimCore0Capture (void);
+	void FinishCore0Capture (void)    { m_bCaptureDone = TRUE; }
+	boolean IsCore0CaptureDone (void) const { return m_bCaptureDone; }
+	void ClearCore0CaptureDone (void) { m_bCaptureDone = FALSE; }
 
 	// Core 1 release: set TRUE by Run() once the machine and the frame
 	// loop object exist; CMSXMultiCore::Run(1) spins on it from the end
@@ -290,6 +296,7 @@ public:
 
 	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
+	void CaptureFrameAndVdp (void);
 
 	// PSG activity since boot, for the serial log (writes, peak sample of the
 	// last rendered frame, and frames dropped because the queue was full).
@@ -421,6 +428,8 @@ private:
 	volatile boolean m_bMsxGo;
 	volatile boolean m_bResetArmed;
 	volatile boolean m_bResetDone;
+	volatile boolean m_bCaptureArmed;
+	volatile boolean m_bCaptureDone;
 	CSpinLock m_LogLock;
 };
 
