@@ -297,8 +297,8 @@ static void test_v9938_sprite_mode2_pattern_and_color(void)
     uint32_t frame[256*192];
     memset(frame,0,sizeof frame);
     v9938_render(vdp,frame,256*4);
-    assert(frame[1*256+34]==0x0024DA24); /* unchanged color; SAT X+2, Y+1. */
-    assert(frame[1*256+35]==0x00000000); /* clear pattern bit remains background */
+    assert(frame[1*256+32]==0x0024DA24); /* unchanged color; SAT X, Y+1. */
+    assert(frame[1*256+33]==0x00000000); /* clear pattern bit remains background */
     v9938_destroy(vdp);
     puts("PASS: V9938 sprite mode 2 pattern/color fetch");
 }

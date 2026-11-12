@@ -471,9 +471,8 @@ static void render_sprites2(V9938 *v, uint32_t *o, int pitch)
              * unrelated pattern data.  The reference SpriteLine reads +1 for
              * X and +2 for the pattern number. */
             /* This framebuffer starts at the sprite's SAT X coordinate; do
-             * not apply the reference rasterizer's internal -32/crop bias.
-             * Retain the measured two-pixel alignment trim separately. */
-            int sx=(int)d[1]+2;
+             * not apply the reference rasterizer's internal -32/crop bias. */
+            int sx=(int)d[1];
             uint8_t ca=v->vram[(colorBase+n*16u+(unsigned)(row/mag))&0x1FFFF];
             if(ca&0x80)sx-=32; /* EC: shift the complete sprite left 32 dots. */
             unsigned pattern=(unsigned)d[2];
