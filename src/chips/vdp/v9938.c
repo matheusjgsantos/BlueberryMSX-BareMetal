@@ -470,9 +470,10 @@ static void render_sprites2(V9938 *v, uint32_t *o, int pitch)
              * swapped X and pattern, producing misplaced sprites and fetching
              * unrelated pattern data.  The reference SpriteLine reads +1 for
              * X and +2 for the pattern number. */
-            /* Hardware captures show the active-area sprite origin needs a
-             * two-pixel rightward correction. Keep this separate from color. */
-            int sx=(int)d[1]-32+2;
+            /* This framebuffer starts at the sprite's SAT X coordinate; do
+             * not apply the reference rasterizer's internal -32/crop bias.
+             * Retain the measured two-pixel alignment trim separately. */
+            int sx=(int)d[1]+2;
             uint8_t ca=v->vram[(colorBase+n*16u+(unsigned)(row/mag))&0x1FFFF];
             if(ca&0x80)sx-=32; /* EC: shift the complete sprite left 32 dots. */
             unsigned pattern=(unsigned)d[2];

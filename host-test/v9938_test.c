@@ -288,7 +288,7 @@ static void test_v9938_sprite_mode2_pattern_and_color(void)
     write_register(vdp,6,1);    /* Sprite patterns at 0x0800. */
     uint8_t *vram=v9938_get_vram(vdp);
     vram[0x400]=0;              /* Sprite 0 Y. */
-    vram[0x401]=32;             /* X=0 after the hardware -32 bias. */
+    vram[0x401]=32;             /* SAT X coordinate. */
     vram[0x402]=0;              /* Pattern 0. */
     vram[0x403]=0;
     vram[0x400+4]=216;          /* End marker. */
@@ -297,8 +297,8 @@ static void test_v9938_sprite_mode2_pattern_and_color(void)
     uint32_t frame[256*192];
     memset(frame,0,sizeof frame);
     v9938_render(vdp,frame,256*4);
-    assert(frame[1*256+2]==0x0024DA24); /* unchanged color; calibrated +2,+1. */
-    assert(frame[1*256+3]==0x00000000); /* clear pattern bit remains background */
+    assert(frame[1*256+34]==0x0024DA24); /* unchanged color; SAT X+2, Y+1. */
+    assert(frame[1*256+35]==0x00000000); /* clear pattern bit remains background */
     v9938_destroy(vdp);
     puts("PASS: V9938 sprite mode 2 pattern/color fetch");
 }
