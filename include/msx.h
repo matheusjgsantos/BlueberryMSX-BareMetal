@@ -187,6 +187,13 @@ void msx_set_bus_callbacks(MSX_Machine *machine,
 #define MSX_FRAME_TICKS 357954   /* R800_MASTER_FREQUENCY (21477270) / 60 */
 int msx_step_frame(MSX_Machine *machine, int frame_ticks);
 
+/* Report how far the CPU is into the current frame (elapsed and total in R800
+ * master ticks). msx_step_frame() keeps this up to date; an alternative
+ * scheduler (or a host harness with its own frame loop) must call it as it
+ * runs the CPU so time-stamped device writes -- the VDP's per-raster-line
+ * display split and the PSG's sub-frame write log -- stay correctly placed. */
+void msx_set_frame_position(unsigned elapsed, unsigned total);
+
 /* AY-3-8910 PSG. Master clock is 3579545 Hz; one MSX frame (1/60 s) is
  * 59659 clocks. Render nSamples mono samples for the given number of master
  * clocks and return the sample count written (0 on failure). */

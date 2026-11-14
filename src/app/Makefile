@@ -14,6 +14,13 @@ AARCH	= 32
 
 CIRCLEHOME ?= ../../../BlueberryMSX/circle
 
+# Diagnostic-only A/B: delay D0 CE completion using the BlueberryMSX HMMM
+# timing table, while leaving the VRAM copy itself synchronous.
+V9938_DIAGNOSTIC_TIMED_D0_CE ?= 0
+ifeq ($(V9938_DIAGNOSTIC_TIMED_D0_CE),1)
+V9938_DIAGNOSTIC_CFLAGS += -DV9938_DIAGNOSTIC_TIMED_D0_CE
+endif
+
 EXTRAINCLUDE	+= -I../../include \
 			-I../core \
 			-I../chips \
@@ -90,7 +97,7 @@ tms9918.o: ../chips/vdp/tms9918.c
 
 v9938.o: ../chips/vdp/v9938.c
 	@echo "  CC    $@"
-	@$(CC) $(CFLAGS) $(C_STANDARD) -c -o $@ $<
+	@$(CC) $(CFLAGS) $(C_STANDARD) $(V9938_DIAGNOSTIC_CFLAGS) -c -o $@ $<
 
 psg.o: ../chips/sound/psg.c
 	@echo "  CC    $@"

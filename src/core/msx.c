@@ -348,6 +348,11 @@ static const void *s_psgStartOwner;
 static unsigned s_instrDone;
 static unsigned s_instrTotal;
 
+void msx_set_frame_position(unsigned elapsed, unsigned total) {
+    s_instrDone = elapsed;
+    s_instrTotal = total;
+}
+
 static void psg_log_clear(void) {
     s_psgLogCount = 0;
     s_psgLogOverflow = 0;
@@ -426,7 +431,13 @@ static UInt8 slot_read_io(void *ref, UInt16 port) {
         return machine->bus_read_io(machine->bus_ref, port);
     if (port >= 0x98 && port <= 0x9F) {
         if (machine->machineType == MSX_MACHINE_MSX2)
+        {
+            v9938_set_trace_cpu_time((V9938*)machine->vdp,
+                                     msx_cpu_get_time(machine->cpu));
+            v9938_set_trace_cpu_pc((V9938*)machine->vdp,
+                                   ((R800*)machine->z80)->regs.PC.W);
             v = v9938_read_port((V9938*)machine->vdp, port);
+        }
         else
             v = tms9918_read_reg((TMS9918*)machine->vdp, port);
         // Reading the VDP status register (0x99) clears the sync IRQ line.
@@ -468,10 +479,20 @@ static void slot_write_io(void *ref, UInt16 port, UInt8 val) {
             printf("    [trace] (IO log capped at %d; auto-disabled)\n", TRACE_MAX);
     }
     if (port >= 0x98 && port <= 0x9F) {
-        if (machine->machineType == MSX_MACHINE_MSX2)
+        if (machine->machineType == MSX_MACHINE_MSX2) {
+            v9938_set_trace_cpu_time((V9938*)machine->vdp,
+                                     msx_cpu_get_time(machine->cpu));
+            v9938_set_trace_cpu_pc((V9938*)machine->vdp,
+                                   ((R800*)machine->z80)->regs.PC.W);
+            /* Tell the VDP where the beam is before the write lands so the
+             * per-raster-line display state is split at the right line. */
+            if (s_instrTotal > 0)
+                v9938_set_frame_time((V9938*)machine->vdp, s_instrDone,
+                                     s_instrTotal);
             v9938_write_port((V9938*)machine->vdp, port, val);
-        else
+        } else {
             tms9918_write_reg((TMS9918*)machine->vdp, port, val);
+        }
         return;
     }
     if (port == 0xA0 || port == 0xA1) {
@@ -827,8 +848,24 @@ int msx_step_frame(MSX_Machine *machine, int frame_ticks) {
     unsigned n = 0;
 
     s_instrTotal = (unsigned) frame_ticks;
+    /* Seed the per-raster-line display state for the frame about to be
+     * scanned; mid-frame register writes then split it by CPU time. */
+    if (machine->machineType == MSX_MACHINE_MSX2)
+        v9938_frame_start((V9938*)machine->vdp);
     while ((UInt32)(msx_cpu_get_time(cpu) - start) < (UInt32) frame_ticks) {
         s_instrDone = (unsigned)(msx_cpu_get_time(cpu) - start);
+        if (machine->machineType == MSX_MACHINE_MSX2)
+        {
+            v9938_set_frame_time((V9938*)machine->vdp, s_instrDone,
+                                 s_instrTotal);
+            /* The R#19 line interrupt fires in the middle of a frame. Hold the
+             * CPU INT line asserted while the VDP has a pending source so the
+             * handler runs at the selected raster line instead of waiting for
+             * the next frame boundary. The line is level-triggered (as on real
+             * hardware) and drops when the program reads the status register. */
+            if (v9938_irq_pending((V9938*)machine->vdp))
+                msx_cpu_set_irq(cpu);
+        }
         msx_cpu_execute(cpu);
         n++;
     }

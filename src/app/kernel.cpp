@@ -2262,14 +2262,15 @@ void CKernel::CaptureFrameAndVdp (void)
 	const uint8_t *pPalette = aEmptyPalette;
 	const uint8_t *pVRAM;
 	unsigned nVRAM;
+	const V9938 *pV9938 = 0;
 	if (m_pMachine->machineType == MSX_MACHINE_MSX2)
 	{
-		const V9938 *pVdp = (const V9938 *) m_pMachine->vdp;
-		pRegisters = pVdp->reg;
-		memcpy (aStatus, pVdp->status, sizeof aStatus);
-		pPalette = &pVdp->palette[0][0];
-		pVRAM = pVdp->vram;
-		nVRAM = sizeof pVdp->vram;
+		pV9938 = (const V9938 *) m_pMachine->vdp;
+		pRegisters = pV9938->reg;
+		memcpy (aStatus, pV9938->status, sizeof aStatus);
+		pPalette = &pV9938->palette[0][0];
+		pVRAM = pV9938->vram;
+		nVRAM = sizeof pV9938->vram;
 	}
 	else
 	{
@@ -2293,6 +2294,220 @@ void CKernel::CaptureFrameAndVdp (void)
 		&& m_FileSystem.FileWrite (hFile, (void *) pVRAM, nVRAM) == nVRAM;
 	m_FileSystem.FileClose (hFile);
 	LogLine (bOK ? "capture: VDP state saved" : "capture: VDP state write failed");
+	if (bOK && pV9938 != 0)
+	{
+		const unsigned nCommandLogSize = 1048576;
+		char *pCommandLog = (char *) malloc (nCommandLogSize);
+		if (pCommandLog == 0)
+		{
+			LogLine ("capture: cannot allocate VDP command log buffer");
+		}
+		else
+		{
+			unsigned nUsed = 0;
+			int n = snprintf (pCommandLog, nCommandLogSize,
+				"MSXVDPCMD1\ntotal_launches=%u\nretained=%u\n",
+				(unsigned) pV9938->commandSequence,
+				(unsigned) pV9938->commandHistoryCount);
+			if (n > 0 && (unsigned)n < nCommandLogSize)
+				nUsed = (unsigned)n;
+			for (unsigned i = 0; i < 256 && nUsed < nCommandLogSize; i++)
+			{
+				if (!pV9938->commandCounts[i]) continue;
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "count %02X %u\n", i,
+					     (unsigned) pV9938->commandCounts[i]);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			unsigned oldest = (pV9938->commandHistoryNext +
+					   V9938_COMMAND_HISTORY_CAPACITY -
+					   pV9938->commandHistoryCount) %
+					  V9938_COMMAND_HISTORY_CAPACITY;
+			for (unsigned i = 0; i < pV9938->commandHistoryCount &&
+			     nUsed < nCommandLogSize; i++)
+			{
+				const V9938_CommandEvent *event = &pV9938->commandHistory[
+					(oldest + i) % V9938_COMMAND_HISTORY_CAPACITY];
+				const uint8_t *r = event->registers;
+				unsigned sx = r[0] | ((unsigned)(r[1] & 1) << 8);
+				unsigned sy = r[2] | ((unsigned)(r[3] & 3) << 8);
+				unsigned dx = r[4] | ((unsigned)(r[5] & 1) << 8);
+				unsigned dy = r[6] | ((unsigned)(r[7] & 3) << 8);
+				unsigned nx = r[8] | ((unsigned)(r[9] & 3) << 8);
+				unsigned ny = r[10] | ((unsigned)(r[11] & 3) << 8);
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "%u time=%u pc=%04X cmd=%02X arg=%02X sx=%03X sy=%03X "
+					     "dx=%03X dy=%03X nx=%03X ny=%03X col=%02X\n",
+					     (unsigned) event->sequence,
+					     (unsigned) event->cpuTime, (unsigned) event->cpuPc,
+					     r[14], r[13], sx, sy, dx, dy, nx,
+					     ny, r[12]);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			if (nUsed < nCommandLogSize)
+			{
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "vram_reads=%u vram_writes=%u\n",
+					     (unsigned) pV9938->vramReadCount,
+					     (unsigned) pV9938->vramWriteCount);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+					nUsed = nCommandLogSize;
+				else
+					nUsed += (unsigned)n;
+			}
+			for (unsigned i = 0; i < 8 && nUsed < nCommandLogSize; i++)
+			{
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "bank %u reads=%u writes=%u\n", i,
+					     (unsigned) pV9938->vramReadsByBank[i],
+					     (unsigned) pV9938->vramWritesByBank[i]);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			unsigned oldestAccess = (pV9938->vramAccessHistoryNext +
+						 V9938_VRAM_ACCESS_HISTORY_CAPACITY -
+						 pV9938->vramAccessHistoryCount) %
+						V9938_VRAM_ACCESS_HISTORY_CAPACITY;
+			for (unsigned i = 0; i < pV9938->vramAccessHistoryCount &&
+			     nUsed < nCommandLogSize; i++)
+			{
+				const V9938_VramAccessEvent *event =
+					&pV9938->vramAccessHistory[(oldestAccess + i) %
+								   V9938_VRAM_ACCESS_HISTORY_CAPACITY];
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "vram %u %c %05X %02X\n", (unsigned) event->sequence,
+					     event->write ? 'W' : 'R', (unsigned) event->address,
+					     event->data);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			unsigned oldestTransfer = (pV9938->transferHistoryNext +
+						   V9938_TRANSFER_HISTORY_CAPACITY -
+						   pV9938->transferHistoryCount) %
+						  V9938_TRANSFER_HISTORY_CAPACITY;
+			for (unsigned i = 0; i < pV9938->transferHistoryCount &&
+			     nUsed < nCommandLogSize; i++)
+			{
+				const V9938_TransferEvent *event = &pV9938->transferHistory[
+					(oldestTransfer + i) % V9938_TRANSFER_HISTORY_CAPACITY];
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+						     "data %u %u %u TR=%u %05X %02X\n",
+						     (unsigned) event->sequence,
+						     (unsigned) event->commandSequence,
+						     (unsigned) event->cpuTime,
+						     (unsigned) event->trReadyBefore,
+						     (unsigned) event->address, event->data);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			unsigned oldestStatus = (pV9938->statusReadHistoryNext +
+					  V9938_STATUS_HISTORY_CAPACITY -
+					  pV9938->statusReadHistoryCount) %
+					 V9938_STATUS_HISTORY_CAPACITY;
+			for (unsigned i = 0; i < pV9938->statusReadHistoryCount &&
+			     nUsed < nCommandLogSize; i++)
+			{
+				const V9938_StatusEvent *event = &pV9938->statusReadHistory[
+					(oldestStatus + i) % V9938_STATUS_HISTORY_CAPACITY];
+				n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+					     "status %u time=%u pc=%04X reg=%u value=%02X\n",
+					     (unsigned) event->sequence,
+					     (unsigned) event->cpuTime, (unsigned) event->cpuPc,
+					     (unsigned) event->reg, (unsigned) event->value);
+				if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				{
+					nUsed = nCommandLogSize;
+					break;
+				}
+				nUsed += (unsigned)n;
+			}
+			/* Record the line-latched display state transitions as well as the
+			 * final register snapshot. This distinguishes a missing raster split
+			 * from one placed outside the visible rows. */
+			unsigned nRasterTransitions = 0;
+			if (pV9938->lineStateValid)
+			{
+				nRasterTransitions = 1;
+				for (unsigned i = 1; i < V9938_FRAME_LINES; i++)
+				{
+					if (memcmp (&pV9938->lineState[i - 1],
+						    &pV9938->lineState[i],
+						    sizeof pV9938->lineState[i]) != 0)
+						nRasterTransitions++;
+				}
+			}
+			n = snprintf (pCommandLog + nUsed, nCommandLogSize - nUsed,
+				     "raster_trace valid=%u transitions=%u\n",
+				     pV9938->lineStateValid, nRasterTransitions);
+			if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+				nUsed = nCommandLogSize;
+			else
+				nUsed += (unsigned)n;
+			if (pV9938->lineStateValid && nUsed < nCommandLogSize)
+			{
+				for (unsigned i = 0; i < V9938_FRAME_LINES &&
+				     nUsed < nCommandLogSize; i++)
+				{
+					if (i != 0 && memcmp (&pV9938->lineState[i - 1],
+							      &pV9938->lineState[i],
+							      sizeof pV9938->lineState[i]) == 0)
+						continue;
+					const V9938_LineState *line = &pV9938->lineState[i];
+					n = snprintf (pCommandLog + nUsed,
+						     nCommandLogSize - nUsed,
+						     "raster %03u R2=%02X R7=%02X R23=%02X "
+						     "R25=%02X R26=%02X R27=%02X\n", i,
+						     line->r2, line->r7, line->r23, line->r25,
+						     line->r26, line->r27);
+					if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
+					{
+						nUsed = nCommandLogSize;
+						break;
+					}
+					nUsed += (unsigned)n;
+				}
+			}
+			char sCommandName[128];
+			snprintf (sCommandName, sizeof sCommandName, "%s/F%07X.CMD",
+				  m_Config.sCaptureDir, nFrame);
+			hFile = m_FileSystem.FileCreate (sCommandName);
+			if (hFile == 0)
+			{
+				LogLine ("capture: cannot create VDP command log");
+			}
+			else
+			{
+				boolean bCommandOK = nUsed < nCommandLogSize &&
+					m_FileSystem.FileWrite (hFile, pCommandLog, nUsed) == nUsed;
+				m_FileSystem.FileClose (hFile);
+				LogLine (bCommandOK ? "capture: VDP command log saved"
+						    : "capture: VDP command log write failed");
+			}
+			free (pCommandLog);
+		}
+	}
 	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB))
 	{
 		char sImageName[128];

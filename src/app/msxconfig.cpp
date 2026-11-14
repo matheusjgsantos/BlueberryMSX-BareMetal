@@ -159,10 +159,10 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		}
 		else if (!strcasecmp (pKey, "machine"))
 		{
-			if (!strcasecmp (pVal, "msx2+") || !strcasecmp (pVal, "msx2plus")
-			 || !strcasecmp (pVal, "msx2+"))
+			if (!strcasecmp (pVal, "msx2+") || !strcasecmp (pVal, "msx2plus"))
 			{
-				pCfg->nMachine = 2;
+				/* MSX2+ (V9958/MSX-MUSIC) is outside the MSX2 release scope. */
+				pCfg->nMachine = 0;
 			}
 			else if (!strcasecmp (pVal, "msx2"))
 			{

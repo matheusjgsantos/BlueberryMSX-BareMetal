@@ -53,7 +53,7 @@ to the boot partition. C-BIOS is no longer embedded in `msx.img` (v0.11 onward).
 | 2d | Done | Boot from USB thumb drive; kernel log mirrored to `BOOT.LOG` on the UMS log partition (`bootdev=umsd`, msxboot only) |
 | 2e | Shelved | Clean shutdown → chain-boot handover; blocked by msxboot USB-teardown hang, no longer needed with direct boot |
 | 2f | Done | Direct boot via model-selected Pi 3/Pi 4 app images |
-| 3 | Partial | USB keyboard and PSG implemented; MSX2/2+ and V9938 support remain future work |
+| 3 | Partial | USB keyboard and PSG implemented; MSX2 profile, V9938 graphics, and command support are in progress; MSX2+ is deferred |
 
 See `TMS9918_MSX1_VDP.md` for the VDP ground truth and renderer design.
 
@@ -179,6 +179,8 @@ Expected clean sequence after upload: `R S W X Y Z O N P Q A B C D E F G`.
   further output; disassembly proves the `~CLogger` probes are in the binary).
   Chain boot is no longer the deployment path; direct boot is the release path.
 - `sd_update/` staging is stale (holds an old `kernel7l.img` + its config).
-- MSX1/C-BIOS is the supported machine configuration. MSX2/2+ BIOS files are
-  bundled, but the required secondary-slot register and V9938 VDP are not yet
-  implemented.
+- MSX1/C-BIOS remains the release baseline. MSX2 has secondary-slot support,
+  a V9938 profile, and host-tested C-BIOS boot; V9938 mode/command fidelity is
+  still incomplete and the Pi 3/Pi 4 images have not been hardware-verified.
+  MSX2+ is explicitly deferred; `msx.machine=msx2+` currently falls back to
+  MSX1 so it cannot select the unsupported V9958/MSX-MUSIC profile.
