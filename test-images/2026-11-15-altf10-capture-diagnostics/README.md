@@ -22,6 +22,8 @@ hardware, while ALT+F11/ALT+F12 still work.
    The flush runs on core 0 only. Because the early and frame-60 checkpoints
    fire even if ALT+F10 is never pressed, `boot.log` is the primary record for
    both a boot that stops early and a capture that produces no files.
+   Control this with `bootlog = on` or `bootlog = off` in `msx.ini`; it
+   defaults to `on`.
 
 No emulation behavior change.
 

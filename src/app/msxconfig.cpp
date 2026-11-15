@@ -136,6 +136,10 @@ bool MsxConfig_Load (MSXConfig *pCfg, CFATFileSystem *pFs)
 		{
 			pCfg->bDiagDump = StrTrue (pVal);
 		}
+		else if (!strcasecmp (pKey, "bootlog"))
+		{
+			pCfg->bBootLog = StrTrue (pVal);
+		}
 		else if (!strcasecmp (pKey, "capture.dir"))
 		{
 			size_t n = strlen (pVal);

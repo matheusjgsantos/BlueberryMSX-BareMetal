@@ -13,3 +13,13 @@
 !/host-test/*.h
 !/host-test/*.bin
 !/host-test/*.asm
+
+# Circle FAT host regression sources (compiled binary and caches stay ignored).
+!/host-test/circle_fat/
+/host-test/circle_fat/*
+!/host-test/circle_fat/*.cpp
+!/host-test/circle_fat/*.py
+!/host-test/circle_fat/*.sh
+!/host-test/circle_fat/stub/
+!/host-test/circle_fat/stub/circle/
+!/host-test/circle_fat/stub/circle/*.h

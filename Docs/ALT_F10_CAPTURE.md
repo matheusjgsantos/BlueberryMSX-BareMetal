@@ -18,6 +18,15 @@ default `MSX/CAPTURE` is an 8.3-compatible example. Captures use matching
 `Fxxxxxxx.PPM` and `Fxxxxxxx.VDS` names based on the emulated frame number.
 The capture path is independent of the optional `diag=on` periodic dump.
 
+If the configured directory does not exist or cannot be used, the same file
+name is written at the data-partition root instead, and the log records
+`capture: cannot use dir '<dir>', wrote <name> at the partition root`. A
+capture is therefore never lost to a directory configuration problem. Each
+saved file is reported with its full path, e.g.
+`capture: VDP state saved: capture/F0000083.VDS`. The ALT+F10 completion line
+says `UI: capture files written` or `UI: capture failed (no file written)`, so
+it reflects the actual result rather than just the core handoff.
+
 The PPM is 256x192 RGB888. The `.VDS` file is little-endian and contains:
 
 1. Eight-byte signature `MSXVDPS1`.
@@ -50,13 +59,29 @@ CPU clock. These bounded histories can make `.CMD` sidecars several hundred KiB.
 The host file writer runs on core 0 while core 1 is paused at a handoff, so
 FAT access does not race the emulator. Creating files in a configured
 subdirectory depends on the path-aware `CFATDirectory::CreateEntry` support in
-the matching Circle tree; the feature-branch build trees were updated for
-that behavior. The Circle FAT file handle must retain the complete relative
-path through `FileClose` (its original 12-byte title field truncated
-subdirectory names), so the updated tree uses a 256-byte path field. Hardware
-verification is required to validate the SD write on the target card.
+the matching Circle tree: `CreateEntry` splits the path, resolves the parent
+directory (existing `ResolveDir` / `GetEntryIn` traversal) and creates the
+entry in that directory's cluster chain, extending the chain when it is full.
+The Circle FAT `TFile` handle keeps the complete relative path through
+`FileClose` (`FS_TITLE_LEN` is 255), because the original 12-byte title field
+truncated subdirectory names and `FileClose` could then never update the
+created entry. Hardware verification is required to validate the SD write on
+the target card.
 
 ## boot.log
+
+Boot logging is controlled by `bootlog` in `msx.ini` on the SD data
+partition:
+
+```ini
+bootlog = on
+```
+
+The default is `on` to preserve the diagnostic behavior. Set `bootlog = off`
+to disable `boot.log` creation and its RAM log collection; this does not
+disable UART logging, ALT+F10 capture files, or other diagnostics. Turning it
+off does not delete a `boot.log` left by an earlier boot; it simply stops
+updating/creating the file.
 
 The kernel keeps a rolling copy of recent log lines in RAM (16 KiB, oldest
 half dropped when full) regardless of the configured serial/file mode. It is

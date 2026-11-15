@@ -67,6 +67,7 @@ struct MSXConfig
 	bool bMsxbusEnable;	// hook the bus into emulated slot 0/1 (later)
 	bool bMsxbusDump;	// boot cartridge-dump test (this milestone)
 	bool bDiagDump;		// per-frame PPM + bus counter dumps to the FAT card
+	bool bBootLog;		// rolling boot.log on the SD data partition
 	char sCaptureDir[96];	// ALT+F10 output directory on SD data partition
 	bool bMfrProbe;		// boot MegaFlashROM mapper probe (+ force Konami mode)
 	int nMsxbusMode;	// MsxBusMode
@@ -84,6 +85,7 @@ struct MSXConfig
 		bMsxbusEnable (true),	// SLOTS (live bus) is the default cartridge
 		bMsxbusDump (false),
 		bDiagDump (false),	// off: no mid-run SD writes during play
+		bBootLog (true),	// preserve boot.log diagnostics unless disabled
 		bMfrProbe (false),	// off: no cart mapper poking by default
 		nMsxbusMode (MsxBusCache),	// fast path for plain ROM packs
 		nDumpBytes (0x20000),	// 128 KiB

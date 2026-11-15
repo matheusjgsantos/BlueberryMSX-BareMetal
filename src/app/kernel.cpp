@@ -698,6 +698,7 @@ CKernel::CKernel (void):
 	, m_bResetDone (FALSE)
 	, m_bCaptureArmed (FALSE)
 	, m_bCaptureDone (FALSE)
+	, m_bCaptureWritten (FALSE)
 	, m_bLogFlushReq (FALSE)
 {
 	diag_uart ('9');	// all member ctors (incl. m_VCHIQ) completed
@@ -1551,11 +1552,10 @@ void CKernel::WriteLog (const char *pPrefix, const char *pFmt, ...)
 	// serializes the CString heap use inside CLogger::WriteV.
 	m_LogLock.Acquire ();
 
-	// Always keep a rolling copy of the recent lines in RAM so a diagnostic
-	// checkpoint can flush them to boot.log on the SD data partition. This is
-	// independent of the serial/file mode: the ALT+F10 capture path writes
-	// boot.log even when the console is on the UART. When the buffer is full
-	// the oldest half is dropped so the most recent lines survive.
+	// When bootlog is enabled, keep a rolling copy of recent lines in RAM so
+	// checkpoints can flush them to the SD data partition, independent of the
+	// serial/file mode. When full, drop the oldest half so recent lines survive.
+	if (m_Config.bBootLog)
 	{
 		unsigned nLen = (unsigned) strlen (sBuf);
 		if (nLen + 1 > sizeof (m_aLogFile))
@@ -1640,12 +1640,13 @@ void CKernel::LoadMsxConfig (void)
 	default:		  break;
 	}
 
-	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s diag=%s mode=%d size=%u rddelay=%d dumpmapper=%s",
+	WriteLog ("kernel", "msx.ini loaded=%d log=%s%s msxbus=%s dump=%s diag=%s bootlog=%s mode=%d size=%u rddelay=%d dumpmapper=%s",
 		  bRead ? 1 : 0, MsxLogModeName (m_Config.nLogMode),
 		  bBus ? " (UART locked off)" : "",
 		  m_Config.bMsxbusEnable ? "on" : "off",
 		  m_Config.bMsxbusDump ? "on" : "off",
 		  m_Config.bDiagDump ? "on" : "off",
+		  m_Config.bBootLog ? "on" : "off",
 		  m_Config.nMsxbusMode, m_Config.nDumpBytes, m_Config.nMsxbusReadDelay,
 		  pDumpMap);
 }
@@ -1657,7 +1658,7 @@ void CKernel::LoadMsxConfig (void)
 // touch from the MSX task or an IRQ.
 void CKernel::FlushFileLog (void)
 {
-	if (!m_bFsMounted || m_nLogFileLen == 0)
+	if (!m_Config.bBootLog || !m_bFsMounted || m_nLogFileLen == 0)
 	{
 		return;
 	}
@@ -2302,8 +2303,67 @@ void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsi
 	LogLine (sName);
 }
 
+// Create a capture output file. The configured capture.dir is tried first; if
+// that directory cannot be used (missing, or an older FAT build without path
+// create support) the same file name is written at the data-partition root,
+// which always exists (boot.log lives there). Returns the FAT handle and the
+// path that was actually used.
+unsigned CKernel::CreateCaptureFile (const char *pLeaf, char *pUsed, unsigned nUsedLen)
+{
+	if (pUsed != 0 && nUsedLen > 0)
+	{
+		pUsed[0] = '\0';
+	}
+	if (pLeaf == 0 || pLeaf[0] == '\0')
+	{
+		return 0;
+	}
+
+	if (m_Config.sCaptureDir[0] != '\0')
+	{
+		char sName[160];
+		snprintf (sName, sizeof sName, "%s/%s", m_Config.sCaptureDir, pLeaf);
+
+		unsigned hFile = m_FileSystem.FileCreate (sName);
+		if (hFile != 0)
+		{
+			if (pUsed != 0)
+			{
+				snprintf (pUsed, nUsedLen, "%s", sName);
+			}
+			return hFile;
+		}
+
+		hFile = m_FileSystem.FileCreate (pLeaf);
+		if (hFile != 0)
+		{
+			char sDiag[160];
+			snprintf (sDiag, sizeof sDiag,
+				  "capture: cannot use dir '%s', wrote %s at the partition root",
+				  m_Config.sCaptureDir, pLeaf);
+			LogLine (sDiag);
+			if (pUsed != 0)
+			{
+				snprintf (pUsed, nUsedLen, "%s", pLeaf);
+			}
+			return hFile;
+		}
+
+		return 0;
+	}
+
+	unsigned hFile = m_FileSystem.FileCreate (pLeaf);
+	if (hFile != 0 && pUsed != 0)
+	{
+		snprintf (pUsed, nUsedLen, "%s", pLeaf);
+	}
+	return hFile;
+}
+
 void CKernel::CaptureFrameAndVdp (void)
 {
+	m_bCaptureWritten = FALSE;
+
 	char sDiag[160];
 	snprintf (sDiag, sizeof sDiag, "capture: enter (fs=%d machine=%p dir=%s)",
 		  (int) m_bFsMounted, (void *) m_pMachine, m_Config.sCaptureDir);
@@ -2322,13 +2382,14 @@ void CKernel::CaptureFrameAndVdp (void)
 
 	unsigned nFrame = (unsigned) (m_nFrames & 0x0FFFFFFF);
 
-	char sName[128];
-	snprintf (sName, sizeof sName, "%s/F%07X.VDS", m_Config.sCaptureDir,
-		  nFrame);
-	unsigned hFile = m_FileSystem.FileCreate (sName);
+	char sLeaf[64];
+	char sUsed[160];
+	snprintf (sLeaf, sizeof sLeaf, "F%07X.VDS", nFrame);
+	unsigned hFile = CreateCaptureFile (sLeaf, sUsed, sizeof sUsed);
 	if (hFile == 0)
 	{
-		snprintf (sDiag, sizeof sDiag, "capture: cannot create VDP state: %s", sName);
+		snprintf (sDiag, sizeof sDiag, "capture: cannot create VDP state: %s/%s",
+			  m_Config.sCaptureDir, sLeaf);
 		LogLine (sDiag);
 		FlushFileLog ();
 		return;
@@ -2373,7 +2434,16 @@ void CKernel::CaptureFrameAndVdp (void)
 		&& m_FileSystem.FileWrite (hFile, (void *) pPalette, 48) == 48
 		&& m_FileSystem.FileWrite (hFile, (void *) pVRAM, nVRAM) == nVRAM;
 	m_FileSystem.FileClose (hFile);
-	LogLine (bOK ? "capture: VDP state saved" : "capture: VDP state write failed");
+	if (bOK)
+	{
+		m_bCaptureWritten = TRUE;
+		snprintf (sDiag, sizeof sDiag, "capture: VDP state saved: %s", sUsed);
+		LogLine (sDiag);
+	}
+	else
+	{
+		LogLine ("capture: VDP state write failed");
+	}
 	if (bOK && pV9938 != 0)
 	{
 		const unsigned nCommandLogSize = 1048576;
@@ -2569,10 +2639,11 @@ void CKernel::CaptureFrameAndVdp (void)
 					nUsed += (unsigned)n;
 				}
 			}
-			char sCommandName[128];
-			snprintf (sCommandName, sizeof sCommandName, "%s/F%07X.CMD",
-				  m_Config.sCaptureDir, nFrame);
-			hFile = m_FileSystem.FileCreate (sCommandName);
+			char sCommandLeaf[64];
+			char sCommandUsed[160];
+			snprintf (sCommandLeaf, sizeof sCommandLeaf, "F%07X.CMD", nFrame);
+			hFile = CreateCaptureFile (sCommandLeaf, sCommandUsed,
+						   sizeof sCommandUsed);
 			if (hFile == 0)
 			{
 				LogLine ("capture: cannot create VDP command log");
@@ -2582,18 +2653,27 @@ void CKernel::CaptureFrameAndVdp (void)
 				boolean bCommandOK = nUsed < nCommandLogSize &&
 					m_FileSystem.FileWrite (hFile, pCommandLog, nUsed) == nUsed;
 				m_FileSystem.FileClose (hFile);
-				LogLine (bCommandOK ? "capture: VDP command log saved"
-						    : "capture: VDP command log write failed");
+				if (bCommandOK)
+				{
+					snprintf (sDiag, sizeof sDiag,
+						  "capture: VDP command log saved: %s",
+						  sCommandUsed);
+					LogLine (sDiag);
+				}
+				else
+				{
+					LogLine ("capture: VDP command log write failed");
+				}
 			}
 			free (pCommandLog);
 		}
 	}
 	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB))
 	{
-		char sImageName[128];
-		snprintf (sImageName, sizeof sImageName, "%s/F%07X.PPM",
-			  m_Config.sCaptureDir, nFrame);
-		hFile = m_FileSystem.FileCreate (sImageName);
+		char sImageLeaf[64];
+		char sImageUsed[160];
+		snprintf (sImageLeaf, sizeof sImageLeaf, "F%07X.PPM", nFrame);
+		hFile = CreateCaptureFile (sImageLeaf, sImageUsed, sizeof sImageUsed);
 		if (hFile == 0)
 		{
 			LogLine ("capture: cannot create PPM image");
@@ -2607,8 +2687,16 @@ void CKernel::CaptureFrameAndVdp (void)
 				&& m_FileSystem.FileWrite (hFile, s_CaptureRGB,
 					sizeof s_CaptureRGB) == sizeof s_CaptureRGB;
 			m_FileSystem.FileClose (hFile);
-			LogLine (bImageOK ? "capture: PPM image saved"
-					  : "capture: PPM image write failed");
+			if (bImageOK)
+			{
+				snprintf (sDiag, sizeof sDiag,
+					  "capture: PPM image saved: %s", sImageUsed);
+				LogLine (sDiag);
+			}
+			else
+			{
+				LogLine ("capture: PPM image write failed");
+			}
 		}
 	}
 	else

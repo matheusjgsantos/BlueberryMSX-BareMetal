@@ -156,6 +156,9 @@ public:
 	void FinishCore0Capture (void)    { m_bCaptureDone = TRUE; }
 	boolean IsCore0CaptureDone (void) const { return m_bCaptureDone; }
 	void ClearCore0CaptureDone (void) { m_bCaptureDone = FALSE; }
+	// TRUE when the last capture actually wrote its files. Core 1 must not
+	// claim success just because the core-0 handoff completed.
+	boolean IsCaptureWritten (void) const { return m_bCaptureWritten; }
 
 	// Core 1 -> core 0 log flush handoff: the filesystem may only be touched
 	// on core 0, so the MSX task asks the scheduler to write boot.log.
@@ -302,6 +305,10 @@ public:
 	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
 	void CaptureFrameAndVdp (void);
+	// Create a capture file in the configured capture.dir, falling back to the
+	// data-partition root when that directory cannot be used. Writes the
+	// resulting path into pUsed and returns the FAT file handle (0 on failure).
+	unsigned CreateCaptureFile (const char *pLeaf, char *pUsed, unsigned nUsedLen);
 
 	// PSG activity since boot, for the serial log (writes, peak sample of the
 	// last rendered frame, and frames dropped because the queue was full).
@@ -435,6 +442,7 @@ private:
 	volatile boolean m_bResetDone;
 	volatile boolean m_bCaptureArmed;
 	volatile boolean m_bCaptureDone;
+	volatile boolean m_bCaptureWritten;
 	volatile boolean m_bLogFlushReq;
 	CSpinLock m_LogLock;
 };

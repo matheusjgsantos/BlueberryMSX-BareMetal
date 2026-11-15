@@ -103,7 +103,9 @@ static bool ServiceUiQueue (CKernel *pKernel)
 				DataMemBarrier ();
 			}
 			pKernel->ClearCore0CaptureDone ();
-			pKernel->LogLine ("UI: frame and VDP state captured");
+			pKernel->LogLine (pKernel->IsCaptureWritten ()
+				? "UI: capture files written"
+				: "UI: capture failed (no file written)");
 			// Persist the completion line too (core 0 writes the file).
 			pKernel->RequestLogFlush ();
 			bChanged = TRUE;
