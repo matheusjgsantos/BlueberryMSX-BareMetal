@@ -698,6 +698,7 @@ CKernel::CKernel (void):
 	, m_bResetDone (FALSE)
 	, m_bCaptureArmed (FALSE)
 	, m_bCaptureDone (FALSE)
+	, m_bLogFlushReq (FALSE)
 {
 	diag_uart ('9');	// all member ctors (incl. m_VCHIQ) completed
 
@@ -906,6 +907,11 @@ TShutdownMode CKernel::Run (void)
 	WriteLog ("App", "Stage 7: VDP blit initialized");
 	BootStatus ("boot: video boot status ready");
 
+	// Early boot.log checkpoint: persist Stages 1-7 before the sound/VCHIQ
+	// init below (that init is the suspected hang point on a wrong-arch
+	// addon mix), so a boot that stops here still leaves a log on the card.
+	FlushFileLog ();
+
 	// PSG sound: CVCHIQSoundBaseDevice routes through the firmware audio
 	// service to whichever output is connected (headphone jack or HDMI);
 	// it falls back to the direct CHDMISoundBaseDevice (HDMI only) if the
@@ -1057,6 +1063,11 @@ TShutdownMode CKernel::Run (void)
 		{
 			CaptureFrameAndVdp ();
 			FinishCore0Capture ();
+		}
+
+		if (TakeLogFlushRequest ())
+		{
+			FlushFileLog ();
 		}
 
 		// File-browser listing request from core 1 (overlay). The
@@ -1540,12 +1551,31 @@ void CKernel::WriteLog (const char *pPrefix, const char *pFmt, ...)
 	// serializes the CString heap use inside CLogger::WriteV.
 	m_LogLock.Acquire ();
 
-	// "file" (and "net") logging: keep a bounded copy on the RAM buffer,
-	// flushed to boot.log on the FAT partition at checkpoints. This is
-	// what carries the msxbus dump results when the UART is off.
-	if (m_bFileLog)
+	// Always keep a rolling copy of the recent lines in RAM so a diagnostic
+	// checkpoint can flush them to boot.log on the SD data partition. This is
+	// independent of the serial/file mode: the ALT+F10 capture path writes
+	// boot.log even when the console is on the UART. When the buffer is full
+	// the oldest half is dropped so the most recent lines survive.
 	{
 		unsigned nLen = (unsigned) strlen (sBuf);
+		if (nLen + 1 > sizeof (m_aLogFile))
+		{
+			nLen = sizeof (m_aLogFile) - 1;
+		}
+		if (m_nLogFileLen + nLen + 1 > sizeof (m_aLogFile))
+		{
+			unsigned nKeep = sizeof (m_aLogFile) / 2;
+			if (m_nLogFileLen > nKeep)
+			{
+				memmove (m_aLogFile, m_aLogFile + m_nLogFileLen - nKeep,
+					 nKeep);
+				m_nLogFileLen = nKeep;
+			}
+			else
+			{
+				m_nLogFileLen = 0;
+			}
+		}
 		if (m_nLogFileLen + nLen + 1 <= sizeof (m_aLogFile))
 		{
 			memcpy (m_aLogFile + m_nLogFileLen, sBuf, nLen);
@@ -1620,21 +1650,47 @@ void CKernel::LoadMsxConfig (void)
 		  pDumpMap);
 }
 
-// Flush the captured log to boot.log on the FAT partition (best effort).
+// Flush the captured log to boot.log on the SD data partition (best effort).
+// Small FAT writes hang this Circle build, but a 128 KiB padded write (the
+// same size class as the cartridge dumps and PPM frames) is reliable, so the
+// log is flushed as a padded file. Core 0 only: the filesystem is not safe to
+// touch from the MSX task or an IRQ.
 void CKernel::FlushFileLog (void)
 {
-	m_LogLock.Acquire ();
-	if (m_bFsMounted && m_nLogFileLen > 0)
+	if (!m_bFsMounted || m_nLogFileLen == 0)
 	{
-		unsigned hFile = m_FileSystem.FileCreate ("boot.log");
-		if (hFile != 0)
-		{
-			m_FileSystem.FileWrite (hFile, m_aLogFile, m_nLogFileLen);
-			m_FileSystem.FileClose (hFile);
-		}
-		m_nLogFileLen = 0;
+		return;
 	}
+
+	const unsigned nSize = 0x20000;		// 128 KiB, see DumpMsxbusDiag
+	unsigned char *pBuf = (unsigned char *) malloc (nSize);
+	if (pBuf == 0)
+	{
+		return;
+	}
+	memset (pBuf, 0, nSize);
+
+	// Header line so a reader can tell this is the padded log container.
+	static const char sHeader[] = "MSX BOOT LOG (128 KiB padded)\n";
+	unsigned nHeader = sizeof sHeader - 1;
+
+	m_LogLock.Acquire ();
+	unsigned nCopy = m_nLogFileLen;
+	if (nCopy > nSize - nHeader)
+	{
+		nCopy = nSize - nHeader;
+	}
+	memcpy (pBuf, sHeader, nHeader);
+	memcpy (pBuf + nHeader, m_aLogFile, nCopy);
 	m_LogLock.Release ();
+
+	unsigned hFile = m_FileSystem.FileCreate ("boot.log");
+	if (hFile != 0)
+	{
+		m_FileSystem.FileWrite (hFile, pBuf, nSize);
+		m_FileSystem.FileClose (hFile);
+	}
+	free (pBuf);
 }
 
 // Core <-> GPIO bus bridges. The MSX core calls these through function
@@ -2131,6 +2187,18 @@ boolean CKernel::ClaimCore0Capture (void)
 	return TRUE;
 }
 
+boolean CKernel::TakeLogFlushRequest (void)
+{
+	if (!m_bLogFlushReq)
+	{
+		return FALSE;
+	}
+
+	m_bLogFlushReq = FALSE;
+	DataMemBarrier ();
+	return TRUE;
+}
+
 const char *CKernel::GetAudioDestLabel (void) const
 {
 	switch (m_nAudioDest)
@@ -2236,9 +2304,19 @@ void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsi
 
 void CKernel::CaptureFrameAndVdp (void)
 {
+	char sDiag[160];
+	snprintf (sDiag, sizeof sDiag, "capture: enter (fs=%d machine=%p dir=%s)",
+		  (int) m_bFsMounted, (void *) m_pMachine, m_Config.sCaptureDir);
+	LogLine (sDiag);
+
+	// Save the RAM log to boot.log first, so the ALT+F10 request and this
+	// entry line are on the card even if the capture path fails below.
+	FlushFileLog ();
+
 	if (!m_bFsMounted || m_pMachine == 0)
 	{
 		LogLine ("capture: SD data partition or machine unavailable");
+		FlushFileLog ();	// best effort: only writes when mounted
 		return;
 	}
 
@@ -2250,7 +2328,9 @@ void CKernel::CaptureFrameAndVdp (void)
 	unsigned hFile = m_FileSystem.FileCreate (sName);
 	if (hFile == 0)
 	{
-		LogLine ("capture: cannot create VDP state (check capture.dir exists)");
+		snprintf (sDiag, sizeof sDiag, "capture: cannot create VDP state: %s", sName);
+		LogLine (sDiag);
+		FlushFileLog ();
 		return;
 	}
 
@@ -2533,4 +2613,7 @@ void CKernel::CaptureFrameAndVdp (void)
 	}
 	else
 		LogLine ("capture: framebuffer unavailable");
+
+	// Flush again so the outcome of this capture attempt is on the card.
+	FlushFileLog ();
 }

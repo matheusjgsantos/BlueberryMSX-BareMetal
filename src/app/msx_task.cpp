@@ -95,6 +95,7 @@ static bool ServiceUiQueue (CKernel *pKernel)
 		switch (nKey)
 		{
 		case UiKeyF10:
+			pKernel->LogLine ("UI: F10 capture requested");
 			pKernel->ArmCore0Capture ();
 			DataMemBarrier ();
 			while (!pKernel->IsCore0CaptureDone ())
@@ -103,6 +104,8 @@ static bool ServiceUiQueue (CKernel *pKernel)
 			}
 			pKernel->ClearCore0CaptureDone ();
 			pKernel->LogLine ("UI: frame and VDP state captured");
+			// Persist the completion line too (core 0 writes the file).
+			pKernel->RequestLogFlush ();
 			bChanged = TRUE;
 			break;
 
@@ -410,6 +413,16 @@ void CMsxTask::Run (void)
 		if (m_pKernel->GetFrames () == 1)
 		{
 			m_pKernel->LogLine ("BOOT: MSX task produced first frame");
+		}
+
+		// One-shot boot checkpoint: persist the boot log to boot.log on the SD
+		// data partition (core 0 does the write) so it exists even if no
+		// ALT+F10 capture is ever attempted.
+		static bool bBootLogFlushed = false;
+		if (!bBootLogFlushed && m_pKernel->GetFrames () >= 60)
+		{
+			bBootLogFlushed = true;
+			m_pKernel->RequestLogFlush ();
 		}
 
 		// One-shot AUD snapshots at frames 600 and 720: totals of pushed

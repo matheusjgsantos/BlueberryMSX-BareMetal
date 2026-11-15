@@ -55,3 +55,22 @@ that behavior. The Circle FAT file handle must retain the complete relative
 path through `FileClose` (its original 12-byte title field truncated
 subdirectory names), so the updated tree uses a 256-byte path field. Hardware
 verification is required to validate the SD write on the target card.
+
+## boot.log
+
+The kernel keeps a rolling copy of recent log lines in RAM (16 KiB, oldest
+half dropped when full) regardless of the configured serial/file mode. It is
+flushed to `boot.log` on the **same SD data partition** (`emmc1-2`, partition
+2) at two checkpoints:
+
+1. a one-shot boot checkpoint at emulated frame 60, and
+2. at the start and end of every ALT+F10 capture attempt.
+
+`boot.log` is written as a **128 KiB padded** file (header line plus the log
+text, zero-padded to size). Small FAT writes hang this Circle build; a 128 KiB
+write is the same size class as the cartridge dumps and PPM frames that are
+known to write reliably. The flush runs on core 0 only (the filesystem is not
+safe to touch from the MSX frame task or an IRQ). Because the boot checkpoint
+fires even if ALT+F10 is never pressed, `boot.log` is the primary record for
+diagnosing a capture that produces no `.PPM`/`.VDS`/`.CMD` files: look for the
+`UI: F10 capture requested` and `capture: ...` lines.

@@ -157,6 +157,11 @@ public:
 	boolean IsCore0CaptureDone (void) const { return m_bCaptureDone; }
 	void ClearCore0CaptureDone (void) { m_bCaptureDone = FALSE; }
 
+	// Core 1 -> core 0 log flush handoff: the filesystem may only be touched
+	// on core 0, so the MSX task asks the scheduler to write boot.log.
+	void RequestLogFlush (void)       { m_bLogFlushReq = TRUE; }
+	boolean TakeLogFlushRequest (void);
+
 	// Core 1 release: set TRUE by Run() once the machine and the frame
 	// loop object exist; CMSXMultiCore::Run(1) spins on it from the end
 	// of Initialize() onward.
@@ -430,6 +435,7 @@ private:
 	volatile boolean m_bResetDone;
 	volatile boolean m_bCaptureArmed;
 	volatile boolean m_bCaptureDone;
+	volatile boolean m_bLogFlushReq;
 	CSpinLock m_LogLock;
 };
 
