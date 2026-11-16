@@ -12,9 +12,8 @@
  *       3 + 13 + topBorder + (212-line ? 0 : 10) + verticalAdjust
  *   the frame interrupt is raised when the display area ends
  *   the displayed line is (frameRow + R#23) & 255
- * The 192-row framebuffer retains active lines 0-191; in 212-line mode only
- * the 20 bottom lines are omitted, never the top ten. Framebuffer row y is
- * therefore scanned at raster line lineZero + y.
+ * Native output starts at active line zero and retains all 192/212 lines.
+ * Framebuffer row y is scanned at raster line lineZero + y.
  */
 #include "v9938.h"
 
@@ -271,6 +270,88 @@ static void test_aleste_vblank_hud_state(V9938 *vdp)
     }
 }
 
+static void test_sprite_register_split(void)
+{
+    V9938 *v = v9938_create();
+    assert(v);
+    setup_screen5(v);
+    memset(v->vram, 0, sizeof v->vram);
+    write_register(v, 1, 0x60); /* display on, 8x8 sprites */
+    write_register(v, 5, 0x07); /* SAT at 0x200, colours at 0 */
+    write_register(v, 6, 0x01); /* pattern at 0x800 */
+    write_register(v, 8, 0x00);
+    write_register(v, 11, 0x00);
+    v->vram[0x200] = 0; v->vram[0x201] = 30;
+    v->vram[0x204] = 216;
+    v->vram[0x8600] = 0; v->vram[0x8601] = 90;
+    v->vram[0x8604] = 216;
+    for (unsigned row = 0; row < 8; row++) {
+        v->vram[row] = 4;
+        v->vram[0x8400 + row] = 6;
+        v->vram[0x800 + row] = 0x80;
+        v->vram[0x1000 + row] = 0xC0;
+    }
+    v9938_frame_start(v);
+    render(v, s_a);
+    assert(s_a[1 * COLS + 30] != s_a[1 * COLS + 90]);
+
+    write_register(v, 1, 0x61); /* magnification */
+    write_register(v, 5, 0x0F);
+    write_register(v, 6, 0x02);
+    write_register(v, 8, 0x20); /* solid colour 0 */
+    write_register(v, 11, 0x01);
+    v9938_frame_start(v);
+    render(v, s_b);
+    assert(s_b[1 * COLS + 90] != s_a[1 * COLS + 90]);
+
+    write_register(v, 1, 0x60);
+    write_register(v, 5, 0x07);
+    write_register(v, 6, 0x01);
+    write_register(v, 8, 0x00);
+    write_register(v, 11, 0x00);
+    v9938_frame_start(v);
+    v9938_set_frame_time(v, frame_time_for_raster(LINE_ZERO + 4), FRAME_TICKS);
+    write_register(v, 1, 0x61);
+    write_register(v, 5, 0x0F);
+    write_register(v, 6, 0x02);
+    write_register(v, 8, 0x20);
+    write_register(v, 11, 0x01);
+    v9938_set_frame_time(v, frame_time_for_raster(LINE_ZERO + 6), FRAME_TICKS);
+    write_register(v, 8, 0x02); /* disable sprites from this row onward */
+    render(v, s_img);
+    for (unsigned y = 0; y < 8; y++) {
+        const uint32_t *expected = y < 4 ? s_a : s_b;
+        for (unsigned x = 0; x < COLS; x++) {
+            if (y >= 6) continue;
+            assert(s_img[y * COLS + x] == expected[y * COLS + x]);
+        }
+    }
+    assert(s_img[7 * COLS + 90] != s_b[7 * COLS + 90]);
+    assert(s_img[7 * COLS + 30] == s_a[7 * COLS + 200]);
+    assert(v->lineState[LINE_ZERO + 3].r5 == 0x07);
+    assert(v->lineState[LINE_ZERO + 4].r5 == 0x0F);
+    assert(v->lineState[LINE_ZERO + 6].r8 == 0x02);
+
+    /* A blanking-time sprite-table change also carries across raster wrap. */
+    v9938_frame_start(v);
+    v9938_set_frame_time(v, 0, FRAME_TICKS);
+    write_register(v, 8, 0x00);
+    write_register(v, 5, 0x07);
+    write_register(v, 6, 0x01);
+    write_register(v, 11, 0x00);
+    write_register(v, 1, 0x60);
+    v9938_set_frame_time(v, frame_time_for_raster(LINE_ZERO + 4), FRAME_TICKS);
+    write_register(v, 5, 0x0F);
+    write_register(v, 6, 0x02);
+    write_register(v, 11, 0x01);
+    assert(v->lineState[LINE_ZERO + 1].r5 == 0x07);
+    assert(v->lineState[LINE_ZERO + 4].r5 == 0x0F);
+    render(v, s_img);
+    assert(s_img[1 * COLS + 30] == s_a[1 * COLS + 30]);
+    assert(s_img[5 * COLS + 90] != s_a[5 * COLS + 90]);
+    v9938_destroy(v);
+}
+
 /* Without v9938_frame_start() the VDP keeps its single-snapshot behaviour, so
  * existing callers and tests are unaffected. */
 static void test_legacy_single_snapshot(void)
@@ -315,6 +396,7 @@ int main(void)
     test_display_page_split(vdp);
     test_aleste_vblank_hud_state(vdp);
     v9938_destroy(vdp);
+    test_sprite_register_split();
     test_legacy_single_snapshot();
 
     printf("vdp_raster_split_test: all checks passed\n");

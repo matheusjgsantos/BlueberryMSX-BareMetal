@@ -17,6 +17,13 @@ cartridge-hash, PC, or sprite-specific exceptions belong in the VDP.
    converters. Cross-check disagreements rather than copying old shortcuts.
 4. Runtime openMSX MCP at `http://raspberrypi3b.local:3000/mcp`. Verify actual
    gameplay by screenshot; attract/story mode may also enable line interrupts.
+5. MSXBarePi: `https://github.com/sandersouza/msxbarepi` (public source;
+   `docs/machine-profiles/msx2.md` and
+   `src/backend/msx/modules/fmsx/fmsx_local/V9938.c`). It uses a modified
+   fMSX VDP, not this project's blueMSX-derived chip; compare its whole-machine
+   profile and time-driven command execution, but do not import its
+   BIOS-PC-specific timing boosts or assume its VDP is an independent Yamaha
+   conformance oracle.
 
 Register encodings and coordinates must be tested against reference semantics,
 not inferred from a single title. The reference's internal border-buffer X
@@ -97,6 +104,30 @@ Current working-tree changes:
 
 Sprite status is still evaluated by the frame renderer, not the emulated beam.
 This tranche does not claim cycle/line-accurate sprite-status completion.
+
+Sprite scanout now uses the same per-raster-line register state as bitmap
+scanout: R#1 (display/size/magnification), R#5/R#11 (attribute/colour table),
+R#6 (pattern table), and R#8 (sprite disable/colour zero), alongside R#23.
+The old renderer applied final-frame sprite registers to *every* line even if
+software changed the sprite tables during the frame. Both the reference
+blueMSX `VDP.c` register update (which calls `sync` before changing a
+register) and openMSX's time-dependent sprite checker require raster-time
+table selection. `host-test/vdp_raster_split_test.c` now tests mid-frame table,
+pattern, size, enable, and blanking-to-active transitions without game data.
+New `.CMD` raster lines include these sprite registers; offline replay also
+accepts old `.CMD` files, using their final `.VDS` sprite registers because
+older captures did not record the earlier values.
+
+Hardware `capture/F000104B.{PPM,VDS,CMD}` (corrected source-stride image)
+replays byte-for-byte as captured. Removing sprites in offline replay removes
+177 pixels in the top ten rows, and the new capture set has different final
+R#5/R#6 values across frames. This does **not** establish which sprite
+register values were in force on the HUD raster lines of those old captures,
+or prove that sprite latching resolves the observed HUD leak. Fresh hardware
+capture and comparison with reference gameplay are required. `.VDS` records
+end-of-frame VRAM only, so even the new register trace cannot reconstruct
+pixels that were overwritten earlier in the frame; beam-time VRAM and sprite
+status remain separate completion work.
 
 ### CPU VRAM protocol
 
@@ -223,7 +254,16 @@ results separate in reports.
   right half of the 512-dot buffer. This proves a presentation/capture stride
   error, not missing VRAM data. The blit, ALT+F10 and periodic PPM now use the
   512-pixel source stride independently of visible width, with a 256-in-512
-  host regression. Corrected output still awaits hardware verification.
+  host regression. The user subsequently confirmed the corrected image boots,
+  has the expected resolution, and shows the HUD on hardware; graphic assets
+  still appear in the HUD. Pi 3/Pi 4 validation was not reported separately.
+- Per-line sprite register state regression: `bash host-test/run_v9938_test.sh`
+  and ASan/UBSan variant PASS; the MSX1/MSX2 boot, Coleco and Circle FAT
+  suites PASS. `make -C src/app RASPPI=3` PASS (560,152-byte `msx.img`,
+  `_end=0x001a8020`, below `0x208000`); Pi 4 and the new sprite-register
+  scanout are not hardware verified. Old-format `F000104B` capture replays
+  byte-for-byte with fallback final sprite values; a synthetic extended-format
+  `.CMD` replay matches it too, but the old capture cannot reveal past R#5/R#6.
 - User hardware report: the top-crop workaround restores the Aleste HUD, but
   still crops the bottom and renders the numbered weapon objects incorrectly.
   It is not the native-height/sprite-conformance implementation described here.

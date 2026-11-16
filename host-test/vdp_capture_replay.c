@@ -36,14 +36,27 @@ int main(int argc, char **argv)
     char line[512];
     unsigned transitions = 0;
     while (fgets(line, sizeof line, fp)) {
-        unsigned y, r2, r7, r23, r25, r26, r27;
-        if (sscanf(line, "raster %u R2=%x R7=%x R23=%x R25=%x R26=%x R27=%x",
-                   &y, &r2, &r7, &r23, &r25, &r26, &r27) != 7) continue;
+        unsigned y, r2, r7, r23, r25, r26, r27, r1, r5, r6, r8, r11;
+        int fields = sscanf(line, "raster %u R2=%x R7=%x R23=%x R25=%x R26=%x R27=%x"
+                            " R1=%x R5=%x R6=%x R8=%x R11=%x",
+                            &y, &r2, &r7, &r23, &r25, &r26, &r27,
+                            &r1, &r5, &r6, &r8, &r11);
+        if (fields != 7 && fields != 12) continue;
         if (y >= V9938_FRAME_LINES) {
             fprintf(stderr, "invalid raster line %u\n", y);
             fclose(fp); v9938_destroy(v); return 1;
         }
-        V9938_LineState state = {r2, r7, r23, r25, r26, r27};
+        V9938_LineState state = {
+            .r2 = r2, .r7 = r7, .r23 = r23, .r25 = r25,
+            .r26 = r26, .r27 = r27,
+            /* Older captures recorded only the bitmap registers. Their
+             * sprite state is unknown; use the final snapshot explicitly. */
+            .r1 = fields == 12 ? r1 : v->reg[1],
+            .r5 = fields == 12 ? r5 : v->reg[5],
+            .r6 = fields == 12 ? r6 : v->reg[6],
+            .r8 = fields == 12 ? r8 : v->reg[8],
+            .r11 = fields == 12 ? r11 : v->reg[11]
+        };
         for (unsigned i = y; i < V9938_FRAME_LINES; i++) v->lineState[i] = state;
         transitions++;
     }

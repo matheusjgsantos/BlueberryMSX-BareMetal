@@ -32,6 +32,11 @@ typedef struct {
     uint8_t r25; /* R#25 horizontal scroll high + page select */
     uint8_t r26; /* R#26 horizontal scroll high bits */
     uint8_t r27; /* R#27 horizontal scroll low bits */
+    uint8_t r1;  /* R#1 display enable / sprite size and magnification */
+    uint8_t r5;  /* R#5 sprite attribute and colour table */
+    uint8_t r6;  /* R#6 sprite pattern table */
+    uint8_t r8;  /* R#8 sprite disable / colour-0 opacity */
+    uint8_t r11; /* R#11 sprite attribute table high bits */
 } V9938_LineState;
 
 typedef struct {

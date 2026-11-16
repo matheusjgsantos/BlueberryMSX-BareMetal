@@ -2632,9 +2632,11 @@ void CKernel::CaptureFrameAndVdp (void)
 					n = snprintf (pCommandLog + nUsed,
 						     nCommandLogSize - nUsed,
 						     "raster %03u R2=%02X R7=%02X R23=%02X "
-						     "R25=%02X R26=%02X R27=%02X\n", i,
+						     "R25=%02X R26=%02X R27=%02X "
+						     "R1=%02X R5=%02X R6=%02X R8=%02X R11=%02X\n", i,
 						     line->r2, line->r7, line->r23, line->r25,
-						     line->r26, line->r27);
+						     line->r26, line->r27, line->r1, line->r5,
+						     line->r6, line->r8, line->r11);
 					if (n < 0 || (unsigned)n >= nCommandLogSize - nUsed)
 					{
 						nUsed = nCommandLogSize;

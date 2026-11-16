@@ -162,6 +162,11 @@ static void line_state_current(const V9938 *v, V9938_LineState *ls)
     ls->r25 = v->reg[25];
     ls->r26 = v->reg[26];
     ls->r27 = v->reg[27];
+    ls->r1 = v->reg[1];
+    ls->r5 = v->reg[5];
+    ls->r6 = v->reg[6];
+    ls->r8 = v->reg[8];
+    ls->r11 = v->reg[11];
 }
 
 /* A display register changed while the current raster line is being scanned:
@@ -1087,26 +1092,25 @@ static uint32_t sprite2_color(const V9938 *v, unsigned m, unsigned c)
 static void render_sprites2(V9938 *v, uint32_t *o, int pitch,
                             unsigned width, unsigned height)
 {
-    if (!(v->reg[1] & 0x40) || (v->reg[8] & 2)) return;
-    unsigned size = (v->reg[1] & 2) ? 16 : 8;
-    unsigned mag = (v->reg[1] & 1) ? 2 : 1;
     /* SCREEN 6 scans out 512 dots with 256-dot sprite coordinates: every
      * sprite dot covers two screen dots at the same palette colour
      * (reference SpriteConverter GRAPHIC6 branch). SCREEN 7 is 512 native and
      * SCREEN 5 keeps its one-dot approximation. */
     unsigned m = bitmap_mode(v);
     unsigned scale = (m == 0x10) ? 2 : 1;
-    unsigned table = ((unsigned)(v->reg[11] & 3) << 15) |
-                     ((unsigned)v->reg[5] << 7) | 0x7F;
-    unsigned base = table & 0x1FE00;
-    unsigned pat = (unsigned)(v->reg[6] & 0x3F) << 11;
-    int solid = (v->reg[8] & 0x20) != 0;
-
     for (unsigned y = 0; y < height; y++) {
         Sprite2Line sprites[8];
         unsigned count = 0, n;
         V9938_LineState fallback;
         const V9938_LineState *ls = line_state_for_row(v, y, &fallback);
+        if (!(ls->r1 & 0x40) || (ls->r8 & 2)) continue;
+        unsigned size = (ls->r1 & 2) ? 16 : 8;
+        unsigned mag = (ls->r1 & 1) ? 2 : 1;
+        unsigned table = ((unsigned)(ls->r11 & 3) << 15) |
+                         ((unsigned)ls->r5 << 7) | 0x7F;
+        unsigned base = table & 0x1FE00;
+        unsigned pat = (unsigned)(ls->r6 & 0x3F) << 11;
+        int solid = (ls->r8 & 0x20) != 0;
         for (n = 0; n < 32; n++) {
             unsigned a = base + n * 4;
             uint8_t sy = table_read(v, a);
@@ -1247,7 +1251,8 @@ void v9938_write(V9938 *v, unsigned addr, uint8_t data)
 		if (addr == 16) v->palettePending = 0;
 		/* Display registers take effect from the raster line being scanned
 		 * onwards; the split position is the CPU time of the write. */
-		if (addr == 2 || addr == 7 || addr == 23 ||
+		if (addr == 1 || addr == 2 || addr == 5 || addr == 6 ||
+		    addr == 7 || addr == 8 || addr == 11 || addr == 23 ||
 		    addr == 25 || addr == 26 || addr == 27)
 			line_state_record(v);
 		if (addr == 13)
