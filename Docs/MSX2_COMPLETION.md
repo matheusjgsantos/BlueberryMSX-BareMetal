@@ -273,8 +273,10 @@ results separate in reports.
   -fno-omit-frame-pointer -g'`; MSX1/MSX2 600-frame boot and Coleco profile
   regressions passed. Pi 3 `make RASPPI=3
   CIRCLEHOME=/tmp/msxbuild/circle-sprite-raster-build` passed (`msx.img`
-  562,072 bytes, `_end=0x001a87a0 <= 0x208000`). No hardware verification
-  or new test bundle yet. The previous raster fixture
+  562,072 bytes, `_end=0x001a87a0 <= 0x208000`). Paired hardware-test images are in
+  `test-images/2026-11-16-v9938-blanking-color-zero/` with complete `msx.ini`,
+  checksum manifests, and Pi 3/Pi 4 clean target-isolated Circle/add-on/app
+  builds; no hardware verification yet. The previous raster fixture
   inadvertently used R#1=`22` (display **off**) while asserting visible
   pixels; its display-on baseline is now R#1=`62`. Host verification and
   Circle build results for this follow-up are recorded with the change.
