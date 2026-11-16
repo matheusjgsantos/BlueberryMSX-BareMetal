@@ -308,10 +308,32 @@ static void test_v9938_point_pset_srch_commands(void)
 
     write_register(vdp, 32, 0); write_register(vdp, 33, 0);
     write_register(vdp, 44, 0x0A);
-    write_register(vdp, 45, 0x02); /* EQ=1: find equal color to the right. */
+    write_register(vdp, 45, 0x00); /* EQ=0: find the equal color to the right. */
     write_register(vdp, 46, 0x60);
-    assert(vdp->reg[32] == 4);
+    assert(vdp->status[8] == 4);            /* result X low byte */
+    assert(vdp->status[9] == 0xFE);         /* result X high bit, fixed 0xFE */
     assert(v9938_peek_status(vdp, 2) & 0x10); /* BD */
+    assert(vdp->reg[32] == 0);              /* R#32/R#33 are untouched */
+    write_register(vdp, 15, 9);             /* reading S#9 resets BD. */
+    (void)v9938_read_port(vdp, 0x99);
+    assert(!(v9938_peek_status(vdp, 2) & 0x10));
+
+    /* EQ=1 searches for a pixel that differs from CL, so it stops on the
+     * first non-matching pixel (x=0 here). */
+    write_register(vdp, 32, 0); write_register(vdp, 33, 0);
+    write_register(vdp, 45, 0x02);
+    write_register(vdp, 46, 0x60);
+    assert(vdp->status[8] == 0);
+    assert(v9938_peek_status(vdp, 2) & 0x10);
+
+    /* No match: the search ends at the right edge and clears BD. */
+    write_register(vdp, 32, 0); write_register(vdp, 33, 0);
+    write_register(vdp, 44, 0x05);
+    write_register(vdp, 45, 0x00);
+    write_register(vdp, 46, 0x60);
+    assert(!(v9938_peek_status(vdp, 2) & 0x10));
+    assert(vdp->status[8] == 0x00);
+    assert(vdp->status[9] == 0xFF);
     v9938_destroy(vdp);
     puts("PASS: V9938 POINT, PSET, SRCH and status results");
 }

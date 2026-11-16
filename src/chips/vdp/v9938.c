@@ -564,6 +564,45 @@ static void command_color_write(V9938 *v, uint8_t data)
 	v->status[2] |= 0x80; /* TR: ready for the next data byte. */
 }
 
+/* LMCM (logical move VRAM -> CPU) hands one pixel to the CPU per read of R#44
+ * through the indirect port 0x9B. The fetch raises TR; the CPU read clears TR
+ * and makes the next pixel available (reference blueMSX LmcmEngine / openMSX
+ * executeLmcm). */
+static void lmcm_fetch(V9938 *v)
+{
+	unsigned mode = v->transferMode;
+	unsigned x = (v->transferX +
+		      (int)v->transferRowX * v->transferStepX) &
+		     (mode_width(mode) - 1);
+	unsigned y = (v->transferY +
+		      (int)v->transferRowN * v->transferStepY) & 0x3FF;
+	unsigned raw = pixel_addr(mode, x, y) & 0x1FFFFu;
+	uint8_t value = 0xFF;
+	if (!(raw & ~command_read_mask(v)))
+		value = (uint8_t)((v->vram[raw] >>
+				   pixel_shift(mode, x)) & mode_mask(mode));
+	v->reg[44] = value;
+	v->status[2] |= 0x80; /* TR: a pixel is ready for the CPU. */
+}
+
+static void lmcm_consume(V9938 *v)
+{
+	v->status[2] &= (uint8_t)~0x80;
+	v->transferRemainingX--;
+	v->transferRowX++;
+	if (!v->transferRemainingX)
+	{
+		if (++v->transferRowN >= v->transferRemainingY)
+		{
+			command_finish(v);
+			return;
+		}
+		v->transferRemainingX = v->transferRowWidth;
+		v->transferRowX = 0;
+	}
+	lmcm_fetch(v);
+}
+
 static void command_start(V9938 *v, uint8_t command)
 {
 	unsigned op = command & 0xF0;
@@ -574,8 +613,8 @@ static void command_start(V9938 *v, uint8_t command)
 	/* Any command write ends the previous one; CMD=0 is ABRT/STOP. */
 	command_finish(v);
 	unsigned mode = bitmap_mode(v);
-	if ((op != 0x40 && op != 0x50 && op != 0x60 && op != 0x80 && op != 0x90 && op != 0xB0 && op != 0xC0 &&
-	     op != 0xD0 && op != 0xE0 && op != 0xF0) ||
+	if ((op != 0x40 && op != 0x50 && op != 0x60 && op != 0x70 && op != 0x80 && op != 0x90 && op != 0xA0 && op != 0xB0 &&
+	     op != 0xC0 && op != 0xD0 && op != 0xE0 && op != 0xF0) ||
 	    (mode != 0x0C && mode != 0x10 && mode != 0x14 && mode != 0x1C))
 		return;
 
@@ -601,23 +640,91 @@ static void command_start(V9938 *v, uint8_t command)
 	}
 	if (op == 0x60) /* SRCH */
 	{
+		/* Reference blueMSX SrchEngine / openMSX executeSrch: stop on
+		 * (pixel == CL) XOR ARG.EQ, so with ARG.EQ set the command stops
+		 * on the first pixel that differs from CL. The X result is exposed
+		 * through S#8/S#9, not through R#32/R#33. S#2 bit 4 (BD) is set on
+		 * a match and cleared when the line boundary ends the search;
+		 * reading S#9 resets it. */
 		v->status[2] |= 0x01;
-		v->status[2] &= (uint8_t)~0x10;
 		int direction = (v->reg[45] & 0x04) ? -1 : 1;
-		unsigned x = sx;
-		uint8_t border = v->reg[44] & (uint8_t)mode_mask(mode);
-		for (unsigned n = 0; n < pixelWidth; n++)
+		int findDiffering = (v->reg[45] & 0x02) != 0;
+		unsigned border = v->reg[44] & (uint8_t)mode_mask(mode);
+		int x = (int)sx;
+		int found = 0;
+		for (unsigned n = 0; n <= pixelWidth; n++)
 		{
-			int equal = pixel_get(v, mode, x, sy) == border;
-			if (equal == ((v->reg[45] & 0x02) != 0))
+			uint8_t pixel = pixel_get(v, mode,
+						  (unsigned)x & pixelMask, sy);
+			if ((pixel == border) != findDiffering)
 			{
-				v->status[2] |= 0x10;
+				found = 1;
 				break;
 			}
-			x = (unsigned)(x + direction) & pixelMask;
+			x += direction;
+			if ((unsigned)x & pixelWidth) break;
 		}
-		v->reg[32] = (uint8_t)x;
-		v->reg[33] = (uint8_t)((v->reg[33] & 0xFE) | ((x >> 8) & 1));
+		if (found) v->status[2] |= 0x10;
+		else v->status[2] &= (uint8_t)~0x10;
+		unsigned borderX = (unsigned)x & 0x1FF;
+		v->status[8] = (uint8_t)borderX;
+		v->status[9] = (uint8_t)(0xFE | ((borderX >> 8) & 1));
+		command_finish(v);
+		return;
+	}
+	if (op == 0x70) /* LINE */
+	{
+		/* Reference blueMSX LineEngine / openMSX executeLine. NX/NY hold
+		 * length minus one, so the loop draws NX+1 dots. ARG bit 0 selects
+		 * the major axis and bits 2/3 the X/Y direction; the minor-axis
+		 * accumulator starts at (NX-1)/2. */
+		int nx = (int)(v->reg[40] |
+			       ((unsigned)(v->reg[41] & 3) << 8));
+		int ny = (int)(v->reg[42] |
+			       ((unsigned)(v->reg[43] & 3) << 8));
+		int tx = (v->reg[45] & 0x04) ? -1 : 1;
+		int ty = (v->reg[45] & 0x08) ? -1 : 1;
+		int xMajor = (v->reg[45] & 0x01) == 0;
+		int x = (int)dx;
+		int y = (int)dy;
+		int asx = (nx - 1) >> 1;
+		int an = 0;
+		uint8_t source = v->reg[44] & (uint8_t)mode_mask(mode);
+		v->status[2] |= 0x01;
+		for (;;)
+		{
+			command_logical_pixel(v, mode, (unsigned)x & pixelMask,
+					      (unsigned)y & 0x3FF, source,
+					      command & 0x0F);
+			if (xMajor)
+			{
+				x += tx;
+				if (an++ == nx || ((unsigned)x & pixelWidth))
+					break;
+				if (asx < ny)
+				{
+					asx += nx;
+					y += ty;
+					/* Moving above the top edge stops the
+					 * command; the bottom edge wraps. */
+					if (ty < 0 && y < 0) break;
+				}
+				asx = (asx - ny) & 1023;
+			}
+			else
+			{
+				y += ty;
+				if (ty < 0 && y < 0) break;
+				if (asx < ny)
+				{
+					asx += nx;
+					x += tx;
+				}
+				asx = (asx - ny) & 1023;
+				if (an++ == nx || ((unsigned)x & pixelWidth))
+					break;
+			}
+		}
 		command_finish(v);
 		return;
 	}
@@ -699,6 +806,33 @@ static void command_start(V9938 *v, uint8_t command)
 			}
 		}
 		command_finish(v);
+		return;
+	}
+
+	if (op == 0xA0) /* LMCM: VRAM -> CPU, one pixel per R#44 read */
+	{
+		unsigned nx = command_pixel_width(v, sx, sx, op);
+		unsigned ny = (unsigned)(v->reg[42] |
+					 ((unsigned)(v->reg[43] & 3) << 8));
+		if (!ny) ny = 1024;
+		v->transferCommand = (uint8_t)op;
+		v->transferOp = (uint8_t)(command & 0x0F);
+		v->transferMode = (uint8_t)mode;
+		v->transferX = (uint16_t)sx;
+		v->transferY = (uint16_t)sy;
+		v->transferRowWidth = (uint16_t)nx;
+		v->transferRemainingX = (uint16_t)nx;
+		v->transferRemainingY = (uint16_t)ny;
+		v->transferRowX = 0;
+		v->transferRowN = 0;
+		v->transferStepX = (v->reg[45] & 0x04) ? -1 : 1;
+		v->transferStepY = (v->reg[45] & 0x08) ? -1 : 1;
+		v->transferActive = 1;
+		v->status[2] = (uint8_t)((v->status[2] & 0x7E) | 0x01);
+#ifdef V9938_TRACE
+		trace_launch(v, op, dx, dy, sx, sy, nx, ny);
+#endif
+		lmcm_fetch(v);
 		return;
 	}
 
@@ -1100,6 +1234,9 @@ uint8_t v9938_read_port(V9938 *v, unsigned port)
         }
         record_status_read(v, status, value);
         if (status == 7) v->status[2] &= (uint8_t)~0x80;
+        /* Reading S#9 (the high byte of the SRCH/LINE border X result) resets
+         * the BD flag in S#2 (reference openMSX resetBD / VDP readStatusReg). */
+        if (status == 9) v->status[2] &= (uint8_t)~0x10;
         if (status == 0) {
             v->status[0] &= 0x1F; /* acknowledge F, sprite overflow and collision */
             v->irq = (v->hintPending && (v->reg[0] & 0x10)) ? 1 : 0;
@@ -1111,6 +1248,11 @@ uint8_t v9938_read_port(V9938 *v, unsigned port)
     default: {
         unsigned reg = v->reg[17] & 0x3F;
         uint8_t value = v->reg[reg];
+        /* LMCM hands one pixel to the CPU per read of R#44 through the
+         * indirect port; the read clears TR and prepares the next pixel. */
+        if (reg == 44 && v->transferActive &&
+            v->transferCommand == 0xA0 && (v->status[2] & 0x80))
+            lmcm_consume(v);
         if (!(v->reg[17] & 0x80)) v->reg[17] = (uint8_t)((v->reg[17] & 0xC0) | ((reg + 1) & 0x3F));
         return value;
     }

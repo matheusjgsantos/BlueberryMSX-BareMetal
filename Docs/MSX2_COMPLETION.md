@@ -75,6 +75,27 @@ pending control word on reads/data writes and palette pairing on R#16 writes.
 Register masks, some indirect-register behavior and CPU-access timing still
 need the full port conformance matrix.
 
+### Commands and status
+
+Implemented from `V9938.c` (`SrchEngine`, `LineEngine`, `LmcmEngine`) and
+cross-checked against `VDPCmdEngine.cc` (`executeSrch`, `executeLine`):
+
+- `LINE` (§ opcode `0x70`): major axis from ARG bit 0, X/Y direction from bits
+  2/3, minor-axis accumulator starting at `(NX-1)/2`, `NX+1` dots, the
+  documented extra minor step, and the top-border stop (`TY<0 && DY<0`); the
+  bottom border wraps.
+- `LMCM` (opcode `0xA0`): one pixel per read of R#44 through the indirect port,
+  with the TR fetch / CPU-read / next-fetch handshake and CE cleared only after
+  all pixels are handed over. `0xA0` is no longer decoded as a byte fill.
+- `SRCH`: stops on `(pixel == CL) XOR ARG.EQ` (so ARG.EQ set means "find a
+  pixel that differs"), sets S#2 BD on a match, clears it when the line boundary
+  ends the search, and publishes the result X in S#8/S#9 (`0xFE | bit 8`)
+  instead of writing R#32/R#33. Reading S#9 resets BD.
+
+The remaining command-engine gap is incremental execution: commands still run
+to completion on the CPU write that starts them, so CE duration, TR
+backpressure and display/sprite contention are not yet time-driven.
+
 ## Mandatory release blockers
 
 Unchecked items are not implemented/verified, even if some happy paths work.
@@ -93,8 +114,10 @@ Unchecked items are not implemented/verified, even if some happy paths work.
 
 ### Commands and status
 
-- [ ] LINE and LMCM, including directions, extents and CPU read handshake.
-- [ ] SRCH EQ polarity, boundary/BD handling, result in S#8/S#9 (not R#32/33).
+- [x] LINE and LMCM, including directions, extents and CPU read handshake.
+      Host-tested in SCREEN 5; extent/clip edges and SCREEN 7/8 still untested.
+- [x] SRCH EQ polarity, boundary/BD handling, result in S#8/S#9 (not R#32/33).
+      Host-tested; S#8/S#9 backed by `status[8]`/`status[9]`.
 - [ ] POINT/PSET/LMMV/LMMM/LMMC/HMMV/HMMM/YMMM/HMMC across SCREEN 5-8,
       all logical operations, zero extents, clipping, overlap and argument bits.
 - [ ] Completion-register updates, CL/R#44/S#7 consistency and abort behavior.

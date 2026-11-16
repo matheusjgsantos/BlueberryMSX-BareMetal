@@ -217,6 +217,98 @@ static void test_cpu_vram_and_latches(void)
     puts("PASS: CPU planar uploads/readback, pointer wrap and control/palette latch cancellation");
 }
 
+static uint8_t pixel_of(V9938 *v, unsigned x, unsigned y)
+{
+    unsigned a = (y << 7) | (x >> 1);
+    return (uint8_t)((v->vram[a] >> (((~x) & 1) << 2)) & 15);
+}
+
+static void set_command(V9938 *v, unsigned dx, unsigned dy, unsigned nx,
+                        unsigned ny, uint8_t color, uint8_t arg)
+{
+    reg(v, 36, dx & 0xFF); reg(v, 37, (dx >> 8) & 3);
+    reg(v, 38, dy & 0xFF); reg(v, 39, (dy >> 8) & 3);
+    reg(v, 40, nx & 0xFF); reg(v, 41, (nx >> 8) & 3);
+    reg(v, 42, ny & 0xFF); reg(v, 43, (ny >> 8) & 3);
+    reg(v, 44, color);
+    reg(v, 45, arg);
+}
+
+/* LINE: reference blueMSX LineEngine / openMSX executeLine. NX is the length
+ * along the major axis minus one, ARG bit 0 picks the major axis, bits 2/3 the
+ * direction. */
+static void test_command_line(void)
+{
+    V9938 *v = setup(0);
+
+    /* Horizontal run to the right: 11 dots at rows 20. */
+    set_command(v, 10, 20, 10, 0, 7, 0x00);
+    reg(v, 46, 0x70);
+    for (unsigned x = 10; x <= 20; x++) assert(pixel_of(v, x, 20) == 7);
+    assert(pixel_of(v, 9, 20) == 0);
+    assert(pixel_of(v, 21, 20) == 0);
+    assert(!(v->status[2] & 0x01));
+
+    /* Horizontal run to the left. */
+    set_command(v, 200, 100, 10, 0, 12, 0x04);
+    reg(v, 46, 0x70);
+    for (unsigned x = 190; x <= 200; x++) assert(pixel_of(v, x, 100) == 12);
+    assert(pixel_of(v, 201, 100) == 0);
+
+    /* 45-degree diagonal: one minor step per major step. */
+    set_command(v, 0, 30, 16, 16, 9, 0x00);
+    reg(v, 46, 0x70);
+    for (unsigned i = 0; i <= 16; i++) assert(pixel_of(v, i, 30 + i) == 9);
+    assert(pixel_of(v, 5, 36) == 0);
+    assert(pixel_of(v, 16, 45) == 0);
+
+    /* Y-major vertical run: NX is the major length, NY the minor extent. */
+    set_command(v, 100, 60, 10, 0, 11, 0x01);
+    reg(v, 46, 0x70);
+    for (unsigned y = 60; y <= 70; y++) assert(pixel_of(v, 100, y) == 11);
+    assert(pixel_of(v, 100, 71) == 0);
+    assert(pixel_of(v, 101, 65) == 0);
+
+    /* Moving above the top border stops the command instead of wrapping. */
+    set_command(v, 50, 3, 20, 10, 13, 0x08);
+    reg(v, 46, 0x70);
+    assert(!(v->status[2] & 0x01));
+    assert(pixel_of(v, 50, 3) == 13);
+
+    v9938_destroy(v);
+    puts("PASS: LINE major/minor axes, directions and border stop");
+}
+
+/* LMCM: one pixel per read of R#44 through the indirect port, with the TR/CE
+ * handshake (reference LmcmEngine). */
+static void test_command_lmcm(void)
+{
+    V9938 *v = setup(0);
+    v->vram[0] = 0x12; /* row 0: x0=1 x1=2 */
+    v->vram[1] = 0x34; /*      x2=3 x3=4 */
+    reg(v, 32, 0); reg(v, 33, 0);
+    reg(v, 34, 0); reg(v, 35, 0);
+    reg(v, 40, 4); reg(v, 41, 0);
+    reg(v, 42, 1); reg(v, 43, 0);
+    reg(v, 44, 0);
+    reg(v, 45, 0);
+    reg(v, 46, 0xA0);
+
+    assert(v->status[2] & 0x01); /* CE */
+    assert(v->status[2] & 0x80); /* TR: first pixel ready */
+    assert(v->reg[44] == 1);
+    reg(v, 17, 0x80 | 44); /* keep the indirect pointer on R#44 */
+    assert(v9938_read_port(v, 0x9B) == 1);
+    assert(v->reg[44] == 2);
+    assert(v9938_read_port(v, 0x9B) == 2);
+    assert(v9938_read_port(v, 0x9B) == 3);
+    assert(v9938_read_port(v, 0x9B) == 4);
+    assert(!(v->status[2] & 0x01)); /* all four pixels handed over */
+
+    v9938_destroy(v);
+    puts("PASS: LMCM per-read pixel transfer with TR/CE sequencing");
+}
+
 int main(void)
 {
     test_height_and_alignment();
@@ -224,6 +316,8 @@ int main(void)
     test_collision_and_limits();
     test_table_window_and_size();
     test_cpu_vram_and_latches();
+    test_command_line();
+    test_command_lmcm();
     puts("All V9938 display/sprite conformance checks passed");
     return 0;
 }
