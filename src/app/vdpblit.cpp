@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 extern "C"
 {
@@ -173,18 +174,20 @@ extern "C" void msx_frame_render (void *pMachine)
 		{
 			if (s_nFrame == s_nCaptureAt[i])
 			{
-				static unsigned char s_RGB [MSX_MAX_WIDTH * MSX_MAX_HEIGHT * 3];
 				unsigned long nPixels = s_nSourceWidth * s_nSourceHeight;
+				unsigned char *pRGB = (unsigned char *) malloc (nPixels * 3);
+				if (pRGB == 0) break;
 				for (unsigned long p = 0; p < nPixels; p++)
 				{
 					uint32_t v = s_TempFrame [p];
-					s_RGB [p * 3 + 0] = (unsigned char) ((v >> 16) & 0xFF);
-					s_RGB [p * 3 + 1] = (unsigned char) ((v >>  8) & 0xFF);
-					s_RGB [p * 3 + 2] = (unsigned char) ( v        & 0xFF);
+					pRGB [p * 3 + 0] = (unsigned char) ((v >> 16) & 0xFF);
+					pRGB [p * 3 + 1] = (unsigned char) ((v >>  8) & 0xFF);
+					pRGB [p * 3 + 2] = (unsigned char) ( v        & 0xFF);
 				}
-				s_pDumpFunc (s_RGB, (unsigned) s_nSourceWidth,
+				s_pDumpFunc (pRGB, (unsigned) s_nSourceWidth,
 				             (unsigned) s_nSourceHeight,
 				             (unsigned) s_nFrame, s_pDumpUser);
+				free (pRGB);
 				break;
 			}
 		}

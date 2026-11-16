@@ -12,6 +12,20 @@ TARGET	= msx
 RASPPI	= 3
 AARCH	= 32
 
+# Circle's 32-bit sysinit halts silently before main() if _end exceeds
+# MEM_KERNEL_START + KERNEL_MAX_SIZE (0x8000 + 2 MiB). The raw .img excludes
+# BSS, so its file size alone cannot detect an oversized kernel.
+.PHONY: all check-kernel-size
+all: check-kernel-size
+check-kernel-size: $(TARGET).img
+	@end_hex=$$($(PREFIX)nm $(TARGET).elf | awk '$$3 == "_end" { print $$1 }'); \
+		limit=$$((0x8000 + 0x200000)); \
+		if [ -z "$$end_hex" ] || [ $$((0x$${end_hex:-0})) -gt "$$limit" ]; then \
+			echo "ERROR: Circle kernel _end=0x$$end_hex exceeds 0x208000"; \
+			exit 1; \
+		fi; \
+		echo "  MEM   kernel _end=0x$$end_hex <= 0x208000"
+
 CIRCLEHOME ?= ../../../BlueberryMSX/circle
 
 # Diagnostic-only A/B: delay D0 CE completion using the BlueberryMSX HMMM

@@ -34,7 +34,6 @@ extern "C" {
 #include <stdlib.h>
 
 static const char *FromKernel = "kernel";
-static unsigned char s_CaptureRGB[512 * 212 * 3];
 
 extern "C" void diag_uart (char c);
 
@@ -2675,7 +2674,13 @@ void CKernel::CaptureFrameAndVdp (void)
 	}
 	unsigned nImageWidth = 0;
 	unsigned nImageHeight = 0;
-	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB,
+	// This buffer is needed only for ALT+F10. Keeping it in BSS would push
+	// Circle's kernel past KERNEL_MAX_SIZE and halt before the screen starts.
+	const unsigned nRGBCapacity = V9938_MAX_DISPLAY_WIDTH *
+		V9938_MAX_DISPLAY_LINES * 3u;
+	unsigned char *pCaptureRGB = (unsigned char *) malloc (nRGBCapacity);
+	if (pCaptureRGB != 0 &&
+	    VDPBlit_CaptureRGB (m_pMachine, pCaptureRGB, nRGBCapacity,
 	                        &nImageWidth, &nImageHeight))
 	{
 		char sImageLeaf[64];
@@ -2696,7 +2701,7 @@ void CKernel::CaptureFrameAndVdp (void)
 			boolean bImageOK =
 				m_FileSystem.FileWrite (hFile, (void *) sPpmHeader,
 					nHeaderBytes) == nHeaderBytes
-				&& m_FileSystem.FileWrite (hFile, s_CaptureRGB,
+				&& m_FileSystem.FileWrite (hFile, pCaptureRGB,
 					nImageBytes) == nImageBytes;
 			m_FileSystem.FileClose (hFile);
 			if (bImageOK)
@@ -2712,7 +2717,9 @@ void CKernel::CaptureFrameAndVdp (void)
 		}
 	}
 	else
-		LogLine ("capture: framebuffer unavailable");
+		LogLine (pCaptureRGB ? "capture: framebuffer unavailable" :
+			 "capture: RGB allocation failed");
+	free (pCaptureRGB);
 
 	// Flush again so the outcome of this capture attempt is on the card.
 	FlushFileLog ();
