@@ -64,7 +64,8 @@ static void draw(V9938 *v)
     unsigned height = v9938_render(v, image,
                                    V9938_MAX_DISPLAY_WIDTH * 4);
     assert(v9938_display_width(v) ==
-           (((v->reg[0] & 0x0E) == 0x08 || (v->reg[0] & 0x0E) == 0x0A)
+           ((((v->reg[0] & 0x0E) == 0x08) || ((v->reg[0] & 0x0E) == 0x0A) ||
+             ((v->reg[1] & 0x10) && (v->reg[0] & 0x04)))
             ? 512u : 256u));
     assert(height == ((v->reg[9] & 0x80) ? 212u : 192u));
     assert(image[V9938_MAX_DISPLAY_WIDTH * V9938_MAX_DISPLAY_LINES] ==
@@ -346,6 +347,146 @@ static void test_screen6_native_width(void)
     puts("PASS: SCREEN 6 native 512-dot scanout, sprite duplication and collision X");
 }
 
+/* TEXT2 is the 80-column text mode (M1 = R#1 bit 4 plus R#0 bit 2). Each
+ * character is a 6-dot glyph from the VRAM pattern generator, the 480 dots sit
+ * between 8-dot background borders in the 512-dot line, R#3 selects the blink
+ * table (one bit per character) and R#23 scrolls the text plane. Reference:
+ * blueMSX RefreshLineTx80 and openMSX CharacterConverter::renderText2. */
+static V9938 *text2_setup(void)
+{
+    V9938 *v = v9938_create();
+    assert(v);
+    reg(v, 0, 0x04);       /* TEXT2 with M1 below */
+    reg(v, 1, 0x50);       /* M1 = text mode, display enabled */
+    reg(v, 2, 0x08);       /* name table 0x2000, 4 KiB aligned */
+    reg(v, 3, 0x00);       /* blink table 0x0000, 512-byte aligned */
+    reg(v, 4, 0x10);       /* pattern generator 0x8000, 2 KiB aligned */
+    reg(v, 7, 0xF4);       /* foreground 15, background 4 */
+    reg(v, 12, 0x21);      /* blink foreground 2, blink background 1 */
+    for (unsigned c = 0; c < 16; c++) {
+        v->palette[c][0] = c & 7;
+        v->palette[c][1] = (c >> 3) * 7;
+        v->palette[c][2] = 0;
+    }
+    return v;
+}
+
+static void text2_glyph(V9938 *v, unsigned ch, const uint8_t *rows)
+{
+    for (unsigned py = 0; py < 8; py++)
+        v->vram[0x8000 + ch * 8 + py] = rows[py];
+}
+
+static void test_text2_80_columns(void)
+{
+    static const uint8_t left[8]  = {0xC0, 0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t right[8] = {0x84, 0, 0, 0, 0, 0, 0, 0};
+    V9938 *v = text2_setup();
+    unsigned w = V9938_MAX_DISPLAY_WIDTH;
+    uint32_t fg = rgb(15), bg = rgb(4);
+
+    text2_glyph(v, 0x41, left);
+    text2_glyph(v, 0x42, right);
+    v->vram[0x2000 + 0]  = 0x41;
+    v->vram[0x2000 + 79] = 0x42;
+    draw(v);
+
+    /* Column 0 covers dots 8..13, column 79 covers dots 482..487. */
+    assert(image[0 * w + 8] == fg);
+    assert(image[0 * w + 9] == fg);
+    assert(image[0 * w + 10] == bg);
+    assert(image[0 * w + 13] == bg);
+    assert(image[0 * w + 482] == fg);
+    assert(image[0 * w + 483] == bg);
+    assert(image[0 * w + 487] == fg);
+    for (unsigned x = 0; x < 8; x++)
+        assert(image[0 * w + x] == bg);
+    for (unsigned x = 488; x < 512; x++)
+        assert(image[0 * w + x] == bg);
+
+    /* Character row 1 walks the name table by 80 bytes. */
+    v->vram[0x2000 + 80] = 0x41;
+    draw(v);
+    assert(image[8 * w + 8] == fg);
+    assert(image[7 * w + 9] == bg);
+
+    /* Text modes show no sprites: a sprite over the glyph must not appear. */
+    reg(v, 5, 15);
+    sprite(v, 0, 0, 8, 2, 0xFC, 0);
+    draw(v);
+    assert(image[0 * w + 8] == fg);
+    assert(image[0 * w + 10] == bg);
+    v9938_destroy(v);
+    puts("PASS: TEXT2 80 columns, 6-dot glyphs, background borders and no sprites");
+}
+
+static void test_text2_blink(void)
+{
+    static const uint8_t block[8] = {0x80, 0, 0, 0, 0, 0, 0, 0};
+    V9938 *v = text2_setup();
+    unsigned w = V9938_MAX_DISPLAY_WIDTH;
+    uint32_t fg = rgb(15), blinkFg = rgb(2), blinkBg = rgb(1);
+
+    text2_glyph(v, 0x41, block);
+    v->vram[0x2000 + 0] = 0x41;
+    v->vram[0x2000 + 1] = 0x41;
+    v->vram[0x0000] = 0x80; /* blink bit of column 0 in character row 0 */
+
+    draw(v);
+    assert(image[0 * w + 8] == fg); /* no blink phase before R#13 is written */
+
+    reg(v, 13, 0x11); /* ten frames ON, ten frames OFF, renderer starts ON */
+    draw(v);
+    assert(image[0 * w + 8] == blinkFg);
+    assert(image[0 * w + 9] == blinkBg);
+    assert(image[0 * w + 14] == fg); /* column 1 has no blink bit */
+
+    for (unsigned i = 0; i < 10; i++)
+        v9938_frame_start(v);
+    draw(v);
+    assert(image[0 * w + 8] == fg); /* OFF half of the period */
+
+    for (unsigned i = 0; i < 10; i++)
+        v9938_frame_start(v);
+    draw(v);
+    assert(image[0 * w + 8] == blinkFg); /* ON again */
+
+    reg(v, 13, 0x00); /* zero period = stable colour */
+    draw(v);
+    assert(image[0 * w + 8] == fg);
+    for (unsigned i = 0; i < 40; i++)
+        v9938_frame_start(v);
+    draw(v);
+    assert(image[0 * w + 8] == fg);
+    v9938_destroy(v);
+    puts("PASS: TEXT2 per-character blink (R#3 table, R#12 colours, R#13 period)");
+}
+
+static void test_text2_vertical_scroll(void)
+{
+    static const uint8_t part[8] = {0xC0, 0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t full[8] = {0xFC, 0xFC, 0xFC, 0xFC,
+                                    0xFC, 0xFC, 0xFC, 0xFC};
+    V9938 *v = text2_setup();
+    unsigned w = V9938_MAX_DISPLAY_WIDTH;
+
+    text2_glyph(v, 0x41, part);
+    text2_glyph(v, 0x43, full);
+    v->vram[0x2000 + 0]  = 0x41; /* character row 0 */
+    v->vram[0x2000 + 80] = 0x43; /* character row 1 */
+
+    draw(v);
+    assert(image[0 * w + 8] == rgb(15));
+    assert(image[0 * w + 10] == rgb(4));
+
+    reg(v, 23, 8); /* one character row of vertical scroll */
+    draw(v);
+    assert(image[0 * w + 8] == rgb(15));
+    assert(image[0 * w + 13] == rgb(15)); /* full block from character row 1 */
+    v9938_destroy(v);
+    puts("PASS: TEXT2 R#23 vertical scroll moves whole character rows");
+}
+
 int main(void)
 {
     test_height_and_alignment();
@@ -356,6 +497,9 @@ int main(void)
     test_command_line();
     test_command_lmcm();
     test_screen6_native_width();
+    test_text2_80_columns();
+    test_text2_blink();
+    test_text2_vertical_scroll();
     puts("All V9938 display/sprite conformance checks passed");
     return 0;
 }

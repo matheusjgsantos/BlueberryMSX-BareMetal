@@ -24,6 +24,12 @@ struct V9938TraceLaunch {
 } v9938_trace_launch[32];
 #endif
 
+/* TEXT2 is the 80-column text mode: M1 (R#1 bit 4) with R#0 bit 2 set. */
+static int is_text2(const V9938 *v)
+{
+	return (v->reg[1] & 0x10) && (v->reg[0] & 0x04);
+}
+
 static unsigned bitmap_mode(const V9938 *v)
 {
     unsigned m = ((v->reg[0] & 0x0E) << 1) |
@@ -209,6 +215,18 @@ void v9938_frame_start(V9938 *v)
                       ((v->reg[9] & 0x80) ? 212u : 192u)) %
                       V9938_FRAME_LINES);
     v->lineStateValid = 1;
+
+    /* TEXT2 blink runs on the frame clock: R#13's high nibble is the ON period
+     * in ten-frame units and the low nibble the OFF period. */
+    if (v->blinkCount)
+    {
+        if (--v->blinkCount == 0)
+        {
+            v->blinkState ^= 1;
+            v->blinkCount = (uint16_t)((v->blinkState ? (v->reg[13] >> 4)
+                                                      : (v->reg[13] & 0x0F)) * 10);
+        }
+    }
 }
 
 void v9938_set_frame_time(V9938 *v, unsigned elapsed, unsigned frameTicks)
@@ -901,6 +919,67 @@ static void command_start(V9938 *v, uint8_t command)
 
 static uint32_t color(const V9938 *v, uint8_t index);
 
+/* TEXT2 (SCREEN 0 width 80) is a 512-dot mode: 80 columns of 6-dot glyphs
+ * from the VRAM pattern generator (480 dots) with 8 dots of background colour
+ * on each side. Reference blueMSX `RefreshLineTx80` (no sprites in the text
+ * modes) and openMSX `CharacterConverter::renderText2` for the table masks.
+ *
+ *   name table   R#2 << 10, 4 KiB aligned, 80 bytes per character row
+ *   pattern      R#4 << 11, 2 KiB aligned, 8 bytes per character
+ *   blink table  R#3 << 6,  512-byte aligned, one bit per character, ten bytes
+ *                per character row (80 characters / 8)
+ *
+ * R#23 scrolls the text plane in dot lines, so both the character row and the
+ * pattern row follow it (blueMSX). openMSX only rotates the pattern row; the
+ * two disagree once the fraction crosses a cell boundary and blueMSX is the
+ * primary reference. */
+static void render_text2(V9938 *v, uint32_t *out, int pitch, unsigned height)
+{
+	unsigned nameBase = ((unsigned)v->reg[2] << 10) & 0x1F000;
+	unsigned patternBase = ((unsigned)v->reg[4] & 0x3F) << 11;
+	unsigned blinkBase = ((unsigned)v->reg[3] << 6) & 0x1FE00;
+	unsigned blinkFg = (unsigned)(v->reg[12] >> 4);
+	unsigned blinkBg = (unsigned)(v->reg[12] & 0x0F);
+
+	for (unsigned y = 0; y < height; y++)
+	{
+		V9938_LineState fallback;
+		const V9938_LineState *ls = line_state_for_row(v, y, &fallback);
+		unsigned fg = (unsigned)(ls->r7 >> 4);
+		unsigned bg = (unsigned)(ls->r7 & 0x0F);
+		uint32_t bgPixel = color(v, (uint8_t)bg);
+		uint32_t *line = out + y * pitch;
+		unsigned textLine = (y + ls->r23) & 0xFF;
+		unsigned row = textLine >> 3;
+		unsigned rowInChar = textLine & 7;
+
+		/* Border dots carry the background colour (8 dots each side). */
+		for (unsigned i = 0; i < 8; i++) line[i] = bgPixel;
+		for (unsigned i = 488; i < 512; i++) line[i] = bgPixel;
+
+		for (unsigned col = 0; col < 80; col++)
+		{
+			unsigned name = nameBase +
+				((row * 80 + col) & 0x0FFF);
+			unsigned character = v->vram[name & 0x1FFFF];
+			uint8_t pattern = v->vram[(patternBase + character * 8 +
+						   rowInChar) & 0x1FFFF];
+			unsigned blinkByte = v->vram[(blinkBase + row * 10 +
+						      (col >> 3)) & 0x1FFFF];
+			unsigned blink = (blinkByte >> (7 - (col & 7))) & 1;
+			unsigned useBlink = v->blinkState && blink;
+			uint32_t fgPixel = color(v, (uint8_t)
+				(useBlink ? blinkFg : fg));
+			uint32_t charBg = color(v, (uint8_t)
+				(useBlink ? blinkBg : bg));
+			uint32_t *pixel = line + 8 + col * 6;
+			for (unsigned px = 0; px < 6; px++)
+				pixel[px] = (pattern & (0x80u >> px))
+					? fgPixel : charBg;
+		}
+	}
+}
+
 static void render_graphic3(V9938 *v, uint32_t *out, int pitch, unsigned height)
 {
 	unsigned mask = sizeof v->vram - 1;
@@ -1171,6 +1250,18 @@ void v9938_write(V9938 *v, unsigned addr, uint8_t data)
 		if (addr == 2 || addr == 7 || addr == 23 ||
 		    addr == 25 || addr == 26 || addr == 27)
 			line_state_record(v);
+		if (addr == 13)
+		{
+			/* Writing R#13 restarts the blink phase even when the value
+			 * does not change: switch to the ON state unless the ON
+			 * period is zero, then reload the alternating period. */
+			if (v->blinkState == ((data & 0xF0) == 0))
+				v->blinkState ^= 1;
+			if ((data & 0xF0) && (data & 0x0F))
+				v->blinkCount = (uint16_t)((data >> 4) * 10);
+			else
+				v->blinkCount = 0; /* stable colour */
+		}
 		if (addr == 44)
 		{
 			if (v->transferActive)
@@ -1347,6 +1438,7 @@ int v9938_irq_pending(const V9938 *v)
 unsigned v9938_display_width(const V9938 *vdp)
 {
     if (!vdp) return 256;
+    if (is_text2(vdp)) return 512;
     unsigned m = bitmap_mode(vdp);
     return (m == 0x10 || m == 0x14) ? 512u : 256u;
 }
@@ -1366,15 +1458,24 @@ unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch)
         return height;
     }
     if (!m) {
+        if (is_text2(vdp))
+        {
+            render_text2(vdp, out, pitch_px, height);
+            return height;
+        }
         /* SCREEN 0-3 share the TMS9918 tile/text and legacy-sprite layout.
          * Present a 16 KiB window and the compatible registers to that
-         * renderer; the MSX2-specific bitmap and sprite modes stay below. */
+         * renderer; the MSX2-specific bitmap and sprite modes stay below.
+         * V9938 text modes display no sprites (blueMSX RefreshLineTx80,
+         * openMSX DisplayMode::getSpriteMode), so sprites stay disabled. */
         TMS9918 legacy;
         memset(&legacy, 0, sizeof legacy);
         legacy.vram = vdp->vram;
         legacy.vram_size = sizeof vdp->vram;
         legacy.extended_vram = 1;
-        memcpy(legacy.reg, vdp->reg, sizeof vdp->reg);
+        memcpy(legacy.reg, vdp->reg, sizeof legacy.reg);
+        if (vdp->reg[1] & 0x10)
+            legacy.reg[1] &= (uint8_t)~0x40; /* V9938 text modes: no sprites */
         legacy.irq = vdp->irq;
         tms9918_render(&legacy, out, pitch);
         return 192;

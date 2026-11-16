@@ -32,14 +32,43 @@ the HUD; retaining the top 192 rows restored it but removed 20 bottom rows.
 Neither policy implements a 212-line display.
 
 Current implementation: `v9938_render()` reports 192/212 active rows for
-SCREEN 4-8 and scans out the native horizontal dot count: 512 for SCREEN 6/7,
-256 for the other modes. Callers allocate `V9938_MAX_DISPLAY_WIDTH` x
-`V9938_MAX_DISPLAY_LINES`, the app scales the complete source to the physical
-framebuffer, and the frame dump hook, periodic PPM and ALT+F10 capture all
-write the real width and height. There is no crop, downsample or source-side
-resampling. The `.VDS` binary format is unchanged. Legacy-mode output remains
-256x192. TEXT2 (80-column) still goes through the 256-dot text path and is a
-tracked gap below.
+SCREEN 4-8 and scans out the native horizontal dot count: 512 for SCREEN 6/7
+and TEXT2, 256 for the other modes. Callers allocate
+`V9938_MAX_DISPLAY_WIDTH` x `V9938_MAX_DISPLAY_LINES`, the app scales the
+complete source to the physical framebuffer, and the frame dump hook, periodic
+PPM and ALT+F10 capture all write the real width and height. There is no crop,
+downsample or source-side resampling. The `.VDS` binary format is unchanged.
+Legacy-mode output remains 256x192.
+
+### Text modes
+
+TEXT2 used to be fed through the TMS9918 adapter as 80 columns of 3-dot cells,
+which folded the line into 240 dots. It now has its own scanout:
+
+- 80 columns of 6-dot glyphs (480 dots) between 8-dot background borders in the
+  512-dot line, foreground R#7 high nibble and background R#7 low nibble.
+- Name table `R#2<<10` masked to a 4 KiB window, 80 bytes per character row;
+  pattern generator `R#4<<11` masked to a 2 KiB window; glyph dots are the six
+  high pattern bits `0x80..0x04`.
+- The blink table is `(R#3<<6)` masked to a 512-byte window: one bit per
+  character, ten bytes per character row. While the blink phase is ON, a set bit
+  swaps in the R#12 high/low colours.
+- Blink is frame-clocked: R#13's high nibble is the ON period and the low nibble
+  the OFF period in units of ten frames, and any R#13 write restarts the phase
+  in the ON state (openMSX `VDP::frameStart` / `changeRegister`). A zero period
+  is a stable colour. The undocumented R#1 bit 2 "fast blink" line-clock mode is
+  not emulated.
+- R#23 scrolls the whole text plane in dot lines, so the character row and the
+  pattern row both follow it (blueMSX `RefreshLineTx80`). openMSX only rotates
+  the pattern row; the two disagree once the scroll crosses a character cell and
+  blueMSX is the primary reference here.
+- Text modes display no sprites (blueMSX `RefreshLineTx80` never evaluates the
+  sprite line; openMSX `DisplayMode::getSpriteMode` returns 0). The V9938 legacy
+  adapter therefore disables sprite output for TEXT1 as well.
+
+TEXT1 (40 columns) still renders through the TMS9918 adapter, which draws 240
+dots at x=0 rather than centring them between 8-dot borders, and has no blink
+table. That is the remaining text-mode gap.
 
 ### Sprite mode 2
 
@@ -105,12 +134,13 @@ Unchecked items are not implemented/verified, even if some happy paths work.
 
 ### VDP scanout
 
-- [ ] All MSX2 display modes: TEXT1/TEXT2 (80-column)/blink, GRAPHIC1-7 and
-      MULTICOLOR, including 192/212-line selection where applicable.
-- [ ] Full native horizontal resolution. SCREEN 6/7 now scan out 512 dots
-      end-to-end (renderer, blit, PPM/capture, replay). TEXT2 (80-column) is
-      still rendered through the 256-dot text path and blocks this item.
-- [ ] TEXT2 80-column text renderer (6x8 font, 480 dots in a 512-dot field).
+- [ ] GRAPHIC1-7 and MULTICOLOR mode coverage, including 192/212-line
+      selection where applicable.
+- [x] Full native horizontal resolution for SCREEN 6/7 and TEXT2: 512 dots
+      end-to-end (renderer, blit, PPM/capture, replay).
+- [x] TEXT2 80-column text renderer: 6-dot glyphs between 8-dot borders,
+      R#3 blink table with R#12 colours and the R#13 frame period.
+- [ ] TEXT1: centred 240 dots between 8-dot borders and the TEXT1 blink table.
 - [ ] R#1 blanking and R#8 TP/color-zero policy in backgrounds and sprites;
       mid-frame mode/blanking/palette/sprite-table changes latched correctly.
 - [ ] Tile-table masking/vertical scroll, R#18 set-adjust and border placement.
@@ -195,6 +225,10 @@ results separate in reports.
 - `make -C src/app RASPPI=3`: PASS (556376-byte app image); existing
   `ARM_ALLOW_MULTI_CORE` redefinition warnings remain. No new Pi4 build or
   hardware verification claimed for this tranche.
+- 2026-11-16 TEXT2 tranche: expanded V9938 suite (TEXT2 columns/borders,
+  blink phase, R#23 scroll, no sprites), ASan/UBSan, MSX1/MSX2 boot, Coleco,
+  VDP probe and framebuffer scaling: PASS. `make -C src/app RASPPI=3`: PASS
+  (558552-byte app image). Not hardware-verified.
 - `tools/vdp_capture_report.py` now reads all 128 KiB and accepts the actual
   numbered command-history records. It reports 1024 retained commands for
   `F00007FC`, rather than silently omitting them.

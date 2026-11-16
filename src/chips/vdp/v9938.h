@@ -126,6 +126,12 @@ typedef struct {
     V9938_LineState lineState[V9938_FRAME_LINES];
     uint8_t lineStateValid;
     uint16_t currentLine;
+    /* TEXT2 blink. R#13 high/low nibble select the ON/OFF period in units of
+     * ten frames and R#12 supplies the alternate colours; the phase toggles on
+     * the frame clock (openMSX VDP::frameStart). The undocumented R#1 bit 2
+     * "fast blink" mode is not emulated. */
+    uint8_t blinkState;
+    uint16_t blinkCount;
 } V9938;
 
 V9938* v9938_create(void);
