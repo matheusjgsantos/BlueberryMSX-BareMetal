@@ -2,6 +2,7 @@
  * No CPU/game execution or game-specific geometry. Useful for distinguishing
  * a VRAM-state divergence from a renderer divergence against a reference. */
 #include "v9938.h"
+#include "framebuffer_blit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,12 +56,13 @@ int main(int argc, char **argv)
     unsigned height = v9938_render(v, image, V9938_MAX_DISPLAY_WIDTH * 4);
     fp = fopen(argv[3], "wb");
     if (!fp) { perror(argv[3]); v9938_destroy(v); return 1; }
-    int ok = fprintf(fp, "P6\n%u %u\n255\n", width, height) > 0;
-    for (unsigned i = 0; ok && i < width * height; i++) {
-        uint8_t rgb[3] = {(uint8_t)(image[i] >> 16),
-                          (uint8_t)(image[i] >> 8), (uint8_t)image[i]};
-        ok = fwrite(rgb, 1, 3, fp) == 3;
-    }
+    size_t bytes = (size_t)width * height * 3;
+    uint8_t *rgb = malloc(bytes);
+    int ok = rgb && msx_pack_rgb888(rgb, image, V9938_MAX_DISPLAY_WIDTH,
+                                    (int)width, (int)height) &&
+             fprintf(fp, "P6\n%u %u\n255\n", width, height) > 0 &&
+             fwrite(rgb, 1, bytes, fp) == bytes;
+    free(rgb);
     if (fclose(fp)) ok = 0;
     v9938_destroy(v);
     if (!ok) { fprintf(stderr, "PPM write failed\n"); return 1; }

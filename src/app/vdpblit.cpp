@@ -63,13 +63,8 @@ boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
 	unsigned long nPixels = s_nSourceWidth * s_nSourceHeight;
 	if (nCapacity < nPixels * 3)
 		return FALSE;
-	for (unsigned long p = 0; p < nPixels; p++)
-	{
-		uint32_t v = s_TempFrame[p];
-		pRGB[p * 3 + 0] = (unsigned char) (v >> 16);
-		pRGB[p * 3 + 1] = (unsigned char) (v >> 8);
-		pRGB[p * 3 + 2] = (unsigned char) v;
-	}
+	msx_pack_rgb888 (pRGB, s_TempFrame, MSX_MAX_WIDTH,
+	                 (int) s_nSourceWidth, (int) s_nSourceHeight);
 	*pnWidth = s_nSourceWidth;
 	*pnHeight = s_nSourceHeight;
 	return TRUE;
@@ -129,8 +124,8 @@ void VDPBlit_Redraw (void)
 		return;
 	}
 
-	msx_blit_frame_sized (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
-			s_nDepth, s_TempFrame, (int) s_nSourceWidth,
+	msx_blit_frame_strided (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
+			s_nDepth, s_TempFrame, MSX_MAX_WIDTH, (int) s_nSourceWidth,
 			(int) s_nSourceHeight);
 }
 
@@ -138,9 +133,10 @@ void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize)
 {
 	unsigned nDifferent = 0;
 	uint32_t nHash = 2166136261u;
-	for (unsigned i = 0; i < s_nSourceWidth * s_nSourceHeight; i++)
+	for (unsigned y = 0; y < s_nSourceHeight; y++)
+	for (unsigned x = 0; x < s_nSourceWidth; x++)
 	{
-		uint32_t nRGB = s_TempFrame[i] & 0xFFFFFFu;
+		uint32_t nRGB = s_TempFrame[y * MSX_MAX_WIDTH + x] & 0xFFFFFFu;
 		if (nRGB != (s_TempFrame[0] & 0xFFFFFFu)) nDifferent++;
 		nHash = (nHash ^ nRGB) * 16777619u;
 	}
@@ -177,13 +173,8 @@ extern "C" void msx_frame_render (void *pMachine)
 				unsigned long nPixels = s_nSourceWidth * s_nSourceHeight;
 				unsigned char *pRGB = (unsigned char *) malloc (nPixels * 3);
 				if (pRGB == 0) break;
-				for (unsigned long p = 0; p < nPixels; p++)
-				{
-					uint32_t v = s_TempFrame [p];
-					pRGB [p * 3 + 0] = (unsigned char) ((v >> 16) & 0xFF);
-					pRGB [p * 3 + 1] = (unsigned char) ((v >>  8) & 0xFF);
-					pRGB [p * 3 + 2] = (unsigned char) ( v        & 0xFF);
-				}
+				msx_pack_rgb888 (pRGB, s_TempFrame, MSX_MAX_WIDTH,
+				                 (int) s_nSourceWidth, (int) s_nSourceHeight);
 				s_pDumpFunc (pRGB, (unsigned) s_nSourceWidth,
 				             (unsigned) s_nSourceHeight,
 				             (unsigned) s_nFrame, s_pDumpUser);
@@ -193,7 +184,7 @@ extern "C" void msx_frame_render (void *pMachine)
 		}
 	}
 
-	msx_blit_frame_sized (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
-		       s_nDepth, s_TempFrame, (int) s_nSourceWidth,
+	msx_blit_frame_strided (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
+		       s_nDepth, s_TempFrame, MSX_MAX_WIDTH, (int) s_nSourceWidth,
 		       (int) s_nSourceHeight);
 }

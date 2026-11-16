@@ -1,5 +1,10 @@
 # V9938 native-width test — kernel memory fix
 
+> **Boots but has a known display defect. Do not use for resolution tests.**
+> The user reported large gaps between lines; ALT+F10 `F00002A1.PPM` proved
+> that 256-dot modes were read as packed rows from a 512-dot-stride renderer.
+> Use `../2026-11-16-v9938-source-stride-fix/` for the corrected test candidate.
+
 **Hardware verification pending.** This candidate supersedes
 `../2026-11-16-v9938-command-512-text2/`, whose Pi 3 and Pi 4 images both
 showed a blank screen and produced no `boot.log`. The last known booting pair

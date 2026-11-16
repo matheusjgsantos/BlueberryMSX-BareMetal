@@ -64,6 +64,29 @@ int main(void)
     for (int x = 0; x < 800; x++)
         assert(wide_out[x] == (uint32_t)((x * 512 / 800) / 64));
     assert(wide_out[799] == 7u); /* the far right band is visible */
+    /* SCREEN 5 and the TMS9918 render 256 visible dots into 512-dot rows.
+     * The unused right half must not become the next display/capture line. */
+    static uint32_t strided[512 * 212];
+    static uint32_t out[256 * 212];
+    static uint8_t rgb[256 * 212 * 3];
+    for (int y = 0; y < 212; y++) {
+        for (int x = 0; x < 256; x++)
+            strided[y * 512 + x] = 0x110000u | (uint32_t)y;
+        for (int x = 256; x < 512; x++)
+            strided[y * 512 + x] = 0xABCDEFu;
+    }
+    assert(msx_blit_frame_strided(out, 256, 212, 256 * 4, 32,
+                                   strided, 512, 256, 212));
+    assert(msx_pack_rgb888(rgb, strided, 512, 256, 212));
+    for (int y = 0; y < 212; y++) {
+        assert(out[y * 256] == (0x110000u | (uint32_t)y));
+        assert(out[y * 256 + 255] == (0x110000u | (uint32_t)y));
+        assert(rgb[(y * 256) * 3] == 0x11);
+        assert(rgb[(y * 256 + 255) * 3 + 2] == (uint8_t)y);
+    }
+    assert(!msx_blit_frame_strided(out, 256, 212, 256 * 4, 32,
+                                    strided, 255, 256, 212));
+    assert(!msx_pack_rgb888(rgb, strided, 255, 256, 212));
     puts("PASS: RGB565/XRGB8888 scaling, row padding, bounds and invalid pitch");
     return 0;
 }

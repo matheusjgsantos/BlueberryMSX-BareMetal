@@ -215,6 +215,15 @@ results separate in reports.
 
 ## Current verification record (2026-11-16)
 
+- The 512-dot source buffer is always 512 pixels per row, including 256-dot
+  SCREEN 5 and legacy modes. The first kernel-memory-fixed hardware image
+  boots, but the user reported large gaps between scanlines; physical
+  `capture/F00002A1.PPM` (256x212) had **all 106 even rows** identical to
+  rows 0-105 of a replay of its `.VDS`/`.CMD`, while odd rows read the unused
+  right half of the 512-dot buffer. This proves a presentation/capture stride
+  error, not missing VRAM data. The blit, ALT+F10 and periodic PPM now use the
+  512-pixel source stride independently of visible width, with a 256-in-512
+  host regression. Corrected output still awaits hardware verification.
 - User hardware report: the top-crop workaround restores the Aleste HUD, but
   still crops the bottom and renders the numbered weapon objects incorrectly.
   It is not the native-height/sprite-conformance implementation described here.
@@ -243,7 +252,7 @@ results separate in reports.
   a hardware pass. The helper is game-independent:
 
 ```sh
-gcc -O1 -Wall -Wextra -Iinclude -Isrc/chips/vdp \
+gcc -O1 -Wall -Wextra -Iinclude -Isrc/chips/vdp -Isrc/app \
     host-test/vdp_capture_replay.c src/chips/vdp/v9938.c \
     src/chips/vdp/tms9918.c host-test/trace_stub.c \
     -o host-test/vdp_capture_replay
