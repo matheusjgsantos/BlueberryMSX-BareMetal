@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static uint32_t image[256 * V9938_MAX_DISPLAY_LINES + 1];
+static uint32_t image[V9938_MAX_DISPLAY_WIDTH * V9938_MAX_DISPLAY_LINES + 1];
 
 static void reg(V9938 *v, unsigned n, uint8_t value)
 {
@@ -61,9 +61,14 @@ static void sprite(V9938 *v, unsigned n, unsigned y, unsigned x,
 static void draw(V9938 *v)
 {
     memset(image, 0xA5, sizeof image);
-    unsigned height = v9938_render(v, image, 256 * 4);
+    unsigned height = v9938_render(v, image,
+                                   V9938_MAX_DISPLAY_WIDTH * 4);
+    assert(v9938_display_width(v) ==
+           (((v->reg[0] & 0x0E) == 0x08 || (v->reg[0] & 0x0E) == 0x0A)
+            ? 512u : 256u));
     assert(height == ((v->reg[9] & 0x80) ? 212u : 192u));
-    assert(image[256 * V9938_MAX_DISPLAY_LINES] == 0xA5A5A5A5u);
+    assert(image[V9938_MAX_DISPLAY_WIDTH * V9938_MAX_DISPLAY_LINES] ==
+           0xA5A5A5A5u);
 }
 
 static void test_height_and_alignment(void)
@@ -75,12 +80,12 @@ static void test_height_and_alignment(void)
         /* Final active row, and a sprite below the old 192-row boundary. */
         v->vram[211 * 128] = 0x44;
         draw(v);
-        assert(image[200 * 256 + 32] == rgb(2));
-        assert(image[190 * 256 + 32] != rgb(2)); /* no stale +10 sprite crop */
-        assert(image[211 * 256] == rgb(4));
+        assert(image[200 * V9938_MAX_DISPLAY_WIDTH + 32] == rgb(2));
+        assert(image[190 * V9938_MAX_DISPLAY_WIDTH + 32] != rgb(2)); /* no stale +10 sprite crop */
+        assert(image[211 * V9938_MAX_DISPLAY_WIDTH] == rgb(4));
         reg(v, 9, 0);
         draw(v);
-        assert(image[192 * 256] == 0xA5A5A5A5u);
+        assert(image[192 * V9938_MAX_DISPLAY_WIDTH] == 0xA5A5A5A5u);
         v9938_destroy(v);
     }
     puts("PASS: native 192/212 rows, final active row, sprite/bitmap origin and planar tables");
@@ -92,27 +97,27 @@ static void test_priority_and_cc(void)
     sprite(v, 0, 0, 32, 0, 0x80, 0);
     sprite(v, 1, 0, 32, 2, 0x80, 0);
     draw(v);
-    assert(image[256 + 32] == rgb(2)); /* transparent high priority */
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 32] == rgb(2)); /* transparent high priority */
 
     sprite(v, 0, 0, 32, 0x41, 0xC0, 0); /* leading CC invisible */
     sprite(v, 1, 0, 33, 2, 0x80, 0);
     draw(v);
-    assert(image[256 + 32] != rgb(1));
-    assert(image[256 + 33] == rgb(2));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 32] != rgb(1));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 33] == rgb(2));
 
     sprite(v, 0, 0, 32, 4, 0xC0, 0);     /* outer layer */
     sprite(v, 1, 0, 32, 0x42, 0x80, 0);  /* inner/numeral layer */
     sprite(v, 2, 0, 32, 0x41, 0x40, 0);  /* consecutive CC layer */
     draw(v);
-    assert(image[256 + 32] == rgb(6));
-    assert(image[256 + 33] == rgb(5));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 32] == rgb(6));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 33] == rgb(5));
     assert(!(v->status[0] & 0x20)); /* CC never causes collision */
 
     /* Non-CC separates groups: a later CC must not OR into sprite 0. */
     sprite(v, 1, 0, 32, 2, 0x80, 0);
     draw(v);
-    assert(image[256 + 32] == rgb(4));
-    assert(image[256 + 33] == rgb(4));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 32] == rgb(4));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 33] == rgb(4));
     v9938_destroy(v);
     puts("PASS: transparent priority, leading CC suppression and consecutive CC colour groups");
 }
@@ -135,7 +140,7 @@ static void test_collision_and_limits(void)
         sprite(v, n, 0, n * 16, n < 8 ? 0x41 : 2, 0x80, 0);
     draw(v);
     assert((v->status[0] & 0x5F) == 0x48); /* leading CC counts toward limit */
-    assert(image[256 + 128] != rgb(2));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 128] != rgb(2));
     v9938_destroy(v);
     puts("PASS: IC/CC collision exclusion, first collision coordinates, S#0 clear and ninth sprite");
 }
@@ -151,7 +156,7 @@ static void test_table_window_and_size(void)
     v->vram[0x800] = 0x80;
     v->vram[0x200] = 3; /* trap for the old unconditional SAT-512 decode */
     draw(v);
-    assert(image[3 * 256 + 32] == rgb(2));
+    assert(image[3 * V9938_MAX_DISPLAY_WIDTH + 32] == rgb(2));
     v9938_destroy(v);
 
     v = setup(0);
@@ -161,9 +166,9 @@ static void test_table_window_and_size(void)
     v->vram[0x810] = 0x80; /* top-right, not swapped */
     v->vram[0x808] = 0x80; /* bottom-left */
     draw(v);
-    assert(image[256] == rgb(2) && image[256 + 1] == rgb(2));
-    assert(image[256 + 16] == rgb(2) && image[256 + 17] == rgb(2));
-    assert(image[17 * 256] == rgb(2));
+    assert(image[V9938_MAX_DISPLAY_WIDTH] == rgb(2) && image[V9938_MAX_DISPLAY_WIDTH + 1] == rgb(2));
+    assert(image[V9938_MAX_DISPLAY_WIDTH + 16] == rgb(2) && image[V9938_MAX_DISPLAY_WIDTH + 17] == rgb(2));
+    assert(image[17 * V9938_MAX_DISPLAY_WIDTH] == rgb(2));
     v9938_destroy(v);
     puts("PASS: masked table window, early clock, 16x16 quadrants and magnification");
 }
@@ -309,6 +314,38 @@ static void test_command_lmcm(void)
     puts("PASS: LMCM per-read pixel transfer with TR/CE sequencing");
 }
 
+/* SCREEN 6 scans out 512 native dots and each sprite dot covers two screen
+ * dots (reference SpriteConverter GRAPHIC6 branch); collision coordinates are
+ * therefore reported in the 512-dot grid. */
+static void test_screen6_native_width(void)
+{
+    V9938 *v = setup(0);
+    reg(v, 0, 0x08); /* SCREEN 6 */
+    reg(v, 1, 0x40);
+    /* Four 2-bit pixel pairs in one byte: x=500..503 = colours 3,2,1,0. */
+    store(v, (3 << 7) | 125, 0xE4, 0);
+    sprite(v, 0, 49, 10, 2, 0x80, 0); /* first pattern row shows on line 50 */
+    sprite(v, 1, 49, 10, 5, 0x80, 0);
+    draw(v);
+
+    assert(v9938_display_width(v) == 512);
+    assert(image[3 * V9938_MAX_DISPLAY_WIDTH + 500] == rgb(3));
+    assert(image[3 * V9938_MAX_DISPLAY_WIDTH + 501] == rgb(2));
+    assert(image[3 * V9938_MAX_DISPLAY_WIDTH + 502] == rgb(1));
+    assert(image[3 * V9938_MAX_DISPLAY_WIDTH + 503] == 0);
+
+    /* The sprite sits at dot 10, so it covers screen dots 20 and 21. */
+    assert(image[50 * V9938_MAX_DISPLAY_WIDTH + 20] == rgb(2));
+    assert(image[50 * V9938_MAX_DISPLAY_WIDTH + 21] == rgb(2));
+    assert(image[50 * V9938_MAX_DISPLAY_WIDTH + 19] != rgb(2));
+    assert(image[50 * V9938_MAX_DISPLAY_WIDTH + 22] != rgb(2));
+    /* Collision at screen dot 20 is reported as 20 + 12. */
+    assert(v->status[0] & 0x20);
+    assert(v->status[3] == 32);
+    v9938_destroy(v);
+    puts("PASS: SCREEN 6 native 512-dot scanout, sprite duplication and collision X");
+}
+
 int main(void)
 {
     test_height_and_alignment();
@@ -318,6 +355,7 @@ int main(void)
     test_cpu_vram_and_latches();
     test_command_line();
     test_command_lmcm();
+    test_screen6_native_width();
     puts("All V9938 display/sprite conformance checks passed");
     return 0;
 }

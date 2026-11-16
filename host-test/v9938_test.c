@@ -257,17 +257,20 @@ static void test_v9938_screen6_full_width_render(void)
     assert(vdp != NULL);
     write_register(vdp, 0, 0x08); /* SCREEN 6 is 512 dots wide. */
     write_register(vdp, 1, 0x00);
-    /* Pixels 254 and 256 straddle the 256-dot midpoint. If the renderer
-     * merely displays x=0..255, output column 128 never reaches the second. */
+    /* Native 512-dot output: columns 254 and 256 both exist and keep their
+     * own 2-bit pixel instead of being averaged into one 256-dot column. */
     vdp->vram[63] = 0x0C; /* x=254 (index 3) in bits 3:2. */
     vdp->vram[64] = 0x80; /* x=256 (index 2) in bits 7:6. */
-    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
+    uint32_t frame[V9938_MAX_DISPLAY_WIDTH * V9938_MAX_DISPLAY_LINES];
     memset(frame, 0, sizeof frame);
-    v9938_render(vdp, frame, 256 * 4);
-    assert(frame[127] == 0x6DFF6Du); /* palette color 3 */
-    assert(frame[128] == 0x24DA24u); /* palette color 2 */
+    assert(v9938_display_width(vdp) == 512);
+    v9938_render(vdp, frame, V9938_MAX_DISPLAY_WIDTH * 4);
+    assert(frame[254] == 0x6DFF6Du); /* palette color 3 */
+    assert(frame[255] == 0x000000u);
+    assert(frame[256] == 0x24DA24u); /* palette color 2 */
+    assert(frame[257] == 0x000000u);
     v9938_destroy(vdp);
-    puts("PASS: V9938 SCREEN 6 renders both 512-dot halves");
+    puts("PASS: V9938 SCREEN 6 scans out native 512 dots");
 }
 
 static void test_v9938_screen8_pixel_command(void)

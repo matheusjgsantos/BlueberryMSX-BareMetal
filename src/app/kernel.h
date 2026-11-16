@@ -303,7 +303,8 @@ public:
 	void AttachMsxbus (MSX_Machine *pMachine);
 
 	// Write one native-height, 256-pixel RGB888 frame as a PPM on the SD card.
-	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
+	void WriteFrame (const unsigned char *pFrame, unsigned int nWidth,
+	                 unsigned int nHeight, unsigned int nFrameNo);
 	void CaptureFrameAndVdp (void);
 	// Create a capture file in the configured capture.dir, falling back to the
 	// data-partition root when that directory cannot be used. Writes the

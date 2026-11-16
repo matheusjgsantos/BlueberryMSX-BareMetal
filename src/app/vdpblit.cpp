@@ -18,6 +18,7 @@ extern "C"
 }
 
 #define MSX_WIDTH	256
+#define MSX_MAX_WIDTH	512
 #define MSX_MAX_HEIGHT	212
 
 static void *s_pFrameBuffer = 0;
@@ -25,8 +26,9 @@ static int s_nDepth = 0;
 static int s_nPitchBytes = 0;
 static int s_nWidth = 0;
 static int s_nHeight = 0;
+static unsigned s_nSourceWidth = 256;
 static unsigned s_nSourceHeight = 192;
-static uint32_t s_TempFrame [MSX_WIDTH * MSX_MAX_HEIGHT];
+static uint32_t s_TempFrame [MSX_MAX_WIDTH * MSX_MAX_HEIGHT];
 
 static VDPBlitDumpFunc s_pDumpFunc = 0;
 static void *s_pDumpUser = 0;
@@ -35,22 +37,29 @@ static unsigned long s_nFrame = 0;
 static void RenderMachine (MSX_Machine *pMsx)
 {
 	if (pMsx->machineType == MSX_MACHINE_MSX2)
-		s_nSourceHeight = v9938_render ((V9938 *) pMsx->vdp, s_TempFrame,
-		                                      MSX_WIDTH * 4);
+	{
+		V9938 *pVdp = (V9938 *) pMsx->vdp;
+		s_nSourceWidth = v9938_display_width (pVdp);
+		s_nSourceHeight = v9938_render (pVdp, s_TempFrame,
+		                                MSX_MAX_WIDTH * 4);
+	}
 	else
 	{
-		tms9918_render ((TMS9918 *) pMsx->vdp, s_TempFrame, MSX_WIDTH * 4);
+		tms9918_render ((TMS9918 *) pMsx->vdp, s_TempFrame,
+		                MSX_MAX_WIDTH * 4);
+		s_nSourceWidth = MSX_WIDTH;
 		s_nSourceHeight = 192;
 	}
 }
 
 boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
-			    unsigned int nCapacity, unsigned int *pnHeight)
+			    unsigned int nCapacity, unsigned int *pnWidth,
+			    unsigned int *pnHeight)
 {
-	if (pMachine == 0 || pRGB == 0 || pnHeight == 0)
+	if (pMachine == 0 || pRGB == 0 || pnWidth == 0 || pnHeight == 0)
 		return FALSE;
 	RenderMachine ((MSX_Machine *) pMachine);
-	unsigned long nPixels = MSX_WIDTH * s_nSourceHeight;
+	unsigned long nPixels = s_nSourceWidth * s_nSourceHeight;
 	if (nCapacity < nPixels * 3)
 		return FALSE;
 	for (unsigned long p = 0; p < nPixels; p++)
@@ -60,6 +69,7 @@ boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
 		pRGB[p * 3 + 1] = (unsigned char) (v >> 8);
 		pRGB[p * 3 + 2] = (unsigned char) v;
 	}
+	*pnWidth = s_nSourceWidth;
 	*pnHeight = s_nSourceHeight;
 	return TRUE;
 }
@@ -119,14 +129,15 @@ void VDPBlit_Redraw (void)
 	}
 
 	msx_blit_frame_sized (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
-			s_nDepth, s_TempFrame, (int) s_nSourceHeight);
+			s_nDepth, s_TempFrame, (int) s_nSourceWidth,
+			(int) s_nSourceHeight);
 }
 
 void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize)
 {
 	unsigned nDifferent = 0;
 	uint32_t nHash = 2166136261u;
-	for (unsigned i = 0; i < MSX_WIDTH * s_nSourceHeight; i++)
+	for (unsigned i = 0; i < s_nSourceWidth * s_nSourceHeight; i++)
 	{
 		uint32_t nRGB = s_TempFrame[i] & 0xFFFFFFu;
 		if (nRGB != (s_TempFrame[0] & 0xFFFFFFu)) nDifferent++;
@@ -162,8 +173,8 @@ extern "C" void msx_frame_render (void *pMachine)
 		{
 			if (s_nFrame == s_nCaptureAt[i])
 			{
-				static unsigned char s_RGB [MSX_WIDTH * MSX_MAX_HEIGHT * 3];
-				unsigned long nPixels = MSX_WIDTH * s_nSourceHeight;
+				static unsigned char s_RGB [MSX_MAX_WIDTH * MSX_MAX_HEIGHT * 3];
+				unsigned long nPixels = s_nSourceWidth * s_nSourceHeight;
 				for (unsigned long p = 0; p < nPixels; p++)
 				{
 					uint32_t v = s_TempFrame [p];
@@ -171,7 +182,8 @@ extern "C" void msx_frame_render (void *pMachine)
 					s_RGB [p * 3 + 1] = (unsigned char) ((v >>  8) & 0xFF);
 					s_RGB [p * 3 + 2] = (unsigned char) ( v        & 0xFF);
 				}
-				s_pDumpFunc (s_RGB, (unsigned) (nPixels * 3),
+				s_pDumpFunc (s_RGB, (unsigned) s_nSourceWidth,
+				             (unsigned) s_nSourceHeight,
 				             (unsigned) s_nFrame, s_pDumpUser);
 				break;
 			}
@@ -179,5 +191,6 @@ extern "C" void msx_frame_render (void *pMachine)
 	}
 
 	msx_blit_frame_sized (s_pFrameBuffer, s_nWidth, s_nHeight, s_nPitchBytes,
-		       s_nDepth, s_TempFrame, (int) s_nSourceHeight);
+		       s_nDepth, s_TempFrame, (int) s_nSourceWidth,
+		       (int) s_nSourceHeight);
 }

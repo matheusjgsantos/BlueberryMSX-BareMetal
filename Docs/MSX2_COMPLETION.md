@@ -31,13 +31,15 @@ The old renderer and app hardcoded 256x192. A centred 212-line crop removed
 the HUD; retaining the top 192 rows restored it but removed 20 bottom rows.
 Neither policy implements a 212-line display.
 
-Current working-tree change: `v9938_render()` reports 192/212 active rows for
-SCREEN 4-8; callers allocate 212 rows. The app scales the complete source to
-the physical framebuffer, and both periodic PPM and ALT+F10 write the native
-source height. There is no vertical crop or source-side 212-to-192 resampling.
-The `.VDS` binary format is unchanged. Legacy-mode output remains 192 rows;
-see the release blockers below. SCREEN 6/7 still downsample horizontally and
-must not be called lossless/native-resolution output.
+Current implementation: `v9938_render()` reports 192/212 active rows for
+SCREEN 4-8 and scans out the native horizontal dot count: 512 for SCREEN 6/7,
+256 for the other modes. Callers allocate `V9938_MAX_DISPLAY_WIDTH` x
+`V9938_MAX_DISPLAY_LINES`, the app scales the complete source to the physical
+framebuffer, and the frame dump hook, periodic PPM and ALT+F10 capture all
+write the real width and height. There is no crop, downsample or source-side
+resampling. The `.VDS` binary format is unchanged. Legacy-mode output remains
+256x192. TEXT2 (80-column) still goes through the 256-dot text path and is a
+tracked gap below.
 
 ### Sprite mode 2
 
@@ -59,9 +61,10 @@ Current working-tree changes:
 - Separate collision from drawing; IC or CC excludes either participant;
   record the first collision coordinates with the documented +12/+8 bias.
 - Clear S#0's F/overflow/collision flags on acknowledgment.
-- Use the fixed SCREEN 8 sprite palette. SCREEN 6 currently samples one of
-  its two sprite subpixels consistently with the existing bitmap downsample;
-  full two-dot output is still blocked below.
+- Use the fixed SCREEN 8 sprite palette. In SCREEN 6 each sprite dot covers
+  two screen dots at the same palette colour (reference GRAPHIC6 sprite
+  branch); SCREEN 7 is 1:1 in the 512-dot grid and SCREEN 5 keeps its
+  documented one-dot approximation.
 
 Sprite status is still evaluated by the frame renderer, not the emulated beam.
 This tranche does not claim cycle/line-accurate sprite-status completion.
@@ -104,8 +107,10 @@ Unchecked items are not implemented/verified, even if some happy paths work.
 
 - [ ] All MSX2 display modes: TEXT1/TEXT2 (80-column)/blink, GRAPHIC1-7 and
       MULTICOLOR, including 192/212-line selection where applicable.
-- [ ] Full native horizontal resolution (512-dot SCREEN 6/7 and TEXT2),
-      dimensions propagated through app and capture without lost subpixels.
+- [ ] Full native horizontal resolution. SCREEN 6/7 now scan out 512 dots
+      end-to-end (renderer, blit, PPM/capture, replay). TEXT2 (80-column) is
+      still rendered through the 256-dot text path and blocks this item.
+- [ ] TEXT2 80-column text renderer (6x8 font, 480 dots in a 512-dot field).
 - [ ] R#1 blanking and R#8 TP/color-zero policy in backgrounds and sprites;
       mid-frame mode/blanking/palette/sprite-table changes latched correctly.
 - [ ] Tile-table masking/vertical scroll, R#18 set-adjust and border placement.

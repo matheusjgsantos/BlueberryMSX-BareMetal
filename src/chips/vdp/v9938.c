@@ -1005,16 +1005,22 @@ static uint32_t sprite2_color(const V9938 *v, unsigned m, unsigned c)
            (uint32_t)(rgb[c][2] * 255 / 7);
 }
 
-static void render_sprites2(V9938 *v, uint32_t *o, int pitch, unsigned height)
+static void render_sprites2(V9938 *v, uint32_t *o, int pitch,
+                            unsigned width, unsigned height)
 {
     if (!(v->reg[1] & 0x40) || (v->reg[8] & 2)) return;
     unsigned size = (v->reg[1] & 2) ? 16 : 8;
     unsigned mag = (v->reg[1] & 1) ? 2 : 1;
+    /* SCREEN 6 scans out 512 dots with 256-dot sprite coordinates: every
+     * sprite dot covers two screen dots at the same palette colour
+     * (reference SpriteConverter GRAPHIC6 branch). SCREEN 7 is 512 native and
+     * SCREEN 5 keeps its one-dot approximation. */
+    unsigned m = bitmap_mode(v);
+    unsigned scale = (m == 0x10) ? 2 : 1;
     unsigned table = ((unsigned)(v->reg[11] & 3) << 15) |
                      ((unsigned)v->reg[5] << 7) | 0x7F;
     unsigned base = table & 0x1FE00;
     unsigned pat = (unsigned)(v->reg[6] & 0x3F) << 11;
-    unsigned m = bitmap_mode(v);
     int solid = (v->reg[8] & 0x20) != 0;
 
     for (unsigned y = 0; y < height; y++) {
@@ -1057,12 +1063,13 @@ static void render_sprites2(V9938 *v, uint32_t *o, int pitch, unsigned height)
         /* Collision is independent of drawing priority. IC OR CC excludes
          * either participant; transparent zero cannot collide on a V9938. */
         if (count >= 2 && !(v->status[0] & 0x20)) {
-            for (int x = 0; x < 256; x++) {
+            for (unsigned x = 0; x < width; x++) {
+                unsigned dotX = x / scale;
                 unsigned hits = 0;
                 for (unsigned i = 0; i < count; i++) {
                     const Sprite2Line *s = &sprites[i];
                     if ((s->attr & 0x60) || (!(s->attr & 15) && !solid)) continue;
-                    if (sprite2_dot(s, x)) hits++;
+                    if (sprite2_dot(s, (int)dotX)) hits++;
                 }
                 if (hits < 2) continue;
                 v->status[0] |= 0x20;
@@ -1085,7 +1092,7 @@ static void render_sprites2(V9938 *v, uint32_t *o, int pitch, unsigned height)
             if (!c && !solid) continue;
             int left = s->x < 0 ? 0 : s->x;
             int right = s->x + (int)(size * mag);
-            if (right > 256) right = 256;
+            if (right > (int)(width / scale)) right = (int)(width / scale);
             for (int x = left; x < right; x++) {
                 if (!sprite2_dot(s, x)) continue;
                 unsigned combined = c;
@@ -1093,32 +1100,26 @@ static void render_sprites2(V9938 *v, uint32_t *o, int pitch, unsigned height)
                     if (!(sprites[j].attr & 0x40)) break;
                     if (sprite2_dot(&sprites[j], x)) combined |= sprites[j].attr & 15;
                 }
-                /* SCREEN 6 has two 2-bit colours per sprite dot. The existing
-                 * 256-wide output samples its left subpixel consistently with
-                 * the bitmap's 512-to-256 conversion. */
-                if (m == 0x10) combined >>= 2;
-                o[y * pitch + x] = sprite2_color(v, m, combined);
+                uint32_t pixel = sprite2_color(v, m, combined);
+                for (unsigned k = 0; k < scale; k++)
+                    o[y * pitch + x * (int)scale + (int)k] = pixel;
             }
         }
     }
 }
 
 static void render_bitmap(V9938 *v, uint32_t *out, int pitch, unsigned m,
-                          unsigned height)
+                          unsigned height, unsigned width)
 {
     for(unsigned y=0;y<height;y++){
         V9938_LineState fallback;
         const V9938_LineState *ls = line_state_for_row(v, (unsigned)y, &fallback);
-        unsigned wide = (ls->r25 & ((ls->r2 >> 5) & 1)) != 0;
         unsigned scroll = display_scroll_x_at(v, ls, m);
-        for(int x=0;x<256;x++){
-            /* SCREEN 6/7 are 512-dot modes. The platform framebuffer is
-             * 256 pixels wide, so sample one pixel from each two-dot group
-             * rather than silently displaying only the left half. */
-            unsigned displayX = (m == 0x10 || m == 0x14) ? (unsigned)x * 2u
-                                                         : (unsigned)x;
-            unsigned sx = (displayX + scroll) &
-                          ((wide || m == 0x10 || m == 0x14) ? 511u : 255u);
+        for(unsigned x=0;x<width;x++){
+            /* Native dot grid: SCREEN 6/7 scan out all 512 dots, the
+             * 256-dot modes (and TEXT2 until its text renderer lands) keep
+             * one dot per output pixel. */
+            unsigned sx = (x + scroll) & (width - 1);
             uint8_t c = display_pixel_get(v, ls, m, sx, (unsigned)y);
             if (m == 0x1C) {
                 out[y*pitch+x] = color_screen8(c);
@@ -1343,16 +1344,25 @@ int v9938_irq_pending(const V9938 *v)
     return v && v->irq;
 }
 
+unsigned v9938_display_width(const V9938 *vdp)
+{
+    if (!vdp) return 256;
+    unsigned m = bitmap_mode(vdp);
+    return (m == 0x10 || m == 0x14) ? 512u : 256u;
+}
+
 unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch)
 {
-    if (!vdp || !out || pitch < 256 * 4) return 0;
+    if (!vdp || !out) return 0;
+    unsigned width = v9938_display_width(vdp);
+    if (pitch < (int)width * 4) return 0;
     int pitch_px = pitch / 4;
     unsigned m = bitmap_mode(vdp);
     unsigned height = (vdp->reg[9] & 0x80) ? 212u : 192u;
     if (m == 0x08)
     {
         render_graphic3(vdp, out, pitch_px, height);
-        render_sprites2(vdp, out, pitch_px, height);
+        render_sprites2(vdp, out, pitch_px, width, height);
         return height;
     }
     if (!m) {
@@ -1369,8 +1379,8 @@ unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch)
         tms9918_render(&legacy, out, pitch);
         return 192;
     }
-    render_bitmap(vdp, out, pitch_px, m, height);
-    render_sprites2(vdp, out, pitch_px, height);
+    render_bitmap(vdp, out, pitch_px, m, height, width);
+    render_sprites2(vdp, out, pitch_px, width, height);
     return height;
 }
 

@@ -34,7 +34,7 @@ extern "C" {
 #include <stdlib.h>
 
 static const char *FromKernel = "kernel";
-static unsigned char s_CaptureRGB[256 * 212 * 3];
+static unsigned char s_CaptureRGB[512 * 212 * 3];
 
 extern "C" void diag_uart (char c);
 
@@ -651,8 +651,9 @@ CKernel::CKernel (void):
 	// otherwise. With width=0 Circle asks the firmware for the CONNECTED
 	// display's preferred mode: the DSI panel reports 800x480 and runs at
 	// full speed, but an external HDMI monitor reports its native mode
-	// (e.g. 1920x1080) and msx_blit_frame then scales 256x192 up to the
-	// full framebuffer every frame - ~5x the pixel work, which is what
+	// (e.g. 1920x1080) and msx_blit_frame then scales the active source
+	// (256x192, or 512x212 for SCREEN 6/7) up to the full framebuffer every
+	// frame - ~5x the pixel work, which is what
 	// made everything slow on HDMI while DSI was perfect. The firmware
 	// picks a supported timing for sinks that cannot do 800x480 exactly;
 	// VDPBlit_Init clamps the target to the granted pitch.
@@ -898,9 +899,11 @@ TShutdownMode CKernel::Run (void)
 		// Diagnostic frame capture writes a ~147 KB PPM per capture and
 		// stalls the emulator; only when msx.ini asks for it.
 		VDPBlit_SetDumpHook (
-			[](const unsigned char *pRGB, unsigned nBytes, unsigned nFrame, void *pUser)
+			[](const unsigned char *pRGB, unsigned nWidth, unsigned nHeight,
+			   unsigned nFrame, void *pUser)
 			{
-				((CKernel *) pUser)->WriteFrame (pRGB, nBytes, nFrame);
+				((CKernel *) pUser)->WriteFrame (pRGB, nWidth, nHeight,
+				                                 nFrame);
 			},
 			this);
 	}
@@ -2268,9 +2271,10 @@ void CKernel::DiagLog (const char *pText)
 	LogLine (pText);
 }
 
-// Write one captured 256-pixel RGB frame as a PPM (P6) file. nBytes determines
-// the native active height (192 or 212 rows for V9938 bitmap modes).
-void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo)
+// Write one captured RGB frame as a PPM (P6) file at its native size: 256 or
+// 512 dots wide (SCREEN 6/7) and 192 or 212 rows for V9938 bitmap modes.
+void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nWidth,
+                          unsigned int nHeight, unsigned int nFrameNo)
 {
 	if (!m_bFsMounted)
 	{
@@ -2287,9 +2291,10 @@ void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsi
 		return;
 	}
 
+	unsigned nBytes = nWidth * nHeight * 3u;
 	unsigned char sHeader[64];
 	unsigned nHeaderLen = snprintf ((char *) sHeader, sizeof(sHeader),
-		"P6\n256 %u\n255\n", nBytes / (256u * 3u));
+		"P6\n%u %u\n255\n", nWidth, nHeight);
 
 	if (   m_FileSystem.FileWrite (hFile, sHeader, nHeaderLen) != nHeaderLen
 	    || m_FileSystem.FileWrite (hFile, pFrame, nBytes) != nBytes)
@@ -2668,9 +2673,10 @@ void CKernel::CaptureFrameAndVdp (void)
 			free (pCommandLog);
 		}
 	}
+	unsigned nImageWidth = 0;
 	unsigned nImageHeight = 0;
 	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB,
-	                        &nImageHeight))
+	                        &nImageWidth, &nImageHeight))
 	{
 		char sImageLeaf[64];
 		char sImageUsed[160];
@@ -2684,8 +2690,9 @@ void CKernel::CaptureFrameAndVdp (void)
 		{
 			char sPpmHeader[64];
 			unsigned nHeaderBytes = snprintf (sPpmHeader, sizeof sPpmHeader,
-			                                  "P6\n256 %u\n255\n", nImageHeight);
-			unsigned nImageBytes = 256u * nImageHeight * 3u;
+			                                  "P6\n%u %u\n255\n",
+			                                  nImageWidth, nImageHeight);
+			unsigned nImageBytes = nImageWidth * nImageHeight * 3u;
 			boolean bImageOK =
 				m_FileSystem.FileWrite (hFile, (void *) sPpmHeader,
 					nHeaderBytes) == nHeaderBytes

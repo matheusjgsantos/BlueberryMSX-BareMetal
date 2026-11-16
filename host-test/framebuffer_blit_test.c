@@ -46,11 +46,24 @@ int main(void)
     static uint32_t scaled[256 * 480];
     for (int y = 0; y < 212; y++)
         for (int x = 0; x < 256; x++) tall[y * 256 + x] = (uint32_t)y;
-    assert(msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 212));
+    assert(msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 256, 212));
     for (int y = 0; y < 480; y++)
         assert(scaled[y * 256] == (uint32_t)(y * 212 / 480));
     assert(scaled[479 * 256] == 211); /* includes bottom active row */
-    assert(!msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 0));
+    assert(!msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 256, 0));
+
+    /* A 512-dot SCREEN 6/7 source keeps its horizontal detail instead of
+     * sampling only the left half. */
+    static uint32_t wide[512 * 212];
+    static uint32_t wide_out[800 * 480];
+    for (int y = 0; y < 212; y++)
+        for (int x = 0; x < 512; x++)
+            wide[y * 512 + x] = (uint32_t)(x / 64); /* eight 64-dot bands */
+    assert(msx_blit_frame_sized(wide_out, 800, 480, 800 * 4, 32, wide,
+                                512, 212));
+    for (int x = 0; x < 800; x++)
+        assert(wide_out[x] == (uint32_t)((x * 512 / 800) / 64));
+    assert(wide_out[799] == 7u); /* the far right band is visible */
     puts("PASS: RGB565/XRGB8888 scaling, row padding, bounds and invalid pitch");
     return 0;
 }

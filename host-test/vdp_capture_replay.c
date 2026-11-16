@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uint32_t image[256 * V9938_MAX_DISPLAY_LINES];
+static uint32_t image[V9938_MAX_DISPLAY_WIDTH * V9938_MAX_DISPLAY_LINES];
 
 int main(int argc, char **argv)
 {
@@ -51,11 +51,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "no raster states in CMD; refusing a final-register-only replay\n");
         v9938_destroy(v); return 1;
     }
-    unsigned height = v9938_render(v, image, 256 * 4);
+    unsigned width = v9938_display_width(v);
+    unsigned height = v9938_render(v, image, V9938_MAX_DISPLAY_WIDTH * 4);
     fp = fopen(argv[3], "wb");
     if (!fp) { perror(argv[3]); v9938_destroy(v); return 1; }
-    int ok = fprintf(fp, "P6\n256 %u\n255\n", height) > 0;
-    for (unsigned i = 0; ok && i < 256 * height; i++) {
+    int ok = fprintf(fp, "P6\n%u %u\n255\n", width, height) > 0;
+    for (unsigned i = 0; ok && i < width * height; i++) {
         uint8_t rgb[3] = {(uint8_t)(image[i] >> 16),
                           (uint8_t)(image[i] >> 8), (uint8_t)image[i]};
         ok = fwrite(rgb, 1, 3, fp) == 3;
@@ -63,6 +64,6 @@ int main(int argc, char **argv)
     if (fclose(fp)) ok = 0;
     v9938_destroy(v);
     if (!ok) { fprintf(stderr, "PPM write failed\n"); return 1; }
-    printf("replayed %u raster states at 256x%u\n", transitions, height);
+    printf("replayed %u raster states at %ux%u\n", transitions, width, height);
     return 0;
 }
