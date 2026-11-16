@@ -416,6 +416,9 @@ static void test_text2_80_columns(void)
     draw(v);
     assert(image[0 * w + 8] == fg);
     assert(image[0 * w + 10] == bg);
+    reg(v, 1, 0x10); /* TEXT2 blanked: all 512 dots show backdrop */
+    draw(v);
+    assert(image[8] == bg && image[9] == bg && image[487] == bg);
     v9938_destroy(v);
     puts("PASS: TEXT2 80 columns, 6-dot glyphs, background borders and no sprites");
 }
@@ -570,8 +573,88 @@ static void test_text1_40_columns(void)
     v->vram[0x784] = 208;
     draw(v);
     assert(image[8] == fg && image[9] == bg);
+    reg(v, 1, 0x10); /* TEXT1 blanked: no glyph or sprite pixels */
+    draw(v);
+    assert(image[8] == bg && image[13] == bg && image[247] == bg);
     v9938_destroy(v);
     puts("PASS: TEXT1 40 columns, borders, table masks, scroll, no blink/sprites");
+}
+
+/* BlueMSX updateOutputMode and openMSX precalcColorIndex0: R#8 TP=0
+ * substitutes R#7 for colour zero (except SCREEN 8); TP=1 exposes the
+ * programmed palette zero. Display-off always shows the backdrop. */
+static void test_blanking_and_color_zero(void)
+{
+    V9938 *v = setup(0);
+    unsigned w = V9938_MAX_DISPLAY_WIDTH;
+    reg(v, 7, 0x03);
+    v->vram[0] = 0x01; /* SCREEN 5: zero, then palette entry 1 */
+    draw(v);
+    assert(image[0] == rgb(3) && image[1] == rgb(1));
+    reg(v, 8, 0x20);
+    draw(v);
+    assert(image[0] == rgb(0) && image[1] == rgb(1));
+    reg(v, 1, 0x00);
+    draw(v);
+    assert(image[0] == rgb(3) && image[1] == rgb(3));
+    reg(v, 1, 0x40);
+    reg(v, 8, 0x00);
+    sprite(v, 0, 0, 32, 0, 0x80, 0);
+    draw(v);
+    assert(image[w + 32] == rgb(3)); /* transparent sprite zero */
+    reg(v, 8, 0x20);
+    draw(v);
+    assert(image[w + 32] == rgb(0)); /* solid sprite zero */
+    v9938_destroy(v);
+
+    v = setup(1); /* SCREEN 7: planar VRAM, same 4-bit TP rule */
+    reg(v, 7, 0x03);
+    store(v, 0, 0x01, 1);
+    reg(v, 8, 0x02);
+    draw(v);
+    assert(image[0] == rgb(3) && image[1] == rgb(1));
+    reg(v, 8, 0x22);
+    draw(v);
+    assert(image[0] == rgb(0) && image[1] == rgb(1));
+    reg(v, 1, 0x00);
+    draw(v);
+    assert(image[0] == rgb(3) && image[1] == rgb(3));
+    v9938_destroy(v);
+
+    v = v9938_create();
+    assert(v);
+    for (unsigned c = 0; c < 16; c++) {
+        v->palette[c][0] = c & 7;
+        v->palette[c][1] = c >> 3;
+        v->palette[c][2] = 0;
+    }
+    reg(v, 0, 0x08); /* SCREEN 6, four two-bit dots per byte */
+    reg(v, 1, 0x40);
+    reg(v, 7, 0x06); /* alternating backdrop indices 1 and 2 */
+    reg(v, 8, 0x02); /* sprites disabled */
+    draw(v);
+    assert(image[0] == rgb(1) && image[1] == rgb(2));
+    reg(v, 8, 0x22);
+    draw(v);
+    assert(image[0] == rgb(0) && image[1] == rgb(0));
+    reg(v, 1, 0x00);
+    draw(v);
+    assert(image[0] == rgb(1) && image[1] == rgb(2));
+
+    reg(v, 0, 0x0E); /* SCREEN 8: direct colour zero is always black */
+    reg(v, 1, 0x40);
+    reg(v, 7, 0x1C); /* direct RGB red = 7 */
+    reg(v, 8, 0x02);
+    draw(v);
+    assert(image[0] == 0 && image[1] == 0);
+    reg(v, 8, 0x22);
+    draw(v);
+    assert(image[0] == 0 && image[1] == 0);
+    reg(v, 1, 0x00);
+    draw(v);
+    assert(image[0] == 0x00FF0000u && image[1] == 0x00FF0000u);
+    v9938_destroy(v);
+    puts("PASS: R#1 display-off and R#8 colour-zero on SCREEN 5-8 and sprites");
 }
 
 int main(void)
@@ -588,6 +671,7 @@ int main(void)
     test_text2_blink();
     test_text2_vertical_scroll();
     test_text1_40_columns();
+    test_blanking_and_color_zero();
     puts("All V9938 display/sprite conformance checks passed");
     return 0;
 }

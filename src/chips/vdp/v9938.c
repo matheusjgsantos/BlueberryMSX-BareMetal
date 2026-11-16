@@ -923,6 +923,10 @@ static void command_start(V9938 *v, uint8_t command)
 }
 
 static uint32_t color(const V9938 *v, uint8_t index);
+static uint32_t backdrop_color(const V9938 *v, unsigned m, uint8_t r7,
+                               unsigned x);
+static uint32_t display_color(const V9938 *v, uint8_t index, uint8_t r7,
+                              uint8_t r8, unsigned m, unsigned x);
 
 /* TEXT1 has 40 six-dot columns between eight background dots on each side.
  * blueMSX RefreshLine0 masks the name-table address with R#2 (including its
@@ -942,6 +946,11 @@ static void render_text1(V9938 *v, uint32_t *out, int pitch, unsigned height)
 		uint32_t bg = color(v, ls->r7 & 0x0F);
 		uint32_t *line = out + y * pitch;
 		unsigned textLine = (y + ls->r23) & 0xFF;
+		if (!(ls->r1 & 0x40)) {
+			for (unsigned x = 0; x < 256; x++) line[x] = bg;
+			continue;
+		}
+		fg = display_color(v, ls->r7 >> 4, ls->r7, ls->r8, 0, 0);
 
 		for (unsigned x = 0; x < 8; x++) line[x] = line[248 + x] = bg;
 		for (unsigned col = 0; col < 40; col++)
@@ -991,6 +1000,10 @@ static void render_text2(V9938 *v, uint32_t *out, int pitch, unsigned height)
 		unsigned textLine = (y + ls->r23) & 0xFF;
 		unsigned row = textLine >> 3;
 		unsigned rowInChar = textLine & 7;
+		if (!(ls->r1 & 0x40)) {
+			for (unsigned x = 0; x < 512; x++) line[x] = bgPixel;
+			continue;
+		}
 
 		/* Border dots carry the background colour (8 dots each side). */
 		for (unsigned i = 0; i < 8; i++) line[i] = bgPixel;
@@ -1007,10 +1020,10 @@ static void render_text2(V9938 *v, uint32_t *out, int pitch, unsigned height)
 						      (col >> 3)) & 0x1FFFF];
 			unsigned blink = (blinkByte >> (7 - (col & 7))) & 1;
 			unsigned useBlink = v->blinkState && blink;
-			uint32_t fgPixel = color(v, (uint8_t)
-				(useBlink ? blinkFg : fg));
-			uint32_t charBg = color(v, (uint8_t)
-				(useBlink ? blinkBg : bg));
+			uint32_t fgPixel = display_color(v, (uint8_t)
+				(useBlink ? blinkFg : fg), ls->r7, ls->r8, 0, 0);
+			uint32_t charBg = display_color(v, (uint8_t)
+				(useBlink ? blinkBg : bg), ls->r7, ls->r8, 0, 0);
 			uint32_t *pixel = line + 8 + col * 6;
 			for (unsigned px = 0; px < 6; px++)
 				pixel[px] = (pattern & (0x80u >> px))
@@ -1027,7 +1040,6 @@ static void render_graphic3(V9938 *v, uint32_t *out, int pitch, unsigned height)
 	unsigned colorBase = ((unsigned)v->reg[10] << 14) |
 			     ((unsigned)v->reg[3] << 6) | 0x3F;
 	unsigned patternBase = ((unsigned)v->reg[4] << 11) | 0x7FF;
-	uint8_t backdrop = v->reg[7] & 0x0F;
 
 	/* Graphic 3 (MSX SCREEN 4) uses the Graphic 2 character tables, but
 	 * without the three-screen color/pattern split: each table is 8 KiB. */
@@ -1036,6 +1048,13 @@ static void render_graphic3(V9938 *v, uint32_t *out, int pitch, unsigned height)
 		unsigned tileRow = y >> 3;
 		unsigned rowInTile = y & 7;
 		uint32_t *line = out + y * pitch;
+		V9938_LineState fallback;
+		const V9938_LineState *ls = line_state_for_row(v, y, &fallback);
+		if (!(ls->r1 & 0x40)) {
+			uint32_t bg = backdrop_color(v, 0x08, ls->r7, 0);
+			for (unsigned x = 0; x < 256; x++) line[x] = bg;
+			continue;
+		}
 		for (unsigned col = 0; col < 32; col++)
 		{
 			unsigned nameAddress = (nameBase + tileRow * 32 + col) & mask;
@@ -1049,13 +1068,12 @@ static void render_graphic3(V9938 *v, uint32_t *out, int pitch, unsigned height)
 			uint8_t colors = v->vram[colorAddress];
 			unsigned foreground = colors >> 4;
 			unsigned background = colors & 0x0F;
-			if (!foreground) foreground = backdrop;
-			if (!background) background = backdrop;
 			for (unsigned px = 0; px < 8; px++)
 			{
 				unsigned index = (pattern & (0x80u >> px))
 					? foreground : background;
-				line[col * 8 + px] = color(v, (uint8_t)index);
+				line[col * 8 + px] = display_color(v, (uint8_t)index,
+							ls->r7, ls->r8, 0x08, col * 8 + px);
 			}
 		}
 	}
@@ -1079,6 +1097,25 @@ static uint32_t color_screen8(uint8_t pixel)
     return ((uint32_t)(red * 255 / 7) << 16) |
            ((uint32_t)(green * 255 / 7) << 8) |
            (uint32_t)(blue * 255 / 7);
+}
+
+/* The captured frame contains only the VDP's internal RGB output; external
+ * superimposition is not modelled. In GRAPHIC5 (SCREEN 6) R#7 supplies a
+ * separate two-bit background colour for even and odd dots. GRAPHIC7
+ * (SCREEN 8) uses the full direct-colour R#7 backdrop instead of palette 0. */
+static uint32_t backdrop_color(const V9938 *v, unsigned m, uint8_t r7,
+                               unsigned x)
+{
+    if (m == 0x1C) return color_screen8(r7);
+    if (m == 0x10) return color(v, (uint8_t)((x & 1) ? (r7 & 3) : (r7 >> 2)));
+    return color(v, r7 & 15);
+}
+
+static uint32_t display_color(const V9938 *v, uint8_t index, uint8_t r7,
+                              uint8_t r8, unsigned m, unsigned x)
+{
+    if (!index && !(r8 & 0x20)) return backdrop_color(v, m, r7, x);
+    return color(v, index);
 }
 
 /* CPU and sprite table addresses rotate the low address bit into bit 16 in
@@ -1231,20 +1268,22 @@ static void render_bitmap(V9938 *v, uint32_t *out, int pitch, unsigned m,
     for(unsigned y=0;y<height;y++){
         V9938_LineState fallback;
         const V9938_LineState *ls = line_state_for_row(v, (unsigned)y, &fallback);
+        if (!(ls->r1 & 0x40)) {
+            for (unsigned x = 0; x < width; x++)
+                out[y * pitch + x] = backdrop_color(v, m, ls->r7, x);
+            continue;
+        }
         unsigned scroll = display_scroll_x_at(v, ls, m);
         for(unsigned x=0;x<width;x++){
             /* Native dot grid: SCREEN 6/7 scan out all 512 dots, the
-             * 256-dot modes (and TEXT2 until its text renderer lands) keep
-             * one dot per output pixel. */
+             * 256-dot modes keep one dot per output pixel. */
             unsigned sx = (x + scroll) & (width - 1);
             uint8_t c = display_pixel_get(v, ls, m, sx, (unsigned)y);
             if (m == 0x1C) {
                 out[y*pitch+x] = color_screen8(c);
                 continue;
             }
-            /* Color 0 is transparent in bitmap modes; show the backdrop. */
-            if (c == 0) c = ls->r7 & 0x0F;
-            out[y*pitch+x]=color(v,c);
+            out[y*pitch+x] = display_color(v, c, ls->r7, ls->r8, m, x);
         }
     }
 }

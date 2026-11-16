@@ -183,6 +183,13 @@ Unchecked items are not implemented/verified, even if some happy paths work.
       in blueMSX/openMSX. Host-tested; hardware verification pending.
 - [ ] R#1 blanking and R#8 TP/color-zero policy in backgrounds and sprites;
       mid-frame mode/blanking/palette/sprite-table changes latched correctly.
+      R#1 display-off and R#8 TP are now covered in the native SCREEN 4-8,
+      TEXT1/TEXT2 and sprite-2 scanout paths; SCREEN 8 direct-colour zero stays
+      opaque, and SCREEN 6 uses the separate even/odd two-bit R#7 backdrop.
+      Host tests include SCREEN 5-8, TEXT1/TEXT2 and sprites plus an
+      R#1/R#8 raster split and VBlank carry. **Still open:** legacy tile-mode raster scanout,
+      mid-frame mode and palette writes, external superimposition and hardware
+      verification. Do not mark the combined checklist item complete yet.
 - [ ] Tile-table masking/vertical scroll, R#18 set-adjust and border placement.
 - [ ] R#9 interlace and even/odd page selection, field status and output.
 - [ ] NTSC/PAL frame timing/pacing and beam/status consistency.
@@ -255,6 +262,22 @@ results separate in reports.
 
 ## Current verification record (2026-11-16)
 
+- Native V9938 display-off/colour-zero follow-up: blueMSX `Common.h`
+  `RefreshLine5/6/8` fills blanked lines with the backdrop; `VDP.c`
+  `updateOutputMode` substitutes R#7 for palette zero when R#8 bit 5 is clear
+  except direct-colour SCREEN 8. openMSX `SDLRasterizer::precalcColorIndex0`
+  agrees and handles SCREEN 6 even/odd R#7 components separately. Native
+  renderers now use per-line R#1 and R#8; SCREEN 5-8 and sprite-2 synthetic
+  tests exercise blank/active and TP changes. `bash host-test/run_v9938_test.sh`
+  passed normally and under `V9938_TEST_CFLAGS='-fsanitize=address,undefined
+  -fno-omit-frame-pointer -g'`; MSX1/MSX2 600-frame boot and Coleco profile
+  regressions passed. Pi 3 `make RASPPI=3
+  CIRCLEHOME=/tmp/msxbuild/circle-sprite-raster-build` passed (`msx.img`
+  562,072 bytes, `_end=0x001a87a0 <= 0x208000`). No hardware verification
+  or new test bundle yet. The previous raster fixture
+  inadvertently used R#1=`22` (display **off**) while asserting visible
+  pixels; its display-on baseline is now R#1=`62`. Host verification and
+  Circle build results for this follow-up are recorded with the change.
 - After the native TEXT1 test bundle `test-images/2026-11-16-v9938-native-text1/`,
   the user copied 18 physical ALT+F10 triplets into `capture/` (Nov 16 05:48):
   17 TEXT1 frames `F000037F` through `F0000E22` are `256x192` with R#0=`00`,

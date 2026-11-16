@@ -48,11 +48,12 @@ static void write_register(V9938 *vdp, unsigned reg, uint8_t value)
 
 static void setup_screen5(V9938 *vdp)
 {
-    /* GRAPHIC 4 (SCREEN 5): R#0 = 0x06 selects the bitmap mode, R#1 = 0x22
-     * keeps the 8x8 sprite mode but disables sprites so only the bitmap path
-     * contributes pixels. R#2 = 0x20 puts the page at 0x8000. */
+    /* GRAPHIC 4 (SCREEN 5): R#0 = 0x06 selects the bitmap mode, R#1 = 0x62
+     * keeps the 8x8 sprite mode with display enabled. R#2 = 0x20 puts the
+     * page at 0x8000; R#8 disables sprites in the raster test fixture. */
     write_register(vdp, 0, 0x06);
-    write_register(vdp, 1, 0x22);
+    write_register(vdp, 1, 0x62);
+    write_register(vdp, 8, 0x02);
     write_register(vdp, 2, 0x20);
     write_register(vdp, 7, 0x00);
     write_register(vdp, 9, 0x80);   /* 212-line mode */
@@ -352,6 +353,55 @@ static void test_sprite_register_split(void)
     v9938_destroy(v);
 }
 
+static void test_blanking_and_tp_split(void)
+{
+    V9938 *v = v9938_create();
+    assert(v);
+    setup_screen5(v);
+    write_register(v, 1, 0x60); /* display and 8x8 sprites */
+    write_register(v, 7, 0x03);
+    write_register(v, 8, 0x02); /* no sprites, TP clear */
+    memset(v->vram, 0, sizeof v->vram);
+    for (unsigned y = 0; y < 16; y++)
+        v->vram[0x8000 + y * 128] = 0x10; /* palette 1, then colour 0 */
+    v9938_frame_start(v);
+    render(v, s_a);
+    assert(s_a[0] != s_a[1]);
+    write_register(v, 8, 0x22); /* solid zero */
+    v9938_frame_start(v);
+    render(v, s_b);
+    assert(s_b[0] == s_a[0] && s_b[1] != s_a[1]);
+
+    write_register(v, 8, 0x02);
+    v9938_frame_start(v);
+    v9938_set_frame_time(v, frame_time_for_raster(LINE_ZERO + 4), FRAME_TICKS);
+    write_register(v, 1, 0x20); /* blank at row 4 */
+    v9938_set_frame_time(v, frame_time_for_raster(LINE_ZERO + 8), FRAME_TICKS);
+    write_register(v, 1, 0x60); /* resume at row 8 */
+    write_register(v, 8, 0x22); /* solid colour zero from row 8 */
+    render(v, s_img);
+    for (unsigned y = 0; y < 12; y++) {
+        assert(s_img[y * COLS] == (y < 4 ? s_a[y * COLS] :
+                                  y < 8 ? s_a[y * COLS + 1] : s_b[y * COLS]));
+        assert(s_img[y * COLS + 1] == (y < 4 ? s_a[y * COLS + 1] :
+                                      y < 8 ? s_a[y * COLS + 1] : s_b[y * COLS + 1]));
+    }
+    assert(v->lineState[LINE_ZERO + 3].r1 == 0x60);
+    assert(v->lineState[LINE_ZERO + 4].r1 == 0x20);
+    assert(v->lineState[LINE_ZERO + 7].r8 == 0x02);
+    assert(v->lineState[LINE_ZERO + 8].r8 == 0x22);
+
+    /* Writes during VBlank carry to the following active line zero. */
+    v9938_frame_start(v);
+    v9938_set_frame_time(v, 0, FRAME_TICKS);
+    write_register(v, 1, 0x20);
+    write_register(v, 8, 0x02);
+    render(v, s_img);
+    assert(s_img[0] == s_a[1] && s_img[0] != s_a[0]);
+    assert(s_img[10 * COLS] == s_a[10 * COLS + 1]);
+    v9938_destroy(v);
+}
+
 /* Without v9938_frame_start() the VDP keeps its single-snapshot behaviour, so
  * existing callers and tests are unaffected. */
 static void test_legacy_single_snapshot(void)
@@ -397,6 +447,7 @@ int main(void)
     test_aleste_vblank_hud_state(vdp);
     v9938_destroy(vdp);
     test_sprite_register_split();
+    test_blanking_and_tp_split();
     test_legacy_single_snapshot();
 
     printf("vdp_raster_split_test: all checks passed\n");

@@ -202,6 +202,7 @@ static void test_v9938_screen5_render(void)
     V9938 *vdp = v9938_create();
     assert(vdp != NULL);
     write_register(vdp, 0, 0x06); /* SCREEN 5 */
+    write_register(vdp, 1, 0x40); /* display on */
     write_register(vdp, 16, 1);   /* Palette entry 1 */
     v9938_write_port(vdp, 0x9A, 0x70); /* full red, no blue */
     v9938_write_port(vdp, 0x9A, 0x00); /* no green */
@@ -235,7 +236,7 @@ static void test_v9938_screen8_rgb_render(void)
     V9938 *vdp = v9938_create();
     assert(vdp != NULL);
     write_register(vdp, 0, 0x0E); /* SCREEN 8 / Graphic 7. */
-    write_register(vdp, 1, 0x00);
+    write_register(vdp, 1, 0x40);
     write_register(vdp, 7, 0x0F); /* SCREEN 8 must ignore backdrop transparency. */
     vdp->vram[0] = 0x04;          /* R=1, G=0, B=0. */
     vdp->vram[0x10000] = 0xE3;    /* odd pixel: R=0, G=7, B=3. */
@@ -256,7 +257,7 @@ static void test_v9938_screen6_full_width_render(void)
     V9938 *vdp = v9938_create();
     assert(vdp != NULL);
     write_register(vdp, 0, 0x08); /* SCREEN 6 is 512 dots wide. */
-    write_register(vdp, 1, 0x00);
+    write_register(vdp, 1, 0x40);
     /* Native 512-dot output: columns 254 and 256 both exist and keep their
      * own 2-bit pixel instead of being averaged into one 256-dot column. */
     vdp->vram[63] = 0x0C; /* x=254 (index 3) in bits 3:2. */
@@ -393,6 +394,7 @@ static void test_v9938_screen5_vertical_scroll_wrap(void)
     V9938 *vdp = v9938_create();
     assert(vdp != NULL);
     write_register(vdp, 0, 0x06); /* SCREEN 5 */
+    write_register(vdp, 1, 0x40); /* display on */
     write_register(vdp, 2, 0x1F); /* bitmap page 0 */
     write_register(vdp, 23, 0xC0); /* scroll +192, modulo 256 lines */
 
