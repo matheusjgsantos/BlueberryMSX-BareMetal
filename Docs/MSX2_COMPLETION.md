@@ -260,10 +260,25 @@ results separate in reports.
 - Per-line sprite register state regression: `bash host-test/run_v9938_test.sh`
   and ASan/UBSan variant PASS; the MSX1/MSX2 boot, Coleco and Circle FAT
   suites PASS. `make -C src/app RASPPI=3` PASS (560,152-byte `msx.img`,
-  `_end=0x001a8020`, below `0x208000`); Pi 4 and the new sprite-register
-  scanout are not hardware verified. Old-format `F000104B` capture replays
-  byte-for-byte with fallback final sprite values; a synthetic extended-format
-  `.CMD` replay matches it too, but the old capture cannot reveal past R#5/R#6.
+  `_end=0x001a8020`, below `0x208000`); at this point Pi 4 and the new
+  sprite-register scanout were not hardware verified. Old-format `F000104B`
+  capture replays byte-for-byte with fallback final sprite values; a synthetic
+  extended-format `.CMD` replay matches it too, but the old capture cannot
+  reveal past R#5/R#6.
+- Sprite-raster-latch test bundle `test-images/2026-11-16-v9938-sprite-raster-latch/`
+  was clean-built for both Pi 3 and Pi 4 (MD5/SHA-256 manifests verified).
+  The user reports no visible unexpected Aleste HUD artefacts on the new image;
+  the exact board(s) tested were not specified. The three new physical capture
+  triples `capture/F00002D8`, `F0000342`, `F0000AD4` are SCREEN 5 at 256x212.
+  Their `.CMD` files show R#8=`0A` (sprites disabled) on the HUD, changing to
+  `08` (sprites enabled) at raster 42 (active row 10), along with the R#2/R#23
+  page/scroll split. Replaying each `.VDS`/`.CMD` reproduces its PPM exactly.
+  Replaying with the old final-sprite-register-only behavior adds 38 pixels in
+  HUD rows 0-9 of `F0000342`, none in the other two sampled frames; this
+  demonstrates a real visible difference, not that all prior artefacts were
+  caused solely by R#8. Final VRAM snapshots cannot recover overwritten
+  mid-frame data. This is a positive hardware observation for this gameplay
+  case, **not** blanket V9938 or dual-board certification.
 - User hardware report: the top-crop workaround restores the Aleste HUD, but
   still crops the bottom and renders the numbered weapon objects incorrectly.
   It is not the native-height/sprite-conformance implementation described here.
