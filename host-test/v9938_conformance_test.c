@@ -487,6 +487,93 @@ static void test_text2_vertical_scroll(void)
     puts("PASS: TEXT2 R#23 vertical scroll moves whole character rows");
 }
 
+/* TEXT1 (M1 only) has no blink table: unlike TEXT2, both reference renderers
+ * use only R#7 for its colours. Its 240 active dots occupy x=8..247. */
+static void test_text1_40_columns(void)
+{
+    V9938 *v = v9938_create();
+    assert(v);
+    reg(v, 0, 0x00);
+    reg(v, 1, 0x50);  /* M1, display on */
+    reg(v, 2, 0x08);  /* name table at 0x2000 */
+    reg(v, 4, 0x10);  /* pattern table at 0x8000 */
+    reg(v, 7, 0xF4);  /* foreground 15 / background 4 */
+    for (unsigned c = 0; c < 16; c++) {
+        v->palette[c][0] = c & 7;
+        v->palette[c][1] = (c >> 3) * 7;
+        v->palette[c][2] = 0;
+    }
+    unsigned w = V9938_MAX_DISPLAY_WIDTH;
+    uint32_t fg = rgb(15), bg = rgb(4);
+    v->vram[0x8000 + 0x41 * 8] = 0x80;  /* first dot */
+    v->vram[0x8000 + 0x42 * 8] = 0x04;  /* sixth dot */
+    v->vram[0x8000 + 0x42 * 8 + 7] = 0x04;
+    v->vram[0x2000] = 0x41;
+    v->vram[0x2000 + 39] = 0x42;
+    v->vram[0x2000 + 40] = 0x42;
+    v->vram[0x2000 + 23 * 40 + 39] = 0x42;
+    draw(v);
+    assert(v9938_display_width(v) == 256);
+    for (unsigned x = 0; x < 8; x++) {
+        assert(image[x] == bg);
+        assert(image[248 + x] == bg);
+    }
+    assert(image[8] == fg && image[9] == bg);
+    assert(image[242] == bg && image[247] == fg);
+    assert(image[8 * w + 13] == fg);
+    assert(image[191 * w + 247] == fg);
+    assert(image[192 * w + 8] == 0xA5A5A5A5u);
+    assert(image[256] == 0xA5A5A5A5u); /* never write the unused row tail */
+
+    /* The 212-line selection preserves the final row and wraps the masked
+     * name table at the reference TEXT1 address boundary. */
+    v->vram[0x2037] = 0x42;
+    v->vram[0x8000 + 0x42 * 8 + 3] = 0x04;
+    reg(v, 9, 0x80);
+    draw(v);
+    assert(image[211 * w + 247] == fg);
+    assert(image[211 * w + 248] == bg);
+    assert(image[212 * w] == 0xA5A5A5A5u);
+    reg(v, 9, 0);
+
+    /* R#2 low page bits select a different name table in TEXT1. */
+    v->vram[0x2400] = 0x42;
+    reg(v, 2, 0x09);
+    draw(v);
+    assert(image[8] == bg && image[13] == fg);
+    reg(v, 2, 0x08);
+
+    /* BlueMSX scrolls the name row and glyph subrow together in TEXT1. */
+    reg(v, 23, 8);
+    draw(v);
+    assert(image[8] == bg && image[13] == fg);
+    reg(v, 23, 0);
+
+    /* R#3/R#12/R#13 blink selection is TEXT2-only. */
+    reg(v, 3, 0x20);
+    reg(v, 12, 0x21);
+    v->vram[0x800] = 0xFF;
+    reg(v, 13, 0x11);
+    draw(v);
+    assert(image[8] == fg && image[9] == bg);
+    for (unsigned i = 0; i < 10; i++) v9938_frame_start(v);
+    draw(v);
+    assert(image[8] == fg && image[9] == bg);
+
+    /* A visible SAT entry must not paint over TEXT1 glyphs. */
+    reg(v, 5, 0x0F);
+    reg(v, 6, 0x01);
+    v->vram[0x780] = 255;
+    v->vram[0x781] = 8;
+    v->vram[0x782] = 0;
+    v->vram[0x783] = 0x0F;
+    v->vram[0x784] = 208;
+    draw(v);
+    assert(image[8] == fg && image[9] == bg);
+    v9938_destroy(v);
+    puts("PASS: TEXT1 40 columns, borders, table masks, scroll, no blink/sprites");
+}
+
 int main(void)
 {
     test_height_and_alignment();
@@ -500,6 +587,7 @@ int main(void)
     test_text2_80_columns();
     test_text2_blink();
     test_text2_vertical_scroll();
+    test_text1_40_columns();
     puts("All V9938 display/sprite conformance checks passed");
     return 0;
 }

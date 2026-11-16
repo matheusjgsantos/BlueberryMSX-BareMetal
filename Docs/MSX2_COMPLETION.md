@@ -73,9 +73,16 @@ which folded the line into 240 dots. It now has its own scanout:
   sprite line; openMSX `DisplayMode::getSpriteMode` returns 0). The V9938 legacy
   adapter therefore disables sprite output for TEXT1 as well.
 
-TEXT1 (40 columns) still renders through the TMS9918 adapter, which draws 240
-dots at x=0 rather than centring them between 8-dot borders, and has no blink
-table. That is the remaining text-mode gap.
+TEXT1 (40 columns) now uses its own V9938 scanout: 40 six-dot glyphs between
+8-dot background borders at x=0..7 and x=248..255, R#2-masked name-table
+addressing, R#4 pattern table, R#7 text colours and R#23 scrolling. It outputs
+192 or 212 active rows according to R#9, with no sprites. Contrary to the
+earlier checklist assumption, **TEXT1 does not use a blink table**: blueMSX
+`RefreshLine0` and openMSX `CharacterConverter::renderText1` use only R#7.
+R#3/R#12/R#13 affect TEXT2 blink but not TEXT1; the regression asserts this.
+The two references differ on whether R#23 also scrolls TEXT1's character row;
+this implementation follows blueMSX (the project's primary reference), as
+for TEXT2. Host-tested, not yet hardware-verified.
 
 ### Sprite mode 2
 
@@ -171,7 +178,9 @@ Unchecked items are not implemented/verified, even if some happy paths work.
       end-to-end (renderer, blit, PPM/capture, replay).
 - [x] TEXT2 80-column text renderer: 6-dot glyphs between 8-dot borders,
       R#3 blink table with R#12 colours and the R#13 frame period.
-- [ ] TEXT1: centred 240 dots between 8-dot borders and the TEXT1 blink table.
+- [x] TEXT1: 40 six-dot columns between 8-dot borders, masked name/pattern
+      tables, R#7 colours and 192/212-line output; TEXT1 has no blink table
+      in blueMSX/openMSX. Host-tested; hardware verification pending.
 - [ ] R#1 blanking and R#8 TP/color-zero policy in backgrounds and sprites;
       mid-frame mode/blanking/palette/sprite-table changes latched correctly.
 - [ ] Tile-table masking/vertical scroll, R#18 set-adjust and border placement.
@@ -246,6 +255,14 @@ results separate in reports.
 
 ## Current verification record (2026-11-16)
 
+- V9938-native TEXT1: `host-test/v9938_conformance_test.c` covers the first
+  and last of 40 columns, 8-dot borders, R#2 name-table page masks, R#23 text
+  scrolling, 192/212-row last-line and buffer guards, no sprites, and no
+  TEXT2 blink bleed-through. `bash host-test/run_v9938_test.sh` passes both
+  normally and with ASan/UBSan; MSX1/MSX2 boot, Coleco, Circle FAT and blit
+  tests pass. Clean Pi 3 app build with the isolated Circle checkout passes
+  (`msx.img` 560,856 bytes, `_end=0x001a82e0 <= 0x208000`). Hardware TEXT1
+  display and Pi 4 build have **not** been verified.
 - The 512-dot source buffer is always 512 pixels per row, including 256-dot
   SCREEN 5 and legacy modes. The first kernel-memory-fixed hardware image
   boots, but the user reported large gaps between scanlines; physical

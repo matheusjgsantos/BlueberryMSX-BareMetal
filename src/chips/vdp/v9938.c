@@ -924,6 +924,40 @@ static void command_start(V9938 *v, uint8_t command)
 
 static uint32_t color(const V9938 *v, uint8_t index);
 
+/* TEXT1 has 40 six-dot columns between eight background dots on each side.
+ * blueMSX RefreshLine0 masks the name-table address with R#2 (including its
+ * low page bits); the forced 0xC00 bits let each character select its row.
+ * R#23 scrolls the whole text plane. Unlike TEXT2, TEXT1 has no blink table
+ * (blueMSX RefreshLine0 and openMSX renderText1 both use R#7 throughout). */
+static void render_text1(V9938 *v, uint32_t *out, int pitch, unsigned height)
+{
+	unsigned nameMask = (((unsigned)v->reg[2] << 10) | 0x3FF) & 0x1FFFF;
+	unsigned patternBase = ((unsigned)v->reg[4] & 0x3F) << 11;
+
+	for (unsigned y = 0; y < height; y++)
+	{
+		V9938_LineState fallback;
+		const V9938_LineState *ls = line_state_for_row(v, y, &fallback);
+		uint32_t fg = color(v, ls->r7 >> 4);
+		uint32_t bg = color(v, ls->r7 & 0x0F);
+		uint32_t *line = out + y * pitch;
+		unsigned textLine = (y + ls->r23) & 0xFF;
+
+		for (unsigned x = 0; x < 8; x++) line[x] = line[248 + x] = bg;
+		for (unsigned col = 0; col < 40; col++)
+		{
+			unsigned name = 0xC00 + (textLine >> 3) * 40 + col;
+			unsigned address = nameMask & (~0xFFFu | name);
+			unsigned ch = v->vram[address & 0x1FFFF];
+			uint8_t pattern = v->vram[(patternBase + ch * 8 +
+						   (textLine & 7)) & 0x1FFFF];
+			for (unsigned px = 0; px < 6; px++)
+				line[8 + col * 6 + px] =
+					(pattern & (0x80u >> px)) ? fg : bg;
+		}
+	}
+}
+
 /* TEXT2 (SCREEN 0 width 80) is a 512-dot mode: 80 columns of 6-dot glyphs
  * from the VRAM pattern generator (480 dots) with 8 dots of background colour
  * on each side. Reference blueMSX `RefreshLineTx80` (no sprites in the text
@@ -1466,6 +1500,12 @@ unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch)
         if (is_text2(vdp))
         {
             render_text2(vdp, out, pitch_px, height);
+            return height;
+        }
+        if ((vdp->reg[1] & 0x18) == 0x10 &&
+            !(vdp->reg[0] & 0x0E))
+        {
+            render_text1(vdp, out, pitch_px, height);
             return height;
         }
         /* SCREEN 0-3 share the TMS9918 tile/text and legacy-sprite layout.
