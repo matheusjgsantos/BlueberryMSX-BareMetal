@@ -42,6 +42,15 @@ int main(void)
     assert(!msx_blit_frame(&guard, 800, 480, 1600, 32, src));
     assert(!msx_blit_frame(&guard, 800, 480, 800, 8, src));
     assert(guard == 0x12345678);
+    static uint32_t tall[256 * 212];
+    static uint32_t scaled[256 * 480];
+    for (int y = 0; y < 212; y++)
+        for (int x = 0; x < 256; x++) tall[y * 256 + x] = (uint32_t)y;
+    assert(msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 212));
+    for (int y = 0; y < 480; y++)
+        assert(scaled[y * 256] == (uint32_t)(y * 212 / 480));
+    assert(scaled[479 * 256] == 211); /* includes bottom active row */
+    assert(!msx_blit_frame_sized(scaled, 256, 480, 256 * 4, 32, tall, 0));
     puts("PASS: RGB565/XRGB8888 scaling, row padding, bounds and invalid pitch");
     return 0;
 }

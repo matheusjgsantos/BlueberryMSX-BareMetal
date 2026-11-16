@@ -34,7 +34,7 @@ extern "C" {
 #include <stdlib.h>
 
 static const char *FromKernel = "kernel";
-static unsigned char s_CaptureRGB[256 * 192 * 3];
+static unsigned char s_CaptureRGB[256 * 212 * 3];
 
 extern "C" void diag_uart (char c);
 
@@ -2268,8 +2268,8 @@ void CKernel::DiagLog (const char *pText)
 	LogLine (pText);
 }
 
-// Write one captured 256x192 RGB frame to the SD card as a PPM (P6) file.
-// pFrame must already be converted to 8bpp-per-channel RGB (73728 bytes).
+// Write one captured 256-pixel RGB frame as a PPM (P6) file. nBytes determines
+// the native active height (192 or 212 rows for V9938 bitmap modes).
 void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo)
 {
 	if (!m_bFsMounted)
@@ -2289,7 +2289,7 @@ void CKernel::WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsi
 
 	unsigned char sHeader[64];
 	unsigned nHeaderLen = snprintf ((char *) sHeader, sizeof(sHeader),
-		"P6\n256 192\n255\n");
+		"P6\n256 %u\n255\n", nBytes / (256u * 3u));
 
 	if (   m_FileSystem.FileWrite (hFile, sHeader, nHeaderLen) != nHeaderLen
 	    || m_FileSystem.FileWrite (hFile, pFrame, nBytes) != nBytes)
@@ -2668,7 +2668,9 @@ void CKernel::CaptureFrameAndVdp (void)
 			free (pCommandLog);
 		}
 	}
-	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB))
+	unsigned nImageHeight = 0;
+	if (VDPBlit_CaptureRGB (m_pMachine, s_CaptureRGB, sizeof s_CaptureRGB,
+	                        &nImageHeight))
 	{
 		char sImageLeaf[64];
 		char sImageUsed[160];
@@ -2680,12 +2682,15 @@ void CKernel::CaptureFrameAndVdp (void)
 		}
 		else
 		{
-			static const char sPpmHeader[] = "P6\n256 192\n255\n";
+			char sPpmHeader[64];
+			unsigned nHeaderBytes = snprintf (sPpmHeader, sizeof sPpmHeader,
+			                                  "P6\n256 %u\n255\n", nImageHeight);
+			unsigned nImageBytes = 256u * nImageHeight * 3u;
 			boolean bImageOK =
 				m_FileSystem.FileWrite (hFile, (void *) sPpmHeader,
-					sizeof sPpmHeader - 1) == sizeof sPpmHeader - 1
+					nHeaderBytes) == nHeaderBytes
 				&& m_FileSystem.FileWrite (hFile, s_CaptureRGB,
-					sizeof s_CaptureRGB) == sizeof s_CaptureRGB;
+					nImageBytes) == nImageBytes;
 			m_FileSystem.FileClose (hFile);
 			if (bImageOK)
 			{

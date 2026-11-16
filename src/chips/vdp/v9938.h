@@ -14,6 +14,9 @@ extern "C" {
 
 /* NTSC V9938 frame height in raster lines. */
 #define V9938_FRAME_LINES 262
+/* Maximum active display rows produced by v9938_render(). Callers must size
+ * output buffers for this many rows; the function reports the actual height. */
+#define V9938_MAX_DISPLAY_LINES 212
 
 /* Display registers latched per raster line. A program may rewrite the
  * display address while the frame is being scanned (a raster split, e.g. a
@@ -145,9 +148,11 @@ void v9938_set_frame_time(V9938 *vdp, unsigned elapsed, unsigned frameTicks);
 void v9938_set_trace_cpu_time(V9938 *vdp, uint32_t cpuTime);
 void v9938_set_trace_cpu_pc(V9938 *vdp, uint16_t cpuPc);
 
-/* Render the current VDP screen as a 256x192 32bpp XRGB8888 frame into
- * *out (row pitch of pitch BYTES). */
-void v9938_render(V9938 *vdp, uint32_t *out, int pitch);
+/* Render the current VDP screen as a 256-pixel-wide 32bpp XRGB8888 frame into
+ * *out (row pitch of pitch BYTES). Returns the active height: 192 lines for
+ * legacy/text modes and the 192/212-line selection for SCREEN 4-8.
+ * The caller must provide space for V9938_MAX_DISPLAY_LINES rows. */
+unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch);
 
 /* Get pointer to the VRAM */
 uint8_t *v9938_get_vram(V9938 *vdp);

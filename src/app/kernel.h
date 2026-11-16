@@ -302,7 +302,7 @@ public:
 	// when msxbus=on; replaces the embedded-cart load.
 	void AttachMsxbus (MSX_Machine *pMachine);
 
-	// Write one 256x192 frame (32bpp ARGB) to a PPM file on the SD card.
+	// Write one native-height, 256-pixel RGB888 frame as a PPM on the SD card.
 	void WriteFrame (const unsigned char *pFrame, unsigned int nBytes, unsigned int nFrameNo);
 	void CaptureFrameAndVdp (void);
 	// Create a capture file in the configured capture.dir, falling back to the

@@ -27,7 +27,12 @@ saved file is reported with its full path, e.g.
 says `UI: capture files written` or `UI: capture failed (no file written)`, so
 it reflects the actual result rather than just the core handoff.
 
-The PPM is 256x192 RGB888. The `.VDS` file is little-endian and contains:
+The PPM is RGB888 with dimensions in its header: 256x192 for legacy output,
+or 256x192/256x212 for V9938 SCREEN 4-8 according to R#9. The full active
+vertical extent is captured without a top/bottom crop; display scaling uses
+the same source height. SCREEN 6/7 horizontal output is still downsampled to
+256 pixels, a tracked MSX2 completion gap (see `MSX2_COMPLETION.md`). The
+`.VDS` file is little-endian and contains:
 
 1. Eight-byte signature `MSXVDPS1`.
 2. Four 32-bit values: format version (1), machine profile, frame number,
@@ -65,8 +70,9 @@ entry in that directory's cluster chain, extending the chain when it is full.
 The Circle FAT `TFile` handle keeps the complete relative path through
 `FileClose` (`FS_TITLE_LEN` is 255), because the original 12-byte title field
 truncated subdirectory names and `FileClose` could then never update the
-created entry. Hardware verification is required to validate the SD write on
-the target card.
+created entry. Hardware-verified on 2026-11-16: nested `capture/` writes
+produced matching `.PPM`, `.VDS`, and `.CMD` files, and the log reported the
+actual paths followed by `UI: capture files written`.
 
 ## boot.log
 

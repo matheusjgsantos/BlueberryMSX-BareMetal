@@ -36,17 +36,20 @@ void VDPBlit_Redraw (void);
 // Summarize the last rendered source frame without reading VDP status ports.
 void VDPBlit_GetDiagnostics (char *pBuffer, unsigned nSize);
 
-// Frame-dump hook: pFunc(pRGB, 256*192*3, nFrame, pUser) is called once per
-// captured frame, before the blit. pRGB is 8bpp RGB (not ARGB).
+// Frame-dump hook: pFunc(pRGB, 256*height*3, nFrame, pUser) is called once per
+// captured frame, before the blit. pRGB is 8bpp RGB (not ARGB); height is the
+// active source height (192 or 212 for V9938 bitmap modes).
 typedef void (*VDPBlitDumpFunc) (const unsigned char *pRGB,
                                  unsigned int nBytes,
                                  unsigned int nFrame,
                                  void *pUser);
 void VDPBlit_SetDumpHook (VDPBlitDumpFunc pFunc, void *pUser);
 
-// Render the current machine to packed 256x192 RGB888. Call only while the
-// emulation frame loop is stopped (the ALT+F10 core handoff does this).
+// Render the current machine to packed RGB888 at its native active height
+// (192 or 212 for V9938 bitmap modes). Call only while the emulation frame
+// loop is stopped (the ALT+F10 core handoff does this). *pnHeight receives the
+// number of rows; the payload is 256 * *pnHeight * 3 bytes.
 boolean VDPBlit_CaptureRGB (void *pMachine, unsigned char *pRGB,
-			    unsigned int nCapacity);
+			    unsigned int nCapacity, unsigned int *pnHeight);
 
 #endif

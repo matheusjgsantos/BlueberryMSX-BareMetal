@@ -66,15 +66,15 @@ static void write_vds(const char *dir, unsigned frame, const V9938 *vdp)
 
 static void write_ppm(const char *dir, unsigned frame, const V9938 *vdp)
 {
-    static uint32_t image[256 * 192];
+    static uint32_t image[256 * V9938_MAX_DISPLAY_LINES];
     V9938 *mutable = (V9938 *)vdp;
-    v9938_render(mutable, image, 256 * 4);
+    unsigned height = v9938_render(mutable, image, 256 * 4);
     char path[512];
     snprintf(path, sizeof path, "%s/F%08X.PPM", dir, frame);
     FILE *file = fopen(path, "wb");
     if (!file) { perror(path); exit(1); }
-    fprintf(file, "P6\n256 192\n255\n");
-    for (int i = 0; i < 256 * 192; i++) {
+    fprintf(file, "P6\n256 %u\n255\n", height);
+    for (unsigned i = 0; i < 256 * height; i++) {
         uint32_t p = image[i];
         uint8_t rgb[3] = { (uint8_t)(p >> 16), (uint8_t)(p >> 8), (uint8_t)p };
         fwrite(rgb, 1, 3, file);

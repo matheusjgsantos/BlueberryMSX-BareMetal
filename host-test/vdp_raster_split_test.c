@@ -11,8 +11,10 @@
  *   display area starts at raster line
  *       3 + 13 + topBorder + (212-line ? 0 : 10) + verticalAdjust
  *   the frame interrupt is raised when the display area ends
- *   the displayed line is (frameRow + (212-line ? 10 : 0) + R#23) & 255
- * so framebuffer row y is scanned at raster line lineZero + crop + y.
+ *   the displayed line is (frameRow + R#23) & 255
+ * The 192-row framebuffer retains active lines 0-191; in 212-line mode only
+ * the 20 bottom lines are omitted, never the top ten. Framebuffer row y is
+ * therefore scanned at raster line lineZero + y.
  */
 #include "v9938.h"
 
@@ -29,7 +31,7 @@
 } while (0)
 
 #define FRAME_TICKS 357954u          /* R800_MASTER_FREQUENCY / 60 */
-#define ROWS 192
+#define ROWS V9938_MAX_DISPLAY_LINES
 #define COLS 256
 #define PITCH (COLS * 4)
 #define LINE_ZERO 32u                /* NTSC, 212-line mode, set adjust 7 */
@@ -158,10 +160,10 @@ static void test_vertical_scroll_split(V9938 *vdp)
     write_register(vdp, 23, 0x01);
     render(vdp, s_img);
 
-    /* Framebuffer row y is scanned at raster line 42 + y, so the split lands
-     * on row 22 (raster 64 = 42 + 22). */
-    unsigned split_row = 64u - (LINE_ZERO + 10u);
-    assert(split_row == 22);
+    /* Framebuffer row y is scanned at raster line LINE_ZERO + y, so the split
+     * lands on row 32 (raster 64 = LINE_ZERO + 32). */
+    unsigned split_row = 64u - LINE_ZERO;
+    assert(split_row == 32);
     for (unsigned y = 0; y < ROWS; y++) {
         const uint32_t *expect = (y < split_row) ? s_a : s_b;
         unsigned bad = 0;
@@ -204,7 +206,7 @@ static void test_display_page_split(V9938 *vdp)
     for (unsigned y = 0; y < ROWS; y += 16)
         assert(differing_pixels(s_a, s_b, y) > 32);
 
-    /* Switch the display page at raster 100 -> framebuffer row 58. */
+    /* Switch the display page at raster 100 -> framebuffer row 68. */
     write_register(vdp, 2, 0x20);
     v9938_frame_start(vdp);
     v9938_set_frame_time(vdp, 0, FRAME_TICKS);
@@ -214,14 +216,59 @@ static void test_display_page_split(V9938 *vdp)
     write_register(vdp, 2, 0x40);
     render(vdp, s_img);
 
-    unsigned split_row = 100u - (LINE_ZERO + 10u);
-    assert(split_row == 58);
+    unsigned split_row = 100u - LINE_ZERO;
+    assert(split_row == 68);
     for (unsigned y = 0; y < ROWS; y++) {
         const uint32_t *expect = (y < split_row) ? s_a : s_b;
         for (unsigned x = 0; x < COLS; x++)
             assert(s_img[y * COLS + x] == expect[y * COLS + x]);
     }
     write_register(vdp, 2, 0x20);
+}
+
+static void test_aleste_vblank_hud_state(V9938 *vdp)
+{
+    /* openMSX trace of Aleste: at VBlank (display line 214) the game writes
+     * R#2=$3F and R#23=0 for the HUD; at the following line interrupt it
+     * writes R#2=$1F and the new playfield scroll. The VBlank writes happen at
+     * frame time zero, before raster wraps to the top of the next display. */
+    write_register(vdp, 23, 0x00);
+    write_register(vdp, 2, 0x3F);       /* HUD on page 1, 0x8000 */
+    v9938_frame_start(vdp);
+    render(vdp, s_b);
+
+    write_register(vdp, 2, 0x1F);       /* previous frame ended on the game */
+    write_register(vdp, 23, 0x37);
+    v9938_frame_start(vdp);
+    v9938_set_frame_time(vdp, 0, FRAME_TICKS);
+    assert(vdp->currentLine == FRAME_IRQ_LINE);
+    write_register(vdp, 2, 0x3F);       /* Aleste VBlank handler */
+    write_register(vdp, 23, 0x00);
+
+    /* Aleste programs R#19=8. The interrupt's raster line is measured from
+     * active display line zero; framebuffer row 0 is LINE_ZERO, not LINE_ZERO
+     * plus a mode-dependent crop. Rows 0-7 must therefore still be the HUD. */
+    unsigned splitRaster = LINE_ZERO + 8u;
+    v9938_set_frame_time(vdp, frame_time_for_raster(splitRaster), FRAME_TICKS);
+    write_register(vdp, 2, 0x1F);       /* Aleste line-interrupt handler */
+    write_register(vdp, 23, 0x12);
+
+    assert(vdp->lineState[LINE_ZERO].r2 == 0x3F);
+    assert(vdp->lineState[LINE_ZERO].r23 == 0x00);
+    assert(vdp->lineState[splitRaster].r2 == 0x1F);
+    assert(vdp->lineState[splitRaster].r23 == 0x12);
+
+    render(vdp, s_img);
+    unsigned splitRow = splitRaster - LINE_ZERO;
+    assert(splitRow == 8);
+    for (unsigned y = 0; y < splitRow; y++) {
+        unsigned bad = differing_pixels(s_img, s_b, y);
+        if (bad) {
+            fprintf(stderr, "Aleste HUD row %u: %u pixels do not use the "
+                            "VBlank page/scroll state\n", y, bad);
+            exit(1);
+        }
+    }
 }
 
 /* Without v9938_frame_start() the VDP keeps its single-snapshot behaviour, so
@@ -266,6 +313,7 @@ int main(void)
     test_horizontal_retrace_status(vdp);
     test_vertical_scroll_split(vdp);
     test_display_page_split(vdp);
+    test_aleste_vblank_hud_state(vdp);
     v9938_destroy(vdp);
     test_legacy_single_snapshot();
 

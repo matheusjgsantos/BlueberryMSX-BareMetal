@@ -13,6 +13,7 @@
 !/host-test/*.h
 !/host-test/*.bin
 !/host-test/*.asm
+!/host-test/run_v9938_test.sh
 
 # Circle FAT host regression sources (compiled binary and caches stay ignored).
 !/host-test/circle_fat/

@@ -138,12 +138,12 @@ int main(int argc, char **argv)
             fclose(vf);
         }
     }
-    static uint32_t frameBuf[256 * 192];
-    v9938_render(vdp, frameBuf, 256 * 4);
+    static uint32_t frameBuf[256 * V9938_MAX_DISPLAY_LINES];
+    unsigned height = v9938_render(vdp, frameBuf, 256 * 4);
     FILE *ppm = fopen("host-test/.probe.ppm", "wb");
     if (ppm) {
-        fprintf(ppm, "P6\n256 192\n255\n");
-        for (int i = 0; i < 256 * 192; i++) {
+        fprintf(ppm, "P6\n256 %u\n255\n", height);
+        for (unsigned i = 0; i < 256 * height; i++) {
             unsigned c = frameBuf[i];
             fputc((c >> 16) & 0xFF, ppm);
             fputc((c >> 8) & 0xFF, ppm);

@@ -159,7 +159,12 @@ static void line_state_current(const V9938 *v, V9938_LineState *ls)
 }
 
 /* A display register changed while the current raster line is being scanned:
- * the new value applies to this line and every line after it in the frame. */
+ * the new value applies to this line and every line after it in the frame.
+ * Frame time zero is the END of the active display. A write in the following
+ * vertical-blanking interval therefore also applies to the top of the next
+ * active display, later in this same CPU frame. This carry is what lets a
+ * VBlank handler select a HUD page before the next line interrupt selects the
+ * playfield page. */
 static void line_state_record(V9938 *v)
 {
     V9938_LineState ls;
@@ -167,17 +172,20 @@ static void line_state_record(V9938 *v)
     if (!v->lineStateValid) return;
     line_state_current(v, &ls);
     first = v->currentLine < V9938_FRAME_LINES ? v->currentLine : 0;
+
+    unsigned activeEnd = display_line_zero(v) +
+                         ((v->reg[9] & 0x80) ? 212u : 192u);
+    if (v->currentLine >= activeEnd)
+        first = 0;
     for (unsigned i = first; i < V9938_FRAME_LINES; i++)
         v->lineState[i] = ls;
 }
 
-/* Raster line whose display state applies to framebuffer row y. The 192-line
- * framebuffer starts at the top of the display area in 192-line mode and ten
- * lines into it in 212-line mode; both start on the same raster line. */
+/* Raster line whose display state applies to native framebuffer row y.
+ * Both 192- and 212-line output start at active display line zero. */
 static unsigned frame_line_for_row(const V9938 *v, unsigned y)
 {
-    unsigned line = display_line_zero(v) +
-                    ((v->reg[9] & 0x80) ? 10u : 0u) + y;
+    unsigned line = display_line_zero(v) + y;
     return line < V9938_FRAME_LINES ? line : V9938_FRAME_LINES - 1;
 }
 
@@ -255,12 +263,11 @@ void v9938_set_trace_cpu_pc(V9938 *v, uint16_t cpuPc)
 static unsigned display_line_at(const V9938 *v, const V9938_LineState *ls,
                                 unsigned y)
 {
-    /* The application framebuffer is 192 lines high. In 212-line mode the
-     * active display starts 10 raster lines earlier than in the 192-line
-     * mode; keep the logical framebuffer centered on the V9938 active area. */
-    /* Bitmap scanout wraps its display Y counter at 256 lines. R#23 is a
-     * scroll offset, not part of the command engine's 10-bit VRAM Y. */
-    return (y + ((v->reg[9] & 0x80) ? 10u : 0u) + ls->r23) & 0xFF;
+    (void)v;
+    /* Native output starts at active display line zero, without cropping.
+     * Bitmap scanout wraps display Y at 256 lines; R#23 is a scroll
+     * offset, not part of the command engine's 10-bit VRAM Y. */
+    return (y + ls->r23) & 0xFF;
 }
 
 static unsigned display_scroll_x_at(const V9938 *v, const V9938_LineState *ls,
@@ -760,7 +767,7 @@ static void command_start(V9938 *v, uint8_t command)
 
 static uint32_t color(const V9938 *v, uint8_t index);
 
-static void render_graphic3(V9938 *v, uint32_t *out, int pitch)
+static void render_graphic3(V9938 *v, uint32_t *out, int pitch, unsigned height)
 {
 	unsigned mask = sizeof v->vram - 1;
 	unsigned nameBase = ((unsigned)v->reg[2] << 10) &
@@ -772,7 +779,7 @@ static void render_graphic3(V9938 *v, uint32_t *out, int pitch)
 
 	/* Graphic 3 (MSX SCREEN 4) uses the Graphic 2 character tables, but
 	 * without the three-screen color/pattern split: each table is 8 KiB. */
-	for (unsigned y = 0; y < 192; y++)
+	for (unsigned y = 0; y < height; y++)
 	{
 		unsigned tileRow = y >> 3;
 		unsigned rowInTile = y & 7;
@@ -822,81 +829,150 @@ static uint32_t color_screen8(uint8_t pixel)
            (uint32_t)(blue * 255 / 7);
 }
 
-static void render_sprites2(V9938 *v, uint32_t *o, int pitch)
+/* CPU and sprite table addresses rotate the low address bit into bit 16 in
+ * SCREEN 7/8. VRAM itself always stores physical bytes (reference MAP_VRAM). */
+static unsigned mapped_vram_address(const V9938 *v, unsigned address)
 {
-    if(!(v->reg[1]&0x40)||(v->reg[8]&2))return;
-    int size=(v->reg[1]&2)?16:8,mag=(v->reg[1]&1)?2:1,span=size*mag;
-    /* R#5 is an 8-bit register. Its bit 7 supplies the SAT address bit
-     * immediately below the R#11 page bits; masking it loses the upper half
-     * of the sprite table, which is where V-Killer stores its sprites. */
-    unsigned table=((unsigned)(v->reg[11]&3)<<15)|((unsigned)v->reg[5]<<7);
-    unsigned base=table&0x1FE00; /* SAT is aligned to 512 bytes. */
-    /* In mode 2 the 512-byte color table immediately precedes the SAT. */
-    unsigned colorBase=(base-512u)&0x1FFFF;
-    unsigned pat=(unsigned)(v->reg[6]&0x3f)<<11,count=0;
-    while(count<32&&v->vram[base+count*4]!=216)count++;
-    for(int y=0;y<192;y++){
-        uint8_t present[256]={0}, ccTop[256]={0}, sc[256]={0};
-        unsigned visible=0;
+    unsigned m = bitmap_mode(v);
+    if (m == 0x14 || m == 0x1C)
+        address = (address >> 1) | ((address & 1) << 16);
+    return address & 0x1FFFF;
+}
+
+static uint8_t table_read(const V9938 *v, unsigned address)
+{
+    return v->vram[mapped_vram_address(v, address)];
+}
+
+typedef struct {
+    uint32_t bits; /* bit 31 is the leftmost output dot, after magnification */
+    int x;
+    uint8_t attr;
+} Sprite2Line;
+
+static int sprite2_dot(const Sprite2Line *s, int x)
+{
+    unsigned shift = (unsigned)(x - s->x);
+    return shift < 32 && ((s->bits << shift) & 0x80000000u);
+}
+
+static uint32_t sprite2_color(const V9938 *v, unsigned m, unsigned c)
+{
+    /* SCREEN 8 sprites have a fixed GRB palette, independent of R#16 loads. */
+    static const uint8_t rgb[16][3] = {
+        {0,0,0},{0,0,2},{3,0,0},{3,0,2},
+        {0,3,0},{0,3,2},{3,3,0},{3,3,2},
+        {7,4,2},{0,0,7},{7,0,0},{7,0,7},
+        {0,7,0},{0,7,7},{7,7,0},{7,7,7}
+    };
+    if (m != 0x1C) return color(v, (uint8_t)c);
+    return ((uint32_t)(rgb[c][0] * 255 / 7) << 16) |
+           ((uint32_t)(rgb[c][1] * 255 / 7) << 8) |
+           (uint32_t)(rgb[c][2] * 255 / 7);
+}
+
+static void render_sprites2(V9938 *v, uint32_t *o, int pitch, unsigned height)
+{
+    if (!(v->reg[1] & 0x40) || (v->reg[8] & 2)) return;
+    unsigned size = (v->reg[1] & 2) ? 16 : 8;
+    unsigned mag = (v->reg[1] & 1) ? 2 : 1;
+    unsigned table = ((unsigned)(v->reg[11] & 3) << 15) |
+                     ((unsigned)v->reg[5] << 7) | 0x7F;
+    unsigned base = table & 0x1FE00;
+    unsigned pat = (unsigned)(v->reg[6] & 0x3F) << 11;
+    unsigned m = bitmap_mode(v);
+    int solid = (v->reg[8] & 0x20) != 0;
+
+    for (unsigned y = 0; y < height; y++) {
+        Sprite2Line sprites[8];
+        unsigned count = 0, n;
         V9938_LineState fallback;
-        const V9938_LineState *ls = line_state_for_row(v, (unsigned)y, &fallback);
-        for(unsigned n=0;n<count;n++){
-            unsigned a=base+n*4;const uint8_t *d=v->vram+(a&0x1ffff);int row=(y-d[0])&255;
-            /* Hardware testing shows the active-area raster origin needs a
-             * one-line correction relative to the SAT Y coordinate. */
-            row=(row+((v->reg[9]&0x80)?10:0)+(ls->r23&255)-1)&255;
-            if(row>=span) continue;
-            if(visible++ == 8){
-                v->status[0]=(uint8_t)((v->status[0]&0xA0)|0x40|(n&0x1F));
+        const V9938_LineState *ls = line_state_for_row(v, y, &fallback);
+        for (n = 0; n < 32; n++) {
+            unsigned a = base + n * 4;
+            uint8_t sy = table_read(v, a);
+            if (sy == 216) break;
+            unsigned row = (y + ls->r23 - sy - 1) & 255;
+            if (row >= size * mag) continue;
+            if (count == 8) {
+                if (!(v->status[0] & 0xC0))
+                    v->status[0] = (uint8_t)((v->status[0] & 0x20) | 0x40 | n);
                 break;
             }
-            /* Mode-2 SAT entries are Y, X, pattern, reserved.  The old code
-             * swapped X and pattern, producing misplaced sprites and fetching
-             * unrelated pattern data.  The reference SpriteLine reads +1 for
-             * X and +2 for the pattern number. */
-            /* This framebuffer starts at the sprite's SAT X coordinate; do
-             * not apply the reference rasterizer's internal -32/crop bias. */
-            int sx=(int)d[1];
-            uint8_t ca=v->vram[(colorBase+n*16u+(unsigned)(row/mag))&0x1FFFF];
-            if(ca&0x80)sx-=32; /* EC: shift the complete sprite left 32 dots. */
-            unsigned pattern=(unsigned)d[2];
-            unsigned sourceRow=(unsigned)(row/mag);
-            unsigned rowAddress;
-            if(size==16){
-                pattern &= 0xFC;
-                rowAddress=pat+pattern*8u+sourceRow;
-            }else rowAddress=pat+pattern*8u+sourceRow;
-            for(int px=0;px<size;px++){
-                unsigned byteAddress=rowAddress+(size==16&&px>=8?16u:0u);
-                uint8_t bits=v->vram[byteAddress&0x1FFFF];
-                if(!(bits&(0x80u>>(px&7))))continue;
-                int screenX=sx+px*mag;
-                for(int mx=0;mx<mag;mx++){
-                    int xx=screenX+mx;
-                    if(xx<0||xx>=256)continue;
-                    if(present[xx]){
-                        if(!(ca&0x20))v->status[0]|=0x20; /* IC disables collision. */
-                        if((ca&0x40)&&!ccTop[xx])sc[xx]|=(uint8_t)(ca&0x0F);
-                    }else{
-                        present[xx]=1;
-                        sc[xx]=(uint8_t)(ca&0x0F);
-                        ccTop[xx]=(ca&0x40)!=0;
-                    }
-                }
+            row /= mag;
+            Sprite2Line *s = &sprites[count++];
+            /* A masked 1 KiB window, NOT unconditionally SAT minus 512.
+             * R#5 bits 0/1 also mask the per-sprite colour index bits 7/8. */
+            s->attr = table_read(v, table & (~0x3FFu | (n * 16 + row)));
+            s->x = table_read(v, a + 1) - ((s->attr & 0x80) ? 32 : 0);
+            unsigned pattern = table_read(v, a + 2);
+            if (size == 16) pattern &= 0xFC;
+            unsigned addr = pat + pattern * 8 + row;
+            unsigned bits = (unsigned)table_read(v, addr) << 8;
+            if (size == 16) bits |= table_read(v, addr + 16);
+            s->bits = 0;
+            for (unsigned px = 0; px < size; px++) {
+                if (!(bits & (0x8000u >> px))) continue;
+                for (unsigned mx = 0; mx < mag; mx++)
+                    s->bits |= 0x80000000u >> (px * mag + mx);
             }
         }
-        for(int x=0;x<256;x++){
-            if(sc[x]&&present[x]){
-                uint32_t c=color(v,sc[x]);
-                o[y*pitch+x]=c;
+        if (!(v->status[0] & 0xC0))
+            v->status[0] = (uint8_t)((v->status[0] & 0x20) | (n < 32 ? n : 31));
+
+        /* Collision is independent of drawing priority. IC OR CC excludes
+         * either participant; transparent zero cannot collide on a V9938. */
+        if (count >= 2 && !(v->status[0] & 0x20)) {
+            for (int x = 0; x < 256; x++) {
+                unsigned hits = 0;
+                for (unsigned i = 0; i < count; i++) {
+                    const Sprite2Line *s = &sprites[i];
+                    if ((s->attr & 0x60) || (!(s->attr & 15) && !solid)) continue;
+                    if (sprite2_dot(s, x)) hits++;
+                }
+                if (hits < 2) continue;
+                v->status[0] |= 0x20;
+                v->status[3] = (uint8_t)(x + 12);
+                v->status[4] = (uint8_t)((x + 12) >> 8);
+                v->status[5] = (uint8_t)(y + 8);
+                v->status[6] = (uint8_t)((y + 8) >> 8);
+                break;
+            }
+        }
+
+        /* Reference SpriteConverter: skip leading CC sprites, draw back to
+         * front, and merge consecutive following CC layers at matching dots.
+         * A transparent base does not occlude lower-priority visible sprites. */
+        unsigned first = 0;
+        while (first < count && (sprites[first].attr & 0x40)) first++;
+        for (int i = (int)count - 1; i >= (int)first; i--) {
+            const Sprite2Line *s = &sprites[i];
+            unsigned c = s->attr & 15;
+            if (!c && !solid) continue;
+            int left = s->x < 0 ? 0 : s->x;
+            int right = s->x + (int)(size * mag);
+            if (right > 256) right = 256;
+            for (int x = left; x < right; x++) {
+                if (!sprite2_dot(s, x)) continue;
+                unsigned combined = c;
+                for (unsigned j = (unsigned)i + 1; j < count; j++) {
+                    if (!(sprites[j].attr & 0x40)) break;
+                    if (sprite2_dot(&sprites[j], x)) combined |= sprites[j].attr & 15;
+                }
+                /* SCREEN 6 has two 2-bit colours per sprite dot. The existing
+                 * 256-wide output samples its left subpixel consistently with
+                 * the bitmap's 512-to-256 conversion. */
+                if (m == 0x10) combined >>= 2;
+                o[y * pitch + x] = sprite2_color(v, m, combined);
             }
         }
     }
 }
 
-static void render_bitmap(V9938 *v, uint32_t *out, int pitch, unsigned m)
+static void render_bitmap(V9938 *v, uint32_t *out, int pitch, unsigned m,
+                          unsigned height)
 {
-    for(int y=0;y<192;y++){
+    for(unsigned y=0;y<height;y++){
         V9938_LineState fallback;
         const V9938_LineState *ls = line_state_for_row(v, (unsigned)y, &fallback);
         unsigned wide = (ls->r25 & ((ls->r2 >> 5) & 1)) != 0;
@@ -954,6 +1030,7 @@ void v9938_write(V9938 *v, unsigned addr, uint8_t data)
 		if (addr == 46) v9938_trace_cmd[data]++;
 #endif
 		v->reg[addr] = data;
+		if (addr == 16) v->palettePending = 0;
 		/* Display registers take effect from the raster line being scanned
 		 * onwards; the split position is the CPU time of the write. */
 		if (addr == 2 || addr == 7 || addr == 23 ||
@@ -982,18 +1059,19 @@ static unsigned vram_address(const V9938 *v)
 
 static void vram_increment(V9938 *v)
 {
-    unsigned address = (vram_address(v) + 1) & 0x1FFFF;
-    v->reg[14] = (uint8_t)((v->reg[14] & 0xF8) | (address >> 14));
-    v->address = (uint16_t)(address & 0x3FFF);
+    v->address = (uint16_t)((v->address + 1) & 0x3FFF);
+    if (!v->address && bitmap_mode(v))
+        v->reg[14] = (uint8_t)((v->reg[14] & 0xF8) | ((v->reg[14] + 1) & 7));
 }
 
 uint8_t v9938_read_port(V9938 *v, unsigned port)
 {
     if (!v) return 0xFF;
+    v->controlPending = 0; /* any I/O read aborts a half-written control word */
     switch (port & 3) {
     case 0: {
         uint8_t value = v->readBuffer;
-        unsigned address = vram_address(v);
+        unsigned address = mapped_vram_address(v, vram_address(v));
         v->readBuffer = v->vram[address];
         record_vram_access(v, address, v->readBuffer, 0);
         vram_increment(v);
@@ -1023,7 +1101,7 @@ uint8_t v9938_read_port(V9938 *v, unsigned port)
         record_status_read(v, status, value);
         if (status == 7) v->status[2] &= (uint8_t)~0x80;
         if (status == 0) {
-            v->status[0] &= 0x7F;
+            v->status[0] &= 0x1F; /* acknowledge F, sprite overflow and collision */
             v->irq = (v->hintPending && (v->reg[0] & 0x10)) ? 1 : 0;
         }
         return value;
@@ -1044,7 +1122,8 @@ void v9938_write_port(V9938 *v, unsigned port, uint8_t data)
     if (!v) return;
     switch (port & 3) {
     case 0: {
-        unsigned address = vram_address(v);
+        v->controlPending = 0;
+        unsigned address = mapped_vram_address(v, vram_address(v));
         record_vram_access(v, address, data, 1);
         v->vram[address] = data;
         vram_increment(v);
@@ -1068,7 +1147,7 @@ void v9938_write_port(V9938 *v, unsigned port, uint8_t data)
              * every addressed access back into the first 16 KiB. */
             v->address = (uint16_t)(((data & 0x3F) << 8) | v->controlLatch);
             if (!(data & 0x40)) {
-                unsigned address = vram_address(v);
+                unsigned address = mapped_vram_address(v, vram_address(v));
                 v->readBuffer = v->vram[address];
                 record_vram_access(v, address, v->readBuffer, 0);
                 vram_increment(v);
@@ -1122,16 +1201,17 @@ int v9938_irq_pending(const V9938 *v)
     return v && v->irq;
 }
 
-void v9938_render(V9938 *vdp, uint32_t *out, int pitch)
+unsigned v9938_render(V9938 *vdp, uint32_t *out, int pitch)
 {
-    if (!vdp || !out || pitch < 256 * 4) return;
+    if (!vdp || !out || pitch < 256 * 4) return 0;
     int pitch_px = pitch / 4;
     unsigned m = bitmap_mode(vdp);
+    unsigned height = (vdp->reg[9] & 0x80) ? 212u : 192u;
     if (m == 0x08)
     {
-        render_graphic3(vdp, out, pitch_px);
-        render_sprites2(vdp, out, pitch_px);
-        return;
+        render_graphic3(vdp, out, pitch_px, height);
+        render_sprites2(vdp, out, pitch_px, height);
+        return height;
     }
     if (!m) {
         /* SCREEN 0-3 share the TMS9918 tile/text and legacy-sprite layout.
@@ -1145,10 +1225,11 @@ void v9938_render(V9938 *vdp, uint32_t *out, int pitch)
         memcpy(legacy.reg, vdp->reg, sizeof vdp->reg);
         legacy.irq = vdp->irq;
         tms9918_render(&legacy, out, pitch);
-        return;
+        return 192;
     }
-    render_bitmap(vdp, out, pitch_px, m);
-    render_sprites2(vdp, out, pitch_px);
+    render_bitmap(vdp, out, pitch_px, m, height);
+    render_sprites2(vdp, out, pitch_px, height);
+    return height;
 }
 
 uint8_t *v9938_get_vram(V9938 *v)

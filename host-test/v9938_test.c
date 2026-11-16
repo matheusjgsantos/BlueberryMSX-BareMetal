@@ -207,7 +207,7 @@ static void test_v9938_screen5_render(void)
     v9938_write_port(vdp, 0x9A, 0x00); /* no green */
     v9938_get_vram(vdp)[0] = 0x10; /* x=0 is the high nibble */
 
-    uint32_t frame[256 * 192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame, 0, sizeof frame);
     v9938_render(vdp, frame, 256 * 4);
     assert(frame[0] == 0x00FF0000);
@@ -240,7 +240,7 @@ static void test_v9938_screen8_rgb_render(void)
     vdp->vram[0] = 0x04;          /* R=1, G=0, B=0. */
     vdp->vram[0x10000] = 0xE3;    /* odd pixel: R=0, G=7, B=3. */
 
-    uint32_t frame[256 * 192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame, 0xA5, sizeof frame);
     v9938_render(vdp, frame, 256 * 4);
     assert(frame[0] == 0x00240000u);
@@ -261,7 +261,7 @@ static void test_v9938_screen6_full_width_render(void)
      * merely displays x=0..255, output column 128 never reaches the second. */
     vdp->vram[63] = 0x0C; /* x=254 (index 3) in bits 3:2. */
     vdp->vram[64] = 0x80; /* x=256 (index 2) in bits 7:6. */
-    uint32_t frame[256 * 192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame, 0, sizeof frame);
     v9938_render(vdp, frame, 256 * 4);
     assert(frame[127] == 0x6DFF6Du); /* palette color 3 */
@@ -344,7 +344,7 @@ static void test_v9938_screen4_graphic3_render(void)
 {
     V9938 *vdp=v9938_create();
     assert(vdp!=NULL);
-    uint32_t frame[256*192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame,0,sizeof frame);
     write_register(vdp,0,0x04); /* Graphic 3 / SCREEN 4. */
     write_register(vdp,1,0x62);
@@ -383,7 +383,7 @@ static void test_v9938_screen5_vertical_scroll_wrap(void)
     vram[0] = 0x20;         /* output line 64 wraps source line 256 to 0 */
     vram[0x8000] = 0x30;    /* catches erroneous 10-bit/page carry */
 
-    uint32_t frame[256 * 192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     v9938_render(vdp, frame, 256 * 4);
     assert(frame[0] == 0x00FF0000);
     assert(frame[64 * 256] == 0x0000FF00);
@@ -652,7 +652,7 @@ static void test_v9938_screen1_render(void)
     vram[0x8008] = 0x80; /* first pattern row: one foreground pixel */
     vram[0xA000] = 0xF1; /* white foreground, blue background */
 
-    uint32_t frame[256 * 192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame, 0, sizeof frame);
     v9938_render(vdp, frame, 256 * 4);
     assert(frame[0] != frame[1]);
@@ -667,17 +667,17 @@ static void test_v9938_sprite_mode2_pattern_and_color(void)
     assert(vdp!=NULL);
     write_register(vdp,0,0x06); /* SCREEN 5: mode-2 sprites over bitmap. */
     write_register(vdp,1,0x40); /* Display and sprites enabled; 8x8. */
-    write_register(vdp,5,8);    /* SAT at 0x0400; color table at 0x0200. */
+    write_register(vdp,5,15);   /* SAT at 0x0600; color window at 0x0400. */
     write_register(vdp,6,1);    /* Sprite patterns at 0x0800. */
     uint8_t *vram=v9938_get_vram(vdp);
-    vram[0x400]=0;              /* Sprite 0 Y. */
-    vram[0x401]=32;             /* SAT X coordinate. */
-    vram[0x402]=0;              /* Pattern 0. */
-    vram[0x403]=0;
-    vram[0x400+4]=216;          /* End marker. */
-    vram[0x200]=2;              /* Row 0 uses palette color 2. */
+    vram[0x600]=0;              /* Sprite 0 Y. */
+    vram[0x601]=32;             /* SAT X coordinate. */
+    vram[0x602]=0;              /* Pattern 0. */
+    vram[0x603]=0;
+    vram[0x600+4]=216;          /* End marker. */
+    vram[0x400]=2;              /* Row 0 uses palette color 2. */
     vram[0x800]=0x80;           /* One opaque pixel at the left. */
-    uint32_t frame[256*192];
+    uint32_t frame[256 * V9938_MAX_DISPLAY_LINES];
     memset(frame,0,sizeof frame);
     v9938_render(vdp,frame,256*4);
     assert(frame[1*256+32]==0x0024DA24); /* unchanged color; SAT X, Y+1. */
@@ -776,7 +776,9 @@ static void test_v9938_address_set_preserves_r14(void)
     v9938_write_port(vdp, 0x98, 0x5B);
     assert(vram[0x10021] == 0x5B);
 
-    /* Auto-increment across the 0x3FFF boundary bumps R#14 exactly once. */
+    /* Extended SCREEN 5 auto-increment bumps R#14 once at the boundary.
+     * Legacy-mode wrap is checked separately by the conformance suite. */
+    write_register(vdp, 0, 0x06);
     write_register(vdp, 14, 0x00);
     v9938_write_port(vdp, 0x99, 0xFE);
     v9938_write_port(vdp, 0x99, 0x40 | 0x3F); /* address 0x3FFE */

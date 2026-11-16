@@ -26,7 +26,7 @@ import glob
 import collections
 
 VDS_HEADER = 140
-VDS_VRAM = 0x10000
+VDS_VRAM = 0x20000
 CMD_RE = collections.namedtuple
 CMD_FIELDS = ("pc", "op", "sx", "sy", "dx", "dy", "nx", "ny", "col", "time")
 
@@ -55,7 +55,7 @@ def read_cmd(path):
             if not parts:
                 continue
             head = parts[0]
-            if head == "cmd" and len(parts) > 1:
+            if (head == "cmd" or head.isdigit()) and len(parts) > 1:
                 kv = parse_kv(parts[1:])
                 ops[kv.get("cmd", "??")] += 1
                 pcs[kv.get("pc", "????")] += 1
