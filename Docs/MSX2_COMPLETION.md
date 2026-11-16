@@ -255,6 +255,22 @@ results separate in reports.
 
 ## Current verification record (2026-11-16)
 
+- After the native TEXT1 test bundle `test-images/2026-11-16-v9938-native-text1/`,
+  the user copied 18 physical ALT+F10 triplets into `capture/` (Nov 16 05:48):
+  17 TEXT1 frames `F000037F` through `F0000E22` are `256x192` with R#0=`00`,
+  R#1=`F0`, R#2=`00`, R#4=`01`, R#9=`00`, R#23=`00`; the lone SCREEN 5 frame
+  `F00005E8` is `256x212` and retains the raster R#8=`0A` HUD / `08`
+  playfield split at line 42. All 18 PPMs are byte-identical to their VDS/CMD
+  replays. An independent reference-style 40-column/6-dot TEXT1 pixel decode
+  from the captured VRAM/registers/palette matches **all 49,152 pixels** in
+  each of the 17 text PPMs; all 3,072 border pixels per frame (8 columns on
+  each side) match R#7's background, and the last glyph column contains
+  foreground pixels. Sixteen text frames with distinct foreground/background
+  have the same glyph mask while R#7's foreground changes; the one R#7=`11`
+  frame intentionally has indistinguishable foreground/background colours.
+  These prove captured TEXT1 geometry and RGB packing on the tested board,
+  **not** the physical HDMI presentation, unreported board model, TEXT1 in
+  212-line mode, TEXT2, or full MSX2 conformance. No boot.log was included.
 - V9938-native TEXT1: `host-test/v9938_conformance_test.c` covers the first
   and last of 40 columns, 8-dot borders, R#2 name-table page masks, R#23 text
   scrolling, 192/212-row last-line and buffer guards, no sprites, and no
